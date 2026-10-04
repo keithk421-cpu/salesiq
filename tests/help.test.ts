@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import type { HelpCardEvent, HelpModelConfig } from '../src/shared/help'
 import { Db } from '../src/main/db'
 import { KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom } from '../src/main/knowledge'
@@ -10,7 +11,7 @@ import { buildSystemPrompt, loadPlaybook } from '../src/main/help/prompt'
 import { LineProtocolParser, isUsableLine, validateCard } from '../src/main/help/protocol'
 import { replayAt, type Scenario } from '../src/main/help/replay'
 
-const playbook = loadPlaybook(new URL('../config/playbook.json', import.meta.url).pathname)
+const playbook = loadPlaybook(fileURLToPath(new URL('../config/playbook.json', import.meta.url)))
 const limits = playbook.card_limits
 
 function scenario(over: Partial<Scenario> = {}): Scenario {
@@ -128,7 +129,7 @@ describe('knowledge import', () => {
 
   it('aliases widen search (FTS5, no embeddings)', () => {
     const db = new Db(':memory:')
-    const kb = new KnowledgeBase(db, new URL('../config/aliases.json', import.meta.url).pathname)
+    const kb = new KnowledgeBase(db, fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
     kb.addDoc({ ...docMetaFrom('/k/otel.md', {}, 'x'), approved: true }, 'Tracing uses OpenTelemetry instrumentation.')
     expect(kb.search('do you support otel').usable).toHaveLength(1)
   })

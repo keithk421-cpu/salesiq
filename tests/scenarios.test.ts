@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import { level1, loadScenarios } from '../src/main/help/evalRunner'
 import { buildHelpContext } from '../src/main/help/context'
 import { replayAt } from '../src/main/help/replay'
 
-const scenarios = loadScenarios(new URL('../evals/scenarios/help', import.meta.url).pathname)
+const scenarios = loadScenarios(fileURLToPath(new URL('../evals/scenarios/help', import.meta.url)))
 
 describe('HELP scenario set', () => {
   it('has the 25 M1 drafts, none approved by anyone but Keith', () => {

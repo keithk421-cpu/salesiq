@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { fileURLToPath } from 'node:url'
 import type { HelpCardContent } from '../src/shared/help'
 import { benchmark, level1, percentile, reportMarkdown, summarize, type ScenarioResult } from '../src/main/help/evalRunner'
 import { DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG } from '../src/main/help/models'
 import { loadPlaybook } from '../src/main/help/prompt'
 import type { Scenario } from '../src/main/help/replay'
 
-const playbook = loadPlaybook(new URL('../config/playbook.json', import.meta.url).pathname)
+const playbook = loadPlaybook(fileURLToPath(new URL('../config/playbook.json', import.meta.url)))
 
 const s: Scenario = {
   id: 'neutral-ownership', category: 'neutral_discovery', golden_approved: false, call_type: 'discovery', call_goal: '', desired_outcomes: [],
