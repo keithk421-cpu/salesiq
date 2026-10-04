@@ -2,6 +2,11 @@
 
 Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this document is filled in from the real Windows + Zoom + Razer runs.
 
+## Progress log
+| Date | Who | What was checked | Result |
+|---|---|---|---|
+| 2026-10-04 | Keith | Installed CI build (commit 22ee9fc) on his Windows PC with the Razer headset; device setup; Zoom Settings → Audio speaker/mic test (no meeting) | Meeting-audio loopback and mic both captured and transcribed. Earlier build had a flat meeting-audio meter; fixed by keeping late-stamped loopback audio (see commit bcf34f3). |
+
 ## Environment
 | Item | Value |
 |---|---|
