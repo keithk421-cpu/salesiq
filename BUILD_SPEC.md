@@ -35,6 +35,8 @@ HELP: Keith invokes at any time. No speaker-role gate. Uses recent dialogue from
 ## Architecture
 Windows capture: Project Raven pattern, Rust/NAPI + WASAPI loopback + separate mic + echo/duplicate suppression. Headphones required.
 
+Audio devices (LOCKED): see AUDIO_DEVICE_REQUIREMENT.md. Keith's primary setup is a Razer USB wireless headset + Zoom desktop. The app captures explicitly selected, ID-persisted endpoints in shared mode and never changes Windows defaults, Zoom device selections, or installs virtual audio devices. Session start is blocked unless both saved endpoints resolve and show real audio activity. Device loss is surfaced immediately, gap-marked, and recovered only onto a confirmed endpoint without replaying stale audio.
+
 Speech: Deepgram initial provider. Remote stream uses word-level diarization. Model raw words as DiarizedWord, then build Turn objects. Diarization answers which cluster; identity answers who the person is.
 
 Identity: manual per-call labels through M3. M4 uses WeSpeaker locally with conservative thresholds. Weak match remains Unknown. Exact pretrained model license/terms must be recorded.
@@ -63,7 +65,7 @@ M0 Prove ears -> M1 Replay + HELP -> M2 Discovery/Deeper/tracker -> M3 Coach -> 
 See IMPLEMENTATION_PLAN.md for gates.
 
 ## M0 definition of done
-On Keith's actual Windows PC using Zoom desktop and headphones:
+On Keith's actual Windows PC using Zoom desktop and his Razer USB wireless headset with his normal Zoom configuration:
 - separate mic/system streams and meters
 - stable Deepgram streaming
 - remote word-level speaker tags
@@ -73,6 +75,7 @@ On Keith's actual Windows PC using Zoom desktop and headphones:
 - Resume never emits buffered pre-pause speech
 - Stop/exit fully tears down capture
 - 60-minute session passes; reconnect/gaps are explicitly marked and diagnosed
+- every AUDIO_DEVICE_REQUIREMENT.md acceptance check passes (Windows/Zoom device settings untouched, no virtual devices, ID-persisted endpoints, start gate, device-loss handling)
 
 Nothing about a mock UI satisfies M0.
 
@@ -90,6 +93,7 @@ Custom buyer portal; team admin; Salesforce; autonomous sending/publishing; broa
 
 ## Canonical companion docs
 - DECISIONS.md
+- AUDIO_DEVICE_REQUIREMENT.md
 - CONTRACTS.md
 - M0_RAVEN_TEARDOWN.md
 - IMPLEMENTATION_PLAN.md

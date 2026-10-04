@@ -3,6 +3,7 @@ Do not reopen these unless implementation evidence shows failure.
 
 - Windows-first, local-first personal desktop app for Zoom. New implementation; do not reuse SalesCoach.
 - Primary Windows capture: adapt Project Raven's Rust/NAPI + WASAPI system-loopback and separate mic architecture, including echo/duplicate suppression. Pure Electron desktopCapturer is fallback only after measured failure/blocker.
+- Audio devices (LOCKED, see AUDIO_DEVICE_REQUIREMENT.md): work with Keith's existing Windows + Zoom configuration (Razer USB wireless headset). Never change Windows default input/output, never change Zoom mic/speaker selection, never install/require virtual audio devices, never require manual rerouting. Shared-mode WASAPI only. Capture explicitly selected endpoints persisted by stable endpoint ID, not display name. Never silently switch endpoints; mark gaps; reconnect only to a confirmed endpoint; never replay stale audio.
 - Headphones required. Label remote source honestly as system audio, not Zoom-only.
 - Deepgram initial STT; keep provider adapter replaceable.
 - Diarization != identity. Deepgram word-level speaker clusters -> turn builder -> optional identity later.

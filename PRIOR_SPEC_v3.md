@@ -4,6 +4,8 @@ Updated: 4 October 2026
 
 Status: Implementation specification. No application has been implemented, installed, connected, or benchmarked by this document. All performance numbers are engineering targets, not measured results. Prices are dated reference inputs. Examples are synthetic unless explicitly stated otherwise.
 
+> **Superseded.** BUILD_SPEC.md and AUDIO_DEVICE_REQUIREMENT.md take precedence. In particular, desktopCapturer is fallback-only and the locked audio-device requirement applies to any capture path.
+
 **This document supersedes v2 and the earlier Deal Workspace Build Plan.** Start clean. No SalesCoach reuse, custom C++ audio helper, process-tree capture, hosted application stack, or workspace-first sequence. The changes below are requirements and recommendations, not implemented functionality.
 
 ## 0. The decision

@@ -20,17 +20,19 @@ Create `docs/raven_capture_map.md` with exact current Raven file paths, commit S
 11. Error propagation.
 12. Windows native-module build/package.
 13. Relevant Windows tests/diagnostics.
+14. Endpoint IDs: how Raven picks/opens endpoints (by default vs by ID), shared vs exclusive mode, stream category/ducking behavior, and how it reacts to device-invalidated / default-changed notifications. Any Raven behavior that follows or changes the default device must be adapted to AUDIO_DEVICE_REQUIREMENT.md (bind to explicit endpoint IDs; never write defaults; never auto-switch).
 
 Adapt the minimum proven pattern. Do not fork Raven wholesale.
 
 ## M0 pipeline
-Zoom + headphones -> WASAPI system loopback + mic -> echo/duplicate suppression -> normalized bounded frames -> Deepgram -> final word timestamps + remote speaker clusters -> turn builder -> bare debug transcript.
+Zoom + Razer USB wireless headset (Keith's normal config, untouched) -> explicitly selected, ID-persisted endpoints -> WASAPI system loopback + mic -> echo/duplicate suppression -> normalized bounded frames -> Deepgram -> final word timestamps + remote speaker clusters -> turn builder -> bare debug transcript.
 
 ## Non-goals
 No WeSpeaker, HELP, Deeper, Coach, connectors, buyer room or polished UI.
 
 ## Hard gates
-- Actual Keith Windows PC + Zoom desktop + headphones.
+- Actual Keith Windows PC + Zoom desktop + Razer USB wireless headset with normal Zoom configuration.
+- All AUDIO_DEVICE_REQUIREMENT.md checks pass: Windows defaults and Zoom device selections unchanged; no virtual audio devices; no Zoom ducking; endpoints persisted by ID; start blocked while either stream is unavailable/silent; mid-call device loss surfaced, gap-marked, never auto-switched, reconnected only to a confirmed endpoint, no stale audio replayed.
 - Separate mic/system meters.
 - Correct local vs remote routing.
 - No meaningful duplicate remote transcript from echo.
@@ -44,4 +46,4 @@ No WeSpeaker, HELP, Deeper, Coach, connectors, buyer room or polished UI.
 - System audio remains honestly labeled; unrelated playback is a documented limitation.
 
 ## Fallback
-Do not start with desktopCapturer. Consider it only if Raven-derived WASAPI/Rust fails on Keith's machine or creates a measured packaging/reliability blocker. Record evidence before changing architecture.
+Do not start with desktopCapturer. Any fallback must still meet AUDIO_DEVICE_REQUIREMENT.md in full (no virtual devices, no rerouting, no Windows/Zoom setting changes). Consider it only if Raven-derived WASAPI/Rust fails on Keith's machine or creates a measured packaging/reliability blocker. Record evidence before changing architecture.

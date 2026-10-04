@@ -3,13 +3,23 @@
 ## AudioFrame
 session_id; stream(local_mic|system_remote); seq; monotonic_start_ms; duration_ms; sample_rate_hz; channels; encoding; payload; discontinuity_before.
 
+## AudioEndpointConfig
+Persisted local config, one per confirmed pair. See AUDIO_DEVICE_REQUIREMENT.md.
+config_id; system_output: EndpointRef; microphone: EndpointRef; confirmed_at; confirmed_by_test(bool: both meters showed activity); last_verified_at.
+EndpointRef: endpoint_id (stable Windows IMMDevice ID string; the ONLY lookup key); data_flow(render|capture); friendly_name (display only); fingerprint {device_description, interface_name, form_factor, mix_format} (diagnostics/re-confirm suggestion only, never auto-adopt).
+
+## EndpointStatus
+stream(local_mic|system_remote); endpoint_id; state(active|missing|disabled|unplugged|invalidated|silent|unopenable); detected_at_ms; reason; is_windows_default(info only).
+
+Rules: endpoints are resolved only by endpoint_id. A missing ID is never replaced by name match, new default, or any other endpoint without Keith's explicit confirmation. The app never writes Windows/Zoom audio configuration. WASAPI shared mode only.
+
 ## DiarizedWord
 session_id; stream; word; start_ms; end_ms; confidence; speaker_cluster nullable; is_final; provider_segment_id.
 
 ## Turn
 turn_id; session_id; stream; speaker_cluster; speaker_identity_id nullable; speaker_role(keith|teammate|buyer|unknown); start_ms; end_ms; text; final; source_word_ids; gap_before.
 
-Rules: build turns from finalized words; preserve overlap/gaps; never coerce unknown remote speech to buyer.
+Rules: build turns from finalized words; preserve overlap/gaps; never coerce unknown remote speech to buyer. Device-loss gaps produce `gap_before` with the EndpointStatus reason.
 
 ## SpeakerIdentity
 identity_id; display_name; default_role; enrollment_status; confidence_thresholds; model_id/hash; model_license_record; timestamps.

@@ -4,14 +4,14 @@
 Do not build sales intelligence tomorrow.
 
 1. Scaffold Electron/TypeScript + Rust/NAPI workspace; minimal renderer; provider interfaces; redacted diagnostics; scripts doctor/dev/test/typecheck/lint/package:win.
-2. Adapt Raven-derived WASAPI system loopback + separate mic. Add meters and explicit state.
+2. Adapt Raven-derived WASAPI system loopback + separate mic, in shared mode, bound to explicitly selected endpoint IDs. Add endpoint enumeration, select-test-confirm flow, AudioEndpointConfig persistence, session-start gate, and device-loss handling per AUDIO_DEVICE_REQUIREMENT.md. Add meters and explicit state.
 3. Implement echo/duplicate suppression and repeatable leakage test.
 4. Deepgram streaming: remote diarization enabled; interim diagnostic only; final word events keep timestamps + speaker cluster.
 5. Turn builder consumes final words, preserves overlap/gaps, never infers buyer identity.
-6. Bare debug screen: meters, Start/Pause/Resume/Stop, elapsed time, timestamped Keith/REMOTE_n/UNKNOWN turns, GAP markers, connection state.
-7. Real Zoom smoke test, then 60-minute reliability run.
+6. Bare debug screen: selected output + mic device names/IDs, endpoint status, meters, Start/Pause/Resume/Stop, elapsed time, timestamped Keith/REMOTE_n/UNKNOWN turns, GAP markers, connection state.
+7. Real Zoom smoke test on Keith's Razer USB wireless headset, device-loss tests (headset off / dongle out / back on), then 60-minute reliability run.
 
-M0 hard checks: Pause kills both streams immediately; Resume leaks no buffered pre-pause speech; exit kills capture; no meaningful duplicate remote transcript; clusters usable; every gap/reconnect explicit.
+M0 hard checks: Pause kills both streams immediately; Resume leaks no buffered pre-pause speech; exit kills capture; no meaningful duplicate remote transcript; clusters usable; every gap/reconnect explicit; Windows/Zoom audio settings untouched and no virtual audio devices; endpoint IDs persisted; never auto-switch endpoints.
 
 M0 deliverables: working Windows build; `docs/raven_capture_map.md`; `docs/m0_test_report.md`; saved approved/synthetic replay fixture. No M1 work before review.
 
