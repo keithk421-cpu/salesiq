@@ -1,0 +1,13 @@
+description: Keith Sales Copilot draft evaluation scaffold
+prompts:
+  - file://prompt.txt
+providers:
+  - id: echo
+    label: placeholder-until-M1
+    config: {}
+tests:
+  - vars:
+      scenario: "Placeholder. Agent drafts scenarios only after M0; Golden approval is always false by default."
+    assert:
+      - type: contains
+        value: "Placeholder"
