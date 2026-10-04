@@ -1,7 +1,7 @@
 # M0 Plan: Prove the Ears
 
 Scope: M0 only. No HELP, Deeper, Coach, tracker, WeSpeaker, connectors or buyer room.
-Status: **implemented; NOT accepted.** M0 is complete only after the real Windows + Zoom + Razer runs in `m0_test_report.md`.
+Status: **implemented; provisionally accepted by Keith on his hardware (2026-10-04). The 60-minute run is deferred** (see `m0_test_report.md`).
 
 ## Pipeline (as built)
 ```
