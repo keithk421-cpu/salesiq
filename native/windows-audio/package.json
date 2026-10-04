@@ -1,0 +1,21 @@
+{
+  "name": "sales-copilot-audio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows WASAPI capture (shared mode, explicit endpoint IDs) for the sales copilot. Adapted from Project Raven (MIT).",
+  "license": "MIT",
+  "main": "sales-copilot-audio.win32-x64-msvc.node",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "napi": {
+    "name": "sales-copilot-audio",
+    "triples": {
+      "defaults": false,
+      "additional": ["x86_64-pc-windows-msvc"]
+    }
+  },
+  "scripts": {
+    "build": "cargo build --release",
+    "test": "cargo test"
+  }
+}

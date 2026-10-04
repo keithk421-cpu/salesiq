@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
+  <title>Sales Copilot M0</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Sales Copilot <span class="muted">M0 · ears test</span></h1>
+    <span id="mode" class="badge"></span>
+  </header>
+  <div id="demoBanner" class="banner warn" hidden>DEMO MODE: not running on Windows. Audio is synthetic. Nothing here counts for M0.</div>
+
+  <main>
+    <section class="card" id="keyCard">
+      <h2>1 · Deepgram key</h2>
+      <div class="row">
+        <input id="keyInput" type="password" placeholder="Paste your Deepgram API key" autocomplete="off" />
+        <button id="keySave">Save key</button>
+        <span id="keyStatus" class="muted"></span>
+      </div>
+      <p class="hint">Stored on this PC only, encrypted by Windows.</p>
+    </section>
+
+    <section class="card" id="devCard">
+      <h2>2 · Your audio devices</h2>
+      <p class="hint">Pick the device Zoom plays meeting audio to, and the microphone Zoom uses. This app only listens. It never changes Windows or Zoom settings.</p>
+      <div id="savedStatus"></div>
+      <div class="grid2">
+        <label>Meeting audio (output Zoom plays to)
+          <select id="sysSelect"></select>
+        </label>
+        <label>Microphone
+          <select id="micSelect"></select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="refreshDevices" class="secondary">Refresh list</button>
+        <button id="testDevices">Test these devices</button>
+        <button id="stopTest" class="secondary" hidden>Stop test</button>
+        <button id="saveDevices" disabled>Save these devices</button>
+      </div>
+      <div id="testPanel" hidden>
+        <p class="hint"><b>Do this now:</b> in Zoom, open Settings → Audio → click <b>Test Speaker</b>. Then say “testing one two three” into your headset.</p>
+        <div class="meter"><span class="mlabel">Meeting audio</span><div class="bar"><div id="tSysBar"></div></div><span id="tSysOk" class="ok"></span></div>
+        <div class="meter"><span class="mlabel">Microphone</span><div class="bar"><div id="tMicBar"></div></div><span id="tMicOk" class="ok"></span></div>
+        <p id="testMsg" class="muted"></p>
+      </div>
+    </section>
+
+    <section class="card" id="sessCard">
+      <h2>3 · Session</h2>
+      <div class="row">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn" disabled>Pause</button>
+        <button id="resumeBtn" disabled>Resume</button>
+        <button id="stopBtn" class="danger" disabled>Stop</button>
+        <span id="stateLabel" class="state">idle</span>
+        <span id="elapsed" class="muted"></span>
+      </div>
+      <div id="checkPanel" hidden>
+        <p class="hint"><b>Checking both streams before going live.</b> Play Zoom's Test Speaker (or let the meeting audio play) and say a few words.</p>
+        <p><span id="cSys">○ Meeting audio</span> &nbsp; <span id="cMic">○ Microphone</span> &nbsp; <span id="cDg">○ Speech service</span> &nbsp; <span id="cLeft" class="muted"></span></p>
+      </div>
+      <div class="meter"><span class="mlabel">Meeting audio</span><div class="bar"><div id="sysBar"></div></div><span id="sysDb" class="muted"></span></div>
+      <div class="meter"><span class="mlabel">Microphone</span><div class="bar"><div id="micBar"></div></div><span id="micDb" class="muted"></span></div>
+      <table class="status">
+        <thead><tr><th>Stream</th><th>Device (ID)</th><th>Device state</th><th>Capture</th><th>Speech service</th></tr></thead>
+        <tbody id="statusRows"></tbody>
+      </table>
+      <div id="switchPanel" hidden class="banner err">
+        <span id="switchMsg"></span>
+        <select id="switchSelect"></select>
+        <button id="switchBtn">Use this device</button>
+      </div>
+      <div id="alerts"></div>
+    </section>
+
+    <section class="card">
+      <h2>Transcript <span class="muted">(debug)</span></h2>
+      <div id="transcript"></div>
+      <div id="interims" class="muted"></div>
+    </section>
+
+    <section class="card">
+      <h2>For the M0 test report</h2>
+      <div class="row">
+        <button id="snapBefore" class="secondary">Save device snapshot: BEFORE</button>
+        <button id="snapAfter" class="secondary">Save device snapshot: AFTER</button>
+        <button id="openFolder" class="secondary">Open data folder</button>
+      </div>
+      <p id="counters" class="muted"></p>
+      <p id="snapMsg" class="muted"></p>
+    </section>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+{
+  "name": "sales-copilot",
+  "productName": "Sales Copilot M0",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keith's Windows-first sales copilot for Zoom. M0: prove the ears.",
+  "main": "dist/main.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && electron .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "doctor": "node scripts/doctor.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "package:win": "node scripts/build.mjs && electron-builder --win nsis --x64 --publish never",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.2",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "typescript": "~5.9.3",
+    "vitest": "^3.2.7"
+  },
+  "build": {
+    "appId": "com.keith.salescopilot.m0",
+    "productName": "Sales Copilot M0",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/windows-audio/sales-copilot-audio.win32-x64-msvc.node",
+        "to": "sales-copilot-audio.node"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "SalesCopilot-M0-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

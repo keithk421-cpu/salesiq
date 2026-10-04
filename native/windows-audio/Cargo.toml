@@ -1,0 +1,34 @@
+# Adapted from Project Raven (MIT, Copyright (c) 2026 Laxcorp Software Design - FZCO),
+# commit 692cd17606e9f2d0063e2c32c9e250eaa5f60ddc, src/native/windows/Cargo.toml.
+[package]
+name = "sales_copilot_audio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi4"] }
+napi-derive = "2"
+rubato = "0.14"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_Performance",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_Devices_FunctionDiscovery",
+] }
+
+[build-dependencies]
+napi-build = "2"
+
+[profile.release]
+lto = true
