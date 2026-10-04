@@ -105,7 +105,7 @@ export class MockNative implements NativeAudioModule {
 
   // ---- test helpers ----
 
-  emitAudio(stream: AnyStream, pcm: Buffer, opts: { discontinuity?: boolean; syntheticSilence?: boolean } = {}): void {
+  emitAudio(stream: AnyStream, pcm: Buffer, opts: { discontinuity?: boolean; syntheticSilence?: boolean; droppedChunks?: number } = {}): void {
     const a = this.active.get(stream)
     if (!a) return
     a.onEvent({
@@ -115,7 +115,13 @@ export class MockNative implements NativeAudioModule {
       monotonicMs: this.now(),
       discontinuity: !!opts.discontinuity,
       syntheticSilence: !!opts.syntheticSilence,
+      droppedChunks: opts.droppedChunks ?? 0,
     })
+  }
+
+  /** Deliver an arbitrary (possibly malformed) event, as a buggy native layer might. */
+  emitRaw(stream: AnyStream, ev: unknown): void {
+    this.active.get(stream)?.onEvent(ev as NativeCaptureEvent)
   }
 
   /** Simulate the headset powering off: endpoint goes away and the stream is invalidated. */

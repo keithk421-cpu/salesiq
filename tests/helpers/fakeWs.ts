@@ -4,6 +4,7 @@ type Handler = (...args: any[]) => void
 
 export class FakeWs implements WsLike {
   readyState = 0
+  bufferedAmount = 0
   sent: Array<Buffer | string> = []
   closed = false
   private handlers = new Map<string, Handler[]>()

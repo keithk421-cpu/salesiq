@@ -60,6 +60,8 @@ export interface NativeAudioChunk {
   discontinuity: boolean
   /** True when the chunk is zeros synthesized for an idle loopback (no packets from Windows). */
   syntheticSilence: boolean
+  /** Audio chunks dropped just before this one because the bounded JS queue was full. */
+  droppedChunks?: number
 }
 
 export interface NativeCaptureError {

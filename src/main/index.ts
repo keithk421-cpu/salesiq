@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
 import WebSocket from 'ws'
-import type { AudioEndpointConfig, Stream } from '../shared/contracts'
+import type { AudioEndpointConfig } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule } from '../shared/nativeApi'
 import type { WsFactory, WsLike } from './deepgram'
 import { DeviceScanner } from './deviceTest'
@@ -15,6 +15,7 @@ import { resolveConfig, shortId, toEndpointRef } from './endpoints'
 import { loadNative } from './native'
 import { SessionController, type SessionEvent } from './session'
 import { JsonlWriter, Storage } from './storage'
+import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
 
 let win: BrowserWindow | null = null
 let native: NativeAudioModule
@@ -96,7 +97,8 @@ function registerIpc(): void {
     return scanner.find()
   })
 
-  ipcMain.handle('devices:test', (_e, systemId: string, micId: string) => {
+  ipcMain.handle('devices:test', (_e, systemId: unknown, micId: unknown) => {
+    if (!isEndpointId(systemId) || !isEndpointId(micId)) return { ok: false, error: 'Invalid device.' }
     if (sessionBusy()) return { ok: false, error: 'Stop the session before testing devices.' }
     return scanner.test(systemId, micId)
   })
@@ -106,7 +108,8 @@ function registerIpc(): void {
     return { ok: true }
   })
 
-  ipcMain.handle('devices:save', (_e, systemId: string, micId: string) => {
+  ipcMain.handle('devices:save', (_e, systemId: unknown, micId: unknown) => {
+    if (!isEndpointId(systemId) || !isEndpointId(micId)) return { ok: false, error: 'Invalid device.' }
     if (!scanner.passedFor(systemId, micId)) return { ok: false, error: 'These two devices have not both been heard yet. Play Zoom\'s Test Speaker and talk, then try again.' }
     const eps = native.listEndpoints()
     const sys = eps.find((e) => e.id === systemId)
@@ -127,10 +130,10 @@ function registerIpc(): void {
     return { ok: true, config }
   })
 
-  ipcMain.handle('devices:snapshot', (_e, label: string) => ({ ok: true, file: snapshotDevices(label || 'manual') }))
+  ipcMain.handle('devices:snapshot', (_e, label: unknown) => ({ ok: true, file: snapshotDevices(cleanLabel(label)) }))
 
-  ipcMain.handle('key:set', (_e, key: string) => {
-    if (!key || key.trim().length < 20) return { ok: false, error: 'That does not look like a Deepgram key.' }
+  ipcMain.handle('key:set', (_e, key: unknown) => {
+    if (!isApiKeyInput(key)) return { ok: false, error: 'That does not look like a Deepgram key.' }
     try {
       storage.saveApiKey(key)
       log('api_key_saved')
@@ -182,7 +185,8 @@ function registerIpc(): void {
     await session?.stop()
     return { ok: true }
   })
-  ipcMain.handle('session:switchEndpoint', async (_e, stream: Stream, endpointId: string) => {
+  ipcMain.handle('session:switchEndpoint', async (_e, stream: unknown, endpointId: unknown) => {
+    if (!isStream(stream) || !isEndpointId(endpointId)) return { ok: false, reason: 'Invalid request' }
     if (!session) return { ok: false, reason: 'No session' }
     const ep = native.listEndpoints().find((e) => e.id === endpointId)
     if (!ep) return { ok: false, reason: 'Device not found' }

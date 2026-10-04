@@ -18,7 +18,7 @@
 #[macro_use]
 extern crate napi_derive;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -119,6 +119,8 @@ pub enum CaptureEvent {
         samples: u32,
         discontinuity: bool,
         synthetic_silence: bool,
+        /// Chunks dropped just before this one because the JS event queue was full.
+        dropped_chunks: u32,
     },
     Error {
         code: String,
@@ -157,6 +159,49 @@ static SLOTS: LazyLock<Mutex<HashMap<String, CaptureSlot>>> = LazyLock::new(|| M
 
 fn slots() -> MutexGuard<'static, HashMap<String, CaptureSlot>> {
     SLOTS.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Max audio events queued toward JS per stream (~5 s at 10 ms packets).
+#[cfg_attr(not(windows), allow(dead_code))]
+const EVENT_QUEUE_CAPACITY: usize = 512;
+
+/// Counts audio chunks dropped on a full JS queue and stamps the next delivered
+/// chunk with `discontinuity = true` and the drop count.
+#[derive(Default)]
+#[cfg_attr(not(windows), allow(dead_code))]
+struct DropTracker {
+    dropped: AtomicU32,
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+impl DropTracker {
+    /// Returns the event to send and how many earlier drops it reports.
+    fn prepare(&self, ev: CaptureEvent) -> (CaptureEvent, u32) {
+        let n = self.dropped.load(Ordering::SeqCst);
+        match ev {
+            CaptureEvent::Audio { data, monotonic_ms, samples, discontinuity, synthetic_silence, .. } => (
+                CaptureEvent::Audio {
+                    data,
+                    monotonic_ms,
+                    samples,
+                    discontinuity: discontinuity || n > 0,
+                    synthetic_silence,
+                    dropped_chunks: n,
+                },
+                n,
+            ),
+            other => (other, 0),
+        }
+    }
+
+    /// `queue_full`: this chunk was dropped. Otherwise the drops it carried are reported.
+    fn record(&self, queue_full: bool, carried: u32) {
+        if queue_full {
+            self.dropped.fetch_add(1, Ordering::SeqCst);
+        } else if carried > 0 {
+            self.dropped.fetch_sub(carried, Ordering::SeqCst);
+        }
+    }
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -225,9 +270,11 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
         use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
         use std::sync::mpsc::{self, RecvTimeoutError};
 
-        // Unbounded queue (0) as in Raven: audio is never dropped by the queue.
-        let tsfn: ThreadsafeFunction<CaptureEvent, ErrorStrategy::Fatal> =
-            on_event.create_threadsafe_function(0, |ctx| Ok(vec![event_to_js(&ctx.env, ctx.value)?]))?;
+        // Bounded queue (Raven used an unbounded one). If JS falls behind by more than
+        // EVENT_QUEUE_CAPACITY chunks, audio chunks are dropped, counted, and the next
+        // delivered chunk carries discontinuity=true + droppedChunks so a gap is marked.
+        let tsfn: ThreadsafeFunction<CaptureEvent, ErrorStrategy::Fatal> = on_event
+            .create_threadsafe_function(EVENT_QUEUE_CAPACITY, |ctx| Ok(vec![event_to_js(&ctx.env, ctx.value)?]))?;
 
         let stop = Arc::new(AtomicBool::new(false));
         let (tx, rx) = mpsc::channel::<StartupReport>();
@@ -235,8 +282,16 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
         let join = std::thread::Builder::new()
             .name(format!("sales-copilot-audio-{stream}"))
             .spawn(move || {
+                let drops = DropTracker::default();
                 let emit = move |ev: CaptureEvent| {
-                    tsfn.call(ev, ThreadsafeFunctionCallMode::NonBlocking);
+                    if matches!(ev, CaptureEvent::Audio { .. }) {
+                        let (ev, carried) = drops.prepare(ev);
+                        let status = tsfn.call(ev, ThreadsafeFunctionCallMode::NonBlocking);
+                        drops.record(status == napi::Status::QueueFull, carried);
+                    } else {
+                        // Errors / stopped notices must never be dropped.
+                        tsfn.call(ev, ThreadsafeFunctionCallMode::Blocking);
+                    }
                 };
                 wasapi::capture_thread(kind, endpoint_id, thread_stop, tx, &emit);
             })
@@ -310,7 +365,8 @@ pub fn monotonic_now_ms() -> f64 {
 fn event_to_js(env: &napi::Env, ev: CaptureEvent) -> napi::Result<napi::JsObject> {
     let mut obj = env.create_object()?;
     match ev {
-        CaptureEvent::Audio { data, monotonic_ms, samples, discontinuity, synthetic_silence } => {
+        CaptureEvent::Audio { data, monotonic_ms, samples, discontinuity, synthetic_silence, dropped_chunks } => {
+            obj.set("droppedChunks", dropped_chunks)?;
             obj.set("kind", "audio")?;
             obj.set("data", env.create_buffer_with_data(data)?.into_raw())?;
             obj.set("monotonicMs", monotonic_ms)?;
@@ -347,6 +403,34 @@ mod tests {
         assert_eq!(StreamKind::parse("probe_capture:a"), Some(StreamKind::LocalMic));
         assert_eq!(StreamKind::parse("probe_render:"), None);
         assert_eq!(StreamKind::SystemRemote.as_str(), "system_remote");
+    }
+
+    fn audio(disc: bool) -> CaptureEvent {
+        CaptureEvent::Audio { data: vec![], monotonic_ms: 0.0, samples: 0, discontinuity: disc, synthetic_silence: false, dropped_chunks: 0 }
+    }
+
+    #[test]
+    fn drop_tracker_marks_next_delivered_chunk() {
+        let t = DropTracker::default();
+        // Two chunks dropped on a full queue.
+        let (_, c) = t.prepare(audio(false));
+        t.record(true, c);
+        let (_, c) = t.prepare(audio(false));
+        t.record(true, c);
+        // Next delivered chunk carries the drops as a discontinuity.
+        let (ev, c) = t.prepare(audio(false));
+        assert_eq!(c, 2);
+        match ev {
+            CaptureEvent::Audio { discontinuity, dropped_chunks, .. } => {
+                assert!(discontinuity);
+                assert_eq!(dropped_chunks, 2);
+            }
+            _ => unreachable!(),
+        }
+        t.record(false, c);
+        let (ev, c) = t.prepare(audio(false));
+        assert_eq!(c, 0);
+        assert!(matches!(ev, CaptureEvent::Audio { discontinuity: false, dropped_chunks: 0, .. }));
     }
 
     #[test]

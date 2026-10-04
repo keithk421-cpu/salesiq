@@ -319,6 +319,7 @@ fn emit_chunk(emit: &dyn Fn(CaptureEvent), c: crate::dsp::OutChunk) {
         monotonic_ms: c.monotonic_ms,
         discontinuity: c.discontinuity,
         synthetic_silence: c.synthetic_silence,
+        dropped_chunks: 0,
     });
 }
 

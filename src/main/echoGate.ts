@@ -5,7 +5,7 @@
  * (https://github.com/Laxcorp-Research/project-raven, commit 692cd17606e9f2d0063e2c32c9e250eaa5f60ddc),
  * MIT License, Copyright (c) 2026 Laxcorp Software Design - FZCO. See THIRD_PARTY_NOTICES.md.
  *
- * Raven does not ship WebRTC AEC3 on Windows (see docs/raven_capture_map.md), so on
+ * Raven does not ship WebRTC AEC3 on Windows (see docs/RAVEN_IMPLEMENTATION_NOTES.md), so on
  * Windows this correlation gate is the audio-level echo defence. With Keith's headset,
  * echo should be rare; the gate catches the case where meeting audio leaks into the mic.
  *

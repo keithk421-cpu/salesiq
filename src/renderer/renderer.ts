@@ -78,7 +78,7 @@ async function refreshConfig(): Promise<void> {
 function deviceStatus(st: ProbeStats | undefined, flow: 'render' | 'capture'): { text: string; cls: string } {
   if (!st) return { text: '', cls: '' }
   if (st.error) return { text: `Can't open (${st.error.split(':')[0]})`, cls: 'bad' }
-  if (st.passed) return { text: flow === 'render' ? '✓ Hearing Zoom audio' : '✓ Hearing you', cls: 'heard' }
+  if (st.passed) return { text: flow === 'render' ? '✓ Audio detected' : '✓ Voice detected', cls: 'heard' }
   if (st.soundChunks > 0) return { text: 'Some sound…', cls: 'silent' }
   if (flow === 'capture' && st.silentChunks > 0) return { text: 'Pure silence (muted or off?)', cls: 'silent' }
   if (flow === 'render' && st.idleChunks > 0 && st.silentChunks === 0) return { text: 'Nothing playing here', cls: 'silent' }
@@ -96,7 +96,7 @@ function renderDeviceList(flow: 'render' | 'capture'): void {
       const st = scan?.devices.find((x) => x.id === d.id)
       const status = d.state === 'active' ? deviceStatus(st, flow) : { text: d.state === 'notpresent' || d.state === 'unplugged' ? 'Not connected' : d.state, cls: 'silent' }
       const tags = [
-        d.id === suggested ? '<span class="tag tag-ok">Zoom is using this</span>' : '',
+        d.id === suggested ? `<span class="tag tag-ok">${flow === 'render' ? 'Audio playing here' : 'Hearing you here'}</span>` : '',
         d.id === savedId ? '<span class="tag tag-accent">Saved</span>' : '',
         d.isDefaultConsole || d.isDefaultCommunications ? '<span class="tag">Windows default</span>' : '',
       ].join('')
@@ -201,6 +201,10 @@ function renderSources(): void {
   $('micName').textContent = pretty(names.local_mic).main
   $('sysName').title = names.system_remote
   $('micName').title = names.local_mic
+  const sysId = statuses.system_remote?.endpoint_id ?? config?.system_output.endpoint_id ?? ''
+  const micId = statuses.local_mic?.endpoint_id ?? config?.microphone.endpoint_id ?? ''
+  $('sysId').textContent = `${pretty(names.system_remote).kind || 'output'} · ID …${sysId.slice(-10)}`
+  $('micId').textContent = `${pretty(names.local_mic).kind || 'input'} · ID …${micId.slice(-10)}`
   for (const [stream, id] of [['system_remote', 'sysState'], ['local_mic', 'micState']] as const) {
     const st = statuses[stream]
     const el = $(id)
@@ -263,12 +267,15 @@ function renderTranscript(): void {
   const rows: Row[] = []
   for (const t of turns.values()) {
     const me = t.stream === 'local_mic'
-    const m = t.speaker_cluster ? /s(\d+)$/.exec(t.speaker_cluster) : null
-    const who = me ? 'You' : m ? `Speaker ${Number(m[1]) + 1}` : 'Remote'
+    // Channel is explicit. Remote speaker = Deepgram cluster, scoped to one connection epoch:
+    // "s0" after a reconnect is NOT necessarily the same person as "s0" before it.
+    const m = t.speaker_cluster ? /^e(\d+):s(\d+)$/.exec(t.speaker_cluster) : null
+    const who = me ? 'Keith · mic' : m ? `Remote · speaker ${m[2]}` : 'Remote · unknown speaker'
+    const tag = me ? 'local_mic' : m ? `system · cluster s${m[2]} · conn ${m[1]}` : 'system · no cluster'
     rows.push({
       at: t.start_ms,
       html: `<div class="msgrow ${me ? 'me' : 'them'} ${t.final ? '' : 'open'}">
-        <div class="who ${me ? '' : speakerClass(t.speaker_cluster)}">${esc(who)}<span class="t">${fmtMs(t.start_ms)}</span></div>
+        <div class="who ${me ? '' : speakerClass(t.speaker_cluster)}">${esc(who)}<span class="t">${fmtMs(t.start_ms)}–${fmtMs(t.end_ms)}</span><span class="t">${esc(tag)}</span></div>
         <div class="bubble">${esc(t.text)}</div></div>`,
     })
   }
@@ -283,7 +290,7 @@ function renderTranscript(): void {
       continue
     }
     const what = g.stream === 'local_mic' ? 'Mic' : 'Meeting audio'
-    const why = g.cause === 'provider_disconnect' ? 'speech service reconnecting' : g.cause.replace(/_/g, ' ')
+    const why = g.cause === 'provider_disconnect' ? 'speech service interrupted (speaker clusters restart after reconnect)' : g.cause.replace(/_/g, ' ')
     const dur = g.duration_ms !== null ? ` · ${(g.duration_ms / 1000).toFixed(1)} s` : ' · ongoing'
     rows.push({ at: g.start_ms, html: `<div class="gapline">${what} gap · ${esc(why)}${dur}</div>` })
   }
@@ -354,7 +361,7 @@ api.onSession((raw) => {
       if (Date.now() - lastRender > 150 || ev.event.type === 'turn_final') { lastRender = Date.now(); renderTranscript() }
       break
     case 'interim':
-      $('interim').textContent = `${ev.stream === 'local_mic' ? 'You' : 'Remote'}: ${ev.text}`
+      $('interim').textContent = `(interim, not final) ${ev.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${ev.text}`
       break
     case 'alert':
       addActivity(ev.level, ev.message)

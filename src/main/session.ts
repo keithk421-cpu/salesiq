@@ -29,6 +29,7 @@ import { DuplicateGate, type Suppressed } from './duplicateGate'
 import { ResidualEchoGate } from './echoGate'
 import { resolveConfig } from './endpoints'
 import { samplesToMs } from './pcm'
+import { invalidNativeEvent } from './validate'
 import { TurnBuilder, type TurnEvent } from './turnBuilder'
 
 export type SessionState = 'idle' | 'checking' | 'live' | 'paused' | 'stopping' | 'stopped'
@@ -88,6 +89,8 @@ interface StreamRt {
   providerAttempts: number
   silentWarned: boolean
   lastStatusKey: string
+  /** Monotonic ms just past the last audio chunk from the current capture (null right after open). */
+  lastChunkEndMono: number | null
   lastRecoveredAt: number
   recoveryBackoffMs: number
   lostAt: number
@@ -121,7 +124,7 @@ export class SessionController {
       activity: new StreamActivity(stream === 'local_mic' ? MIC_THRESHOLDS : SYSTEM_THRESHOLDS),
       openGap: null, nextDiscontinuity: false, seq: 0,
       recoveryTimer: null, providerRetryTimer: null, providerAttempts: 0,
-      silentWarned: false, lastStatusKey: '',
+      silentWarned: false, lastStatusKey: '', lastChunkEndMono: null,
       lastRecoveredAt: 0, recoveryBackoffMs: 0, lostAt: 0,
     })
     this.rt = {
@@ -281,6 +284,7 @@ export class SessionController {
       rt.capture = 'capturing'
       rt.activity.reset()
       rt.activity.lastChunkAtMs = this.now()
+      rt.lastChunkEndMono = null
       rt.silentWarned = false
     }
     return res
@@ -299,12 +303,31 @@ export class SessionController {
 
   private onNative(rt: StreamRt, gen: number, ev: NativeCaptureEvent): void {
     if (gen !== rt.captureGen) return // stale: from a capture we already stopped
+    const bad = invalidNativeEvent(ev)
+    if (bad) {
+      this.deps.log('invalid_native_event', { stream: rt.stream, reason: bad })
+      return
+    }
     if (ev.kind === 'audio') {
       const now = this.now()
       rt.activity.push(ev.data, now, ev.syntheticSilence)
-      if (ev.discontinuity) {
+      const prevEnd = rt.lastChunkEndMono
+      rt.lastChunkEndMono = ev.monotonicMs + samplesToMs(ev.samples)
+      // The first packet after opening a stream commonly carries the WASAPI discontinuity
+      // flag; that is the start of capture, not a gap.
+      if (ev.discontinuity && prevEnd !== null) {
         rt.nextDiscontinuity = true
-        this.deps.log('wasapi_discontinuity', { stream: rt.stream, sessionMs: this.sessionMs(ev.monotonicMs) })
+        const dropped = ev.droppedChunks ?? 0
+        this.deps.log('wasapi_discontinuity', { stream: rt.stream, sessionMs: this.sessionMs(ev.monotonicMs), droppedChunks: dropped })
+        if (this.state === 'live') {
+          this.recordInstantGap(
+            rt,
+            dropped > 0 ? 'capture_overflow' : 'wasapi_discontinuity',
+            prevEnd,
+            ev.monotonicMs,
+            dropped > 0 ? `${dropped} audio chunks dropped (app fell behind)` : 'Windows reported an audio glitch (data discontinuity)',
+          )
+        }
       }
       if (this.state !== 'live') return
       if (rt.stream === 'system_remote') {
@@ -583,6 +606,30 @@ export class SessionController {
     if (this.turnBuilder) this.emitTurns(this.turnBuilder.markGap(gap))
   }
 
+  /** A discontinuity that is already over when detected (glitch, dropped chunks): open + close at once. */
+  private recordInstantGap(rt: StreamRt, cause: GapCause, startMono: number, endMono: number, detail: string): void {
+    if (rt.openGap) return // already inside a gap on this stream
+    const start = this.sessionMs(Math.min(startMono, endMono))
+    const end = this.sessionMs(Math.max(startMono, endMono))
+    const gap: GapRecord = {
+      gap_id: `g${++this.counters.gaps}`,
+      stream: rt.stream,
+      cause,
+      start_ms: start,
+      end_ms: end,
+      duration_ms: end - start,
+      device_state: this.deps.native.getEndpointState(rt.endpointId),
+      provider_state: rt.dg ? rt.dg.state : 'none',
+      recovery: 'recovered',
+      detail,
+    }
+    this.deps.log('gap_open', { ...gap, end_ms: null, duration_ms: null, recovery: 'pending' })
+    this.deps.log('gap_close', { ...gap })
+    this.deps.emit({ type: 'gap_open', gap: { ...gap } })
+    this.deps.emit({ type: 'gap_close', gap: { ...gap } })
+    if (this.turnBuilder) this.emitTurns(this.turnBuilder.markGap(gap))
+  }
+
   private closeGap(rt: StreamRt, endMs: number, recovery: GapRecord['recovery']): void {
     const gap = rt.openGap
     if (!gap) return
@@ -727,8 +774,43 @@ export class SessionController {
     )
   }
 
+  /** Summarize Windows defaults + present endpoints, to make changes visible (never acted on). */
+  private deviceLandscape(eps: EndpointInfo[]): { defaults: string; present: Set<string> } {
+    const name = (flow: 'render' | 'capture') => eps.find((e) => e.flow === flow && e.isDefaultConsole)?.friendlyName ?? 'none'
+    return {
+      defaults: `output=${name('render')} | input=${name('capture')}`,
+      present: new Set(eps.filter((e) => e.state === 'active').map((e) => e.id)),
+    }
+  }
+
   private startLiveTimers(): void {
     this.startMeters()
+    // Windows default / device-list changes: shown and logged, never acted on.
+    let landscape = this.deviceLandscape(this.endpointsAtStart)
+    this.timers.push(
+      setInterval(() => {
+        if (this.state !== 'live') return
+        let eps: EndpointInfo[]
+        try {
+          eps = this.deps.native.listEndpoints()
+        } catch {
+          return
+        }
+        const next = this.deviceLandscape(eps)
+        if (next.defaults !== landscape.defaults) {
+          this.deps.log('windows_defaults_changed', { from: landscape.defaults, to: next.defaults })
+          this.alert('info', `Windows default devices changed (${next.defaults}). Ignored: still capturing only your selected devices.`)
+        }
+        const added = eps.filter((e) => next.present.has(e.id) && !landscape.present.has(e.id)).map((e) => e.friendlyName)
+        const removed = this.endpointsAtStart.concat(eps).filter((e, i, a) => a.findIndex((x) => x.id === e.id) === i)
+          .filter((e) => landscape.present.has(e.id) && !next.present.has(e.id)).map((e) => e.friendlyName)
+        if (added.length || removed.length) {
+          this.deps.log('endpoints_changed', { added, removed })
+          this.alert('info', `Audio devices changed${added.length ? `; added: ${added.join(', ')}` : ''}${removed.length ? `; removed: ${removed.join(', ')}` : ''}.`)
+        }
+        landscape = next
+      }, 5000),
+    )
     // Device presence + stall + digital-silence watch.
     this.timers.push(
       setInterval(() => {

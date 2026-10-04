@@ -15,6 +15,8 @@ export const DEEPGRAM_URL = 'wss://api.deepgram.com/v1/listen'
 
 export interface WsLike {
   readyState: number
+  /** Bytes queued but not yet sent (ws). Used to keep the upstream buffer bounded. */
+  bufferedAmount: number
   send(data: Buffer | string): void
   close(code?: number, reason?: string): void
   on(event: 'open', cb: () => void): void
@@ -41,6 +43,9 @@ export interface DeepgramOptions {
   log: (event: string, data?: Record<string, unknown>) => void
   keepAliveMs?: number
 }
+
+/** Upstream buffer bound: ~3 s of 16 kHz mono Int16. Beyond this, audio is dropped and a gap is marked. */
+export const MAX_BUFFERED_BYTES = 16000 * 2 * 3
 
 export function buildListenUrl(diarize: boolean): string {
   const p = new URLSearchParams({
@@ -89,6 +94,7 @@ export class DeepgramStream {
   private segmentSeq = 0
   requestId: string | null = null
   sentChunks = 0
+  private backedUp = false
 
   constructor(private readonly opts: DeepgramOptions) {}
 
@@ -155,9 +161,15 @@ export class DeepgramStream {
     })
   }
 
-  /** Returns false (audio dropped) unless the socket is open. */
+  /** Returns false (audio dropped) unless the socket is open and not backed up. */
   send(pcm: Buffer, samples: number, sessionMs: number): boolean {
     if (this.dead || this.state !== 'open' || !this.ws) return false
+    if (this.ws.bufferedAmount > MAX_BUFFERED_BYTES) {
+      if (!this.backedUp) this.opts.log('provider_backpressure', { stream: this.opts.stream, epoch: this.opts.epoch, bufferedBytes: this.ws.bufferedAmount })
+      this.backedUp = true
+      return false
+    }
+    this.backedUp = false
     try {
       this.ws.send(pcm)
     } catch {

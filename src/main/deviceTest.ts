@@ -13,6 +13,7 @@
 import type { EndpointInfo, NativeAudioModule, NativeCaptureEvent, ProbeStream } from '../shared/nativeApi'
 import { MIC_THRESHOLDS, StreamActivity, SYSTEM_THRESHOLDS } from './activity'
 import { isDigitalZero, toInt16 } from './pcm'
+import { invalidNativeEvent } from './validate'
 
 export interface ProbeStats {
   id: string
@@ -129,6 +130,11 @@ export class DeviceScanner {
   }
 
   private onEvent(p: Probe, ev: NativeCaptureEvent): void {
+    const bad = invalidNativeEvent(ev)
+    if (bad) {
+      this.log('invalid_native_event', { where: 'device_scan', reason: bad })
+      return
+    }
     if (ev.kind === 'audio') {
       p.activity.push(ev.data, this.native.monotonicNowMs(), ev.syntheticSilence)
       if (ev.syntheticSilence) p.idleChunks++

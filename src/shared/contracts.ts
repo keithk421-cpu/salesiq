@@ -58,6 +58,7 @@ export type GapCause =
   | 'capture_error'
   | 'provider_disconnect'
   | 'wasapi_discontinuity'
+  | 'capture_overflow'
 
 export interface GapRecord {
   gap_id: string

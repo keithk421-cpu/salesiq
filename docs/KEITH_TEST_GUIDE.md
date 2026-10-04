@@ -22,14 +22,14 @@ Takes about 20 minutes, plus one 60-minute call later.
 1. Join a Zoom test meeting (or open Zoom Settings → Audio).
 2. Click **Start listening**. The app listens to *every* output and mic on your PC at once. It only listens and changes nothing.
 3. In Zoom: **Settings → Audio → Test Speaker**. Then say "testing, one two three".
-4. The devices Zoom is actually using get a green **ZOOM IS USING THIS** tag and are picked for you. Check they look right (your Razer), then click **Use these devices**.
+4. The output that played the test sound gets a green **AUDIO PLAYING HERE** tag and the mic that heard you gets **HEARING YOU HERE**; both are picked for you. Check they look right (your Razer), then click **Use these devices**.
 
 Tip: Razer software can add extra outputs (e.g. "7.1 Surround", "Game", "Chat"). That's fine: whichever one lights up is the one Zoom plays to.
 
 ## 3. Smoke test (about 5 minutes)
 Join a Zoom call with a friend, or with your phone as the second person. **Wear the headset.**
 1. Click **Start**. It checks both streams first. Play Zoom's Test Speaker or let your friend talk, and say a few words. Within a few seconds it should switch to **LIVE**.
-2. Talk back and forth. Your words show as blue **You** bubbles on the right; the other side shows as **Speaker 1 / Speaker 2** on the left.
+2. Talk back and forth. Your words show as blue **Keith · mic** bubbles on the right; the other side shows as **Remote · speaker 0 / speaker 1** on the left (speaker numbers are Deepgram's voice groups, not names).
 3. Click **Pause**. Keep talking for 10 seconds, then click **Resume**. Nothing you said while paused should appear. You should see a **Paused** line.
 4. **Headset test:** turn the headset **off** for about 10 seconds, then back **on**.
    - Within about 2 seconds a red banner says the device disconnected and that it **won't switch devices on its own**.

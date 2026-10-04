@@ -345,3 +345,70 @@ describe('transcript', () => {
     await ctx.session.stop()
   })
 })
+
+describe('audit fixes: discontinuities, overflow, validation, backpressure, device changes', () => {
+  it('a mid-stream WASAPI glitch becomes an explicit gap; the first packet after open does not', async () => {
+    const ctx = setup()
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    ctx.native.emitAudio('local_mic', tone(320, 7000), { discontinuity: true }) // first packet: start of capture
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    expect(ctx.events.some((e) => e.type === 'gap_open')).toBe(false)
+    ctx.native.emitAudio('system_remote', noise(320, 5000, 3), { discontinuity: true })
+    const gap = ctx.events.find((e) => e.type === 'gap_close' && e.gap.cause === 'wasapi_discontinuity')
+    expect(gap && gap.type === 'gap_close' && gap.gap.stream).toBe('system_remote')
+    await ctx.session.stop()
+  })
+
+  it('dropped chunks from a full native queue are marked as a capture_overflow gap', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    ctx.native.emitAudio('local_mic', tone(320, 7000), { discontinuity: true, droppedChunks: 12 })
+    const gap = ctx.events.find((e) => e.type === 'gap_close' && e.gap.cause === 'capture_overflow')
+    expect(gap && gap.type === 'gap_close' && gap.gap.detail).toMatch(/12 audio chunks dropped/)
+    await ctx.session.stop()
+  })
+
+  it('malformed native events are rejected and logged, never processed', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const sentBefore = ctx.ws.sockets.map((s) => s.audioChunks().length)
+    ctx.native.emitRaw('system_remote', { kind: 'audio', data: 'not a buffer', samples: 3, monotonicMs: 1, discontinuity: false, syntheticSilence: false })
+    ctx.native.emitRaw('system_remote', { kind: 'audio', data: Buffer.alloc(3), samples: 1, monotonicMs: 1, discontinuity: false, syntheticSilence: false })
+    ctx.native.emitRaw('system_remote', { kind: 'bogus' })
+    expect(ctx.logs.filter((l) => l.event === 'invalid_native_event')).toHaveLength(3)
+    expect(ctx.ws.sockets.map((s) => s.audioChunks().length)).toEqual(sentBefore)
+    await ctx.session.stop()
+  })
+
+  it('a backed-up upstream connection drops audio (bounded) and marks a gap until it drains', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const sys = ctx.ws.sockets.find((s) => s.url.includes('diarize=true'))!
+    sys.bufferedAmount = 10_000_000
+    await feed(ctx, 300)
+    const sentWhileBacked = sys.audioChunks().length
+    await feed(ctx, 300)
+    expect(sys.audioChunks().length).toBe(sentWhileBacked)
+    expect(ctx.events.some((e) => e.type === 'gap_open' && e.gap.cause === 'provider_disconnect' && e.gap.stream === 'system_remote')).toBe(true)
+    expect(ctx.logs.some((l) => l.event === 'provider_backpressure')).toBe(true)
+    sys.bufferedAmount = 0
+    await feed(ctx, 100)
+    expect(sys.audioChunks().length).toBeGreaterThan(sentWhileBacked)
+    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect' && e.gap.recovery === 'recovered')).toBe(true)
+    await ctx.session.stop()
+  })
+
+  it('Windows default changes are made visible but never acted on', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const calls = ctx.native.startCalls.length
+    ctx.native.setDefault('render', MOCK_IDS.LAPTOP_OUT)
+    await feed(ctx, 5200)
+    expect(ctx.events.some((e) => e.type === 'alert' && /Windows default devices changed.*Ignored/.test(e.message))).toBe(true)
+    expect(ctx.native.startCalls.length).toBe(calls)
+    expect(ctx.logs.some((l) => l.event === 'windows_defaults_changed')).toBe(true)
+    await ctx.session.stop()
+  })
+})
