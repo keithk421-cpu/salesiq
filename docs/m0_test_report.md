@@ -5,6 +5,7 @@ Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this documen
 ## Progress log
 | Date | Who | What was checked | Result |
 |---|---|---|---|
+| 2026-10-04 | Keith | 62 s two-person Zoom conversation on build 064b12a (Razer BlackShark V2 Pro; second participant on a phone in the same room) | Pass for routing/turns/latency on hardware. 7 final turns, correct KEITH vs REMOTE alternation, accurate text on laptop-quality speech. Speech-service delay 0.5-1.3 s (was 3-6 s); native capture lag 1-2 ms (system) / ~16 ms (mic). 0 gaps, 0 reconnects, 0 echo-muted windows, no false mic-silence warnings, `teardown_verified` with nothing capturing. 3 duplicate segments suppressed: the second participant was in the same room, so their voice reached Keith's mic through the air (and once Keith's voice reached their phone). In-room testing is inherently ambiguous; real remote participants don't create this. Session `s-2026-10-04T21-49-43-133Z-44d674`. |
 | 2026-10-04 | Keith | ~30 s test call: Keith on the Razer + his cell phone dialed in as the remote | Worked end to end: correct Razer output auto-found, both streams transcribed, clean stop (`teardown_verified`), no gaps. Issues: remote phone audio transcribed poorly (narrowband PSTN); finals 3-6 s late; false "mic digital silence" warnings from the BlackShark V2 Pro noise gate. Fixes in the next build: echo-gate double-talk fix, no mic hold when remote is silent, live interim text, turn fragmentation fix, 60 s silence note, Arize keyterms, timing diagnostics. |
 | 2026-10-04 | Keith | Installed CI build (commit 22ee9fc) on his Windows PC with the Razer headset; device setup; Zoom Settings → Audio speaker/mic test (no meeting) | Meeting-audio loopback and mic both captured and transcribed. Earlier build had a flat meeting-audio meter; fixed by keeping late-stamped loopback audio (see commit bcf34f3). |
 
@@ -13,10 +14,10 @@ Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this documen
 |---|---|
 | Windows edition / build | |
 | Zoom desktop version | |
-| Razer headset model / firmware / dongle USB port | |
+| Razer headset model / firmware / dongle USB port | Razer BlackShark V2 Pro (firmware not recorded); mic is noise-gated (exact zeros between words) |
 | App version / commit | |
-| Meeting-audio endpoint (name, ID) | |
-| Mic endpoint (name, ID) | |
+| Meeting-audio endpoint (name, ID) | Speakers (Razer BlackShark V2 Pro), `{0.0.0.00000000}.{0442a787-0b16-4499-9dd5-e1aa1eca6a1c}`, 48 kHz 2 ch float |
+| Mic endpoint (name, ID) | Microphone (Razer BlackShark V2 Pro), `{0.0.1.00000000}.{09996d1a-1883-4d2f-aca1-4c8fbd1b50e2}`, 48 kHz 1 ch float |
 | Zoom Settings → Audio: Speaker / Microphone (before) | |
 
 ## Automated evidence (pre-hardware)
@@ -32,12 +33,12 @@ Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this documen
 | 2 | Zoom speaker/mic selections unchanged (screenshots) | | |
 | 3 | No virtual audio device present / installed | | |
 | 4 | Zoom audio not ducked when capture starts | | |
-| 5 | Razer endpoints enumerated, tested, saved by ID | | |
+| 5 | Razer endpoints enumerated, tested, saved by ID | Pass | Device scan found `Speakers (Razer BlackShark V2 Pro)` among 5 outputs (other 4: "nothing playing") and the Razer mic among 2 mics; saved by IMMDevice ID |
 | 6 | After app restart, saved IDs resolve; start gate passes without re-selection | | |
 | 7 | Start blocked (clear reason) with headset off | | |
 | 8 | Start blocked when mic or meeting audio silent during the check | | |
-| 9 | Separate mic / system meters work | | |
-| 10 | Correct local vs remote routing (KEITH vs REMOTE_n) | | |
+| 9 | Separate mic / system meters work | Pass | Keith, sessions 21:28 and 21:49 |
+| 10 | Correct local vs remote routing (KEITH vs REMOTE_n) | Pass (1 short call) | session 21:49 transcript |
 | 11 | No meaningful duplicate remote transcript from echo (echo/duplicate counters) | | |
 | 12 | Remote final words carry speaker clusters | | |
 | 13 | Pause stops both streams immediately; nothing said while paused appears | | |
@@ -45,7 +46,7 @@ Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this documen
 | 15 | Mid-call headset off: failure shown ≤ ~2 s, gap marked, no endpoint switch | | |
 | 16 | Headset on: reconnect to the confirmed endpoint only; no stale audio | | |
 | 17 | Dongle moved to another USB port (if the ID changes): treated as missing; Keith confirms | | |
-| 18 | Stop / app exit leaves nothing capturing (`teardown_verified`) | | |
+| 18 | Stop / app exit leaves nothing capturing (`teardown_verified`) | Stop: pass | `teardown_verified stillCapturing: []` (21:24, 21:51). App-exit check still to do |
 | 19 | 60-minute Zoom run completed | | |
 
 ## Gap log (from sessions/*/diagnostics.jsonl `gap_open`/`gap_close`)

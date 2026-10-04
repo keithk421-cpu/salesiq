@@ -28,6 +28,7 @@ Tip: Razer software can add extra outputs (e.g. "7.1 Surround", "Game", "Chat").
 
 ## 3. Smoke test (about 5 minutes)
 Join a Zoom call with a friend, or with your phone as the second person. **Wear the headset.**
+Put the other person (or your phone) in a **different room**, or have them use headphones. If they're in the same room, their voice reaches your mic through the air, and the app has to guess which copy is real.
 1. Click **Start**. It checks both streams first. Play Zoom's Test Speaker or let your friend talk, and say a few words. Within a few seconds it should switch to **LIVE**.
 2. Talk back and forth. Your words show as blue **Keith · mic** bubbles on the right; the other side shows as **Remote · speaker 0 / speaker 1** on the left (speaker numbers are Deepgram's voice groups, not names).
 3. Click **Pause**. Keep talking for 10 seconds, then click **Resume**. Nothing you said while paused should appear. You should see a **Paused** line.
