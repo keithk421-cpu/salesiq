@@ -32,20 +32,48 @@ export class Storage {
     fs.renameSync(tmp, this.p('audio-endpoints.json'))
   }
 
-  /** Env var is for development only; the app stores the key encrypted with Windows DPAPI via safeStorage. */
-  loadApiKey(): string {
-    if (process.env.DEEPGRAM_API_KEY) return process.env.DEEPGRAM_API_KEY
+  /**
+   * Secrets are stored encrypted with the OS (Windows DPAPI via safeStorage) in userData.
+   * Env vars are for development only. Secrets never go to the renderer, logs or Git.
+   */
+  loadSecret(name: 'deepgram' | 'anthropic'): string {
+    const env = name === 'deepgram' ? process.env.DEEPGRAM_API_KEY : process.env.SALES_COPILOT_ANTHROPIC_KEY
+    if (env) return env
     try {
-      const raw = fs.readFileSync(this.p('deepgram-key.bin'))
+      const raw = fs.readFileSync(this.p(`${name}-key.bin`))
       return this.box.isEncryptionAvailable() ? this.box.decryptString(raw) : ''
     } catch {
       return ''
     }
   }
 
-  saveApiKey(key: string): void {
+  saveSecret(name: 'deepgram' | 'anthropic', key: string): void {
     if (!this.box.isEncryptionAvailable()) throw new Error('OS encryption unavailable; key not saved')
-    fs.writeFileSync(this.p('deepgram-key.bin'), this.box.encryptString(key.trim()))
+    fs.writeFileSync(this.p(`${name}-key.bin`), this.box.encryptString(key.trim()))
+  }
+
+  loadApiKey(): string {
+    return this.loadSecret('deepgram')
+  }
+
+  saveApiKey(key: string): void {
+    this.saveSecret('deepgram', key)
+  }
+
+  readJson<T>(name: string, fallback: T): T {
+    try {
+      return { ...fallback, ...(JSON.parse(fs.readFileSync(this.p(name), 'utf8')) as T) }
+    } catch {
+      return fallback
+    }
+  }
+
+  writeJson(name: string, value: unknown): void {
+    fs.writeFileSync(this.p(name), JSON.stringify(value, null, 2))
+  }
+
+  get root(): string {
+    return this.dir
   }
 
   sessionDir(sessionId: string): string {

@@ -85,6 +85,48 @@
       </div>
       <p id="devMsg" class="msg"></p>
     </div>
+
+    <div class="card step" id="aiStep">
+      <div class="step-head">
+        <span class="step-num">3</span>
+        <div class="step-title">
+          <h2>Connect Claude for HELP</h2>
+          <p class="muted">Powers the HELP card. Key stays on this PC, encrypted. Without it, HELP shows clearly labelled mock output.</p>
+        </div>
+        <span id="aiDone" class="tag tag-ok" hidden>Connected</span>
+      </div>
+      <div id="aiForm" class="row">
+        <input id="aiKeyInput" class="input grow" type="password" placeholder="Paste your Anthropic API key (sk-ant-...)" autocomplete="off" />
+        <button id="aiKeySave" class="btn btn-primary">Save key</button>
+      </div>
+      <button id="aiKeyChange" class="link" hidden>Change key</button>
+      <p id="aiMsg" class="msg"></p>
+      <div class="row">
+        <label class="inline">Model
+          <select id="aiModel" class="input">
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (fast, default)</option>
+            <option value="claude-opus-5-5">Claude Opus 5.5 (smarter, slower)</option>
+          </select>
+        </label>
+        <label class="inline check"><input id="aiPrefetch" type="checkbox" /> Prepare a card in the background after each answer (faster HELP)</label>
+      </div>
+    </div>
+
+    <div class="card step" id="kbStep">
+      <div class="step-head">
+        <span class="step-num">4</span>
+        <div class="step-title">
+          <h2>Knowledge pack <span class="muted">(optional)</span></h2>
+          <p class="muted">Drop approved .md/.txt files in the folder. HELP only states Arize facts from documents you approve here. Without docs, HELP still gives questions and follow-ups.</p>
+        </div>
+      </div>
+      <div class="row">
+        <button id="kbOpen" class="btn btn-ghost btn-sm">Open knowledge folder</button>
+        <button id="kbReindex" class="btn btn-ghost btn-sm">Re-scan folder</button>
+        <button id="pbOpen" class="btn btn-ghost btn-sm">Edit sales playbook</button>
+      </div>
+      <div id="kbList" class="kb-list"></div>
+    </div>
   </section>
 
   <!-- ============================== CALL ============================== -->
@@ -115,10 +157,57 @@
         <div class="meter"><div id="micBar"></div></div>
       </div>
       <div class="controls">
+        <button id="helpBtn" class="btn btn-help btn-lg" title="Ctrl+Alt+H">HELP</button>
         <button id="startBtn" class="btn btn-primary btn-lg">Start</button>
         <button id="pauseBtn" class="btn btn-secondary btn-lg" hidden>Pause</button>
         <button id="resumeBtn" class="btn btn-primary btn-lg" hidden>Resume</button>
         <button id="stopBtn" class="btn btn-danger-ghost btn-lg" hidden>Stop</button>
+      </div>
+    </div>
+
+    <div id="setupStrip" class="card setup-strip">
+      <select id="csType" class="input">
+        <option value="discovery">Discovery</option><option value="demo">Demo</option><option value="technical_deep_dive">Technical deep-dive</option>
+        <option value="follow_up">Follow-up</option><option value="negotiation">Negotiation</option><option value="other">Other</option>
+      </select>
+      <input id="csGoal" class="input grow" placeholder="Call goal (e.g. understand how they evaluate LLM outputs today)" />
+      <input id="csOutcomes" class="input grow" placeholder="Desired outcomes, comma separated" />
+      <input id="csAccount" class="input" placeholder="Account" />
+      <span id="hotkeyHint" class="muted small"></span>
+    </div>
+
+    <div id="helpCard" class="help-card" hidden>
+      <div class="hc-top">
+        <span id="hcBadge" class="tag tag-warn" hidden>MOCK</span>
+        <span id="hcHappening" class="hc-happening"></span>
+      </div>
+      <div id="hcPrimary" class="hc-primary"></div>
+      <div id="hcFollow" class="hc-follow" hidden></div>
+      <div id="hcWarn" class="hc-warn" hidden></div>
+      <div class="hc-foot">
+        <details id="hcSources" class="hc-sources"><summary>Sources</summary><div id="hcSourceList"></div></details>
+        <span id="hcMeta" class="muted small"></span>
+        <span class="hc-fb">
+          <button class="fb" data-fb="useful">Useful</button>
+          <button class="fb" data-fb="should_have_stayed_quiet">Should've stayed quiet</button>
+          <button class="fb" data-fb="bad">Bad</button>
+        </span>
+      </div>
+      <div id="hcBadReasons" class="hc-reasons" hidden>
+        <button data-reason="wrong_move">Wrong move</button><button data-reason="assumed_too_much">Assumed too much</button>
+        <button data-reason="already_known">Already known</button><button data-reason="too_generic">Too generic</button>
+        <button data-reason="too_late">Too late</button><button data-reason="bad_wording">Bad wording</button>
+        <button data-reason="unsupported">Unsupported</button><button data-reason="other">Other</button>
+      </div>
+    </div>
+
+    <div id="labelPop" class="label-pop" hidden>
+      <div class="muted small" id="lpTitle">Who is this?</div>
+      <input id="lpName" class="input" placeholder="Name (optional)" />
+      <div class="row">
+        <button class="btn btn-sm btn-secondary" data-role="buyer">Buyer</button>
+        <button class="btn btn-sm btn-secondary" data-role="teammate">Teammate / SA</button>
+        <button class="btn btn-sm btn-ghost" data-role="unknown">Unknown</button>
       </div>
     </div>
 

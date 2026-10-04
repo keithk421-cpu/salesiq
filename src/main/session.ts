@@ -152,6 +152,11 @@ export class SessionController {
     return this.deps.native.monotonicNowMs()
   }
 
+  /** Current session-relative time (ms) on the monotonic clock; used as HELP's "as of" time. */
+  nowSessionMs(): number {
+    return this.sessionMs()
+  }
+
   private sessionMs(mono = this.now()): number {
     return Math.round(mono - this.t0)
   }

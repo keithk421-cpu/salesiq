@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, safeStorage, shell } from 'electron'
 import WebSocket from 'ws'
 import type { AudioEndpointConfig } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule } from '../shared/nativeApi'
@@ -13,6 +13,7 @@ import type { WsFactory, WsLike } from './deepgram'
 import { DeviceScanner } from './deviceTest'
 import { resolveConfig, shortId, toEndpointRef } from './endpoints'
 import { loadNative } from './native'
+import { HELP_HOTKEY, HelpService } from './helpService'
 import { SessionController, type SessionEvent } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
@@ -27,6 +28,7 @@ let scanner: DeviceScanner
 let session: SessionController | null = null
 let sessionLog: JsonlWriter | null = null
 let transcriptLog: JsonlWriter | null = null
+let help: HelpService | null = null
 
 const wsFactory: WsFactory = (url, headers) => new WebSocket(url, { headers }) as unknown as WsLike
 
@@ -65,6 +67,8 @@ function snapshotDevices(label: string): string {
 
 function onSessionEvent(ev: SessionEvent): void {
   send('session-event', ev)
+  const s = session
+  if (help && s) help.onSessionEvent(ev, s.sessionId, () => s.nowSessionMs())
   if (!transcriptLog) return
   if (ev.type === 'turn' && ev.event.type === 'turn_final') transcriptLog.write({ kind: 'turn', ...ev.event.turn })
   if (ev.type === 'gap_open' || ev.type === 'gap_close') transcriptLog.write({ kind: ev.type, ...ev.gap })
@@ -194,6 +198,35 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('app:openFolder', () => shell.openPath(app.getPath('userData')))
+
+  // ---- M1 HELP ----
+  ipcMain.handle('help:info', () => help?.info() ?? null)
+  ipcMain.handle('help:press', () => help?.press() ?? { ok: false, reason: 'HELP unavailable' })
+  ipcMain.handle('help:feedback', (_e, raw: unknown) => help?.feedback(raw) ?? { ok: false })
+  ipcMain.handle('help:setSettings', (_e, raw: unknown) => help?.setSettings((raw ?? {}) as Record<string, never>))
+  ipcMain.handle('help:setSetup', (_e, raw: unknown) => help?.setSetup(raw))
+  ipcMain.handle('help:setLabel', (_e, raw: unknown) => help?.setLabel(raw) ?? { ok: false })
+  ipcMain.handle('help:labels', () => help?.labels() ?? [])
+  ipcMain.handle('help:setKey', (_e, key: unknown) => {
+    if (typeof key !== 'string' || !/^sk-ant-[\x21-\x7e]{20,300}$/.test(key.trim())) return { ok: false, error: 'That does not look like an Anthropic API key (starts with sk-ant-).' }
+    try {
+      storage.saveSecret('anthropic', key)
+      log('anthropic_key_saved')
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle('knowledge:list', () => help?.kb.listDocs() ?? [])
+  ipcMain.handle('knowledge:reindex', () => help?.reindexKnowledge() ?? [])
+  ipcMain.handle('knowledge:approve', (_e, docId: unknown, approved: unknown) => {
+    if (!help || typeof docId !== 'string' || typeof approved !== 'boolean') return { ok: false }
+    help.kb.approve(docId, approved)
+    log('knowledge_approval', { doc_id: docId, approved })
+    return { ok: true, docs: help.kb.listDocs() }
+  })
+  ipcMain.handle('knowledge:openFolder', () => (help ? shell.openPath(help.knowledgeDir) : ''))
+  ipcMain.handle('playbook:open', () => (help ? shell.openPath(help.playbookPath()) : ''))
 }
 
 function createWindow(): void {
@@ -214,11 +247,28 @@ function createWindow(): void {
   win.webContents.on('will-navigate', (e) => e.preventDefault())
 }
 
+/** Ctrl+Alt+H: only if it registers without a conflict. The HELP button always works. */
+function registerHotkey(): void {
+  if (!help) return
+  let ok = false
+  try {
+    ok = globalShortcut.register(HELP_HOTKEY, () => {
+      const r = help?.press()
+      if (r && !r.ok) send('help-notice', r.reason)
+    }) && globalShortcut.isRegistered(HELP_HOTKEY)
+  } catch {
+    ok = false
+  }
+  help.hotkeyRegistered = ok
+  log('help_hotkey', { hotkey: HELP_HOTKEY, registered: ok })
+}
+
 function shutdownCapture(reason: string): void {
   try {
     scanner?.stop()
     session?.shutdownNow()
     native?.stopAll()
+    help?.engine?.cancelAll('shutdown')
     log('capture_shutdown', { reason })
   } catch {
     /* best effort */
@@ -250,11 +300,21 @@ if (!app.requestSingleInstanceLock()) {
     }
     log('app_start', { version: app.getVersion(), demoMode, nativeSource, platform: process.platform })
     scanner = new DeviceScanner(native, (e) => send('scan-event', e), log)
+    try {
+      help = new HelpService(storage, app.getAppPath(), (e) => send('help-event', e), log)
+    } catch (err) {
+      log('help_init_failed', { message: (err as Error).message })
+    }
     registerIpc()
     createWindow()
+    registerHotkey()
   })
 
   app.on('before-quit', () => shutdownCapture('before-quit'))
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll()
+    help?.shutdown()
+  })
   app.on('window-all-closed', () => {
     shutdownCapture('window-all-closed')
     app.quit()

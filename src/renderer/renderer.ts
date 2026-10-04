@@ -4,6 +4,7 @@ import type { EndpointInfo } from '../shared/nativeApi'
 import type { DeviceScanEvent, ProbeStats } from '../main/deviceTest'
 import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
+import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -37,6 +38,12 @@ let echoFiltered = 0
 /** Provisional (interim) text per stream, display-only. Cleared when finals arrive. */
 const interims: Record<string, string> = {}
 const delays: Record<string, number | null> = {}
+/** Manual per-call speaker labels (cluster -> label). */
+const labels = new Map<string, SpeakerLabel>()
+/** The HELP card currently displayed (only the newest request is ever shown). */
+let card: HelpCardEvent | null = null
+let cardShownAt = 0
+let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean } | null = null
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -192,6 +199,8 @@ function setButtons(): void {
   $('stopBtn').hidden = !['checking', 'live', 'paused'].includes(s)
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
+  $<HTMLButtonElement>('helpBtn').disabled = s !== 'live'
+  for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount']) $<HTMLInputElement>(id).disabled = !['idle', 'stopped'].includes(s)
   setPill()
 }
 
@@ -273,12 +282,14 @@ function renderTranscript(): void {
     // Channel is explicit. Remote speaker = Deepgram cluster, scoped to one connection epoch:
     // "s0" after a reconnect is NOT necessarily the same person as "s0" before it.
     const m = t.speaker_cluster ? /^e(\d+):s(\d+)$/.exec(t.speaker_cluster) : null
-    const who = me ? 'Keith · mic' : m ? `Remote · speaker ${m[2]}` : 'Remote · unknown speaker'
+    const lab = t.speaker_cluster ? labels.get(t.speaker_cluster) : undefined
+    const roleText = lab ? (lab.role === 'teammate' ? 'teammate' : lab.role === 'buyer' ? 'buyer' : 'role unknown') : 'tap to label'
+    const who = me ? 'Keith · mic' : m ? `${lab?.name ?? `Remote · speaker ${m[2]}`} · ${roleText}` : 'Remote · unknown speaker'
     const tag = me ? 'local_mic' : m ? `system · cluster s${m[2]} · conn ${m[1]}` : 'system · no cluster'
     rows.push({
       at: t.start_ms,
       html: `<div class="msgrow ${me ? 'me' : 'them'} ${t.final ? '' : 'open'}">
-        <div class="who ${me ? '' : speakerClass(t.speaker_cluster)}">${esc(who)}<span class="t">${fmtMs(t.start_ms)}–${fmtMs(t.end_ms)}</span><span class="t">${esc(tag)}</span></div>
+        <div class="who ${me ? '' : `${speakerClass(t.speaker_cluster)} ${m ? 'clickable' : ''}`}" ${m ? `data-cluster="${esc(t.speaker_cluster!)}"` : ''}>${esc(who)}<span class="t">${fmtMs(t.start_ms)}–${fmtMs(t.end_ms)}</span><span class="t">${esc(tag)}</span></div>
         <div class="bubble">${esc(t.text)}</div></div>`,
     })
   }
@@ -340,6 +351,9 @@ api.onSession((raw) => {
         turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0; elapsedOffset = 0; liveSince = null
         for (const k of Object.keys(interims)) delete interims[k]
         for (const k of Object.keys(delays)) delete delays[k]
+        labels.clear()
+        card = null
+        renderCard()
         $('banner').hidden = true
         renderTranscript()
       }
@@ -474,6 +488,199 @@ $('snapAfter').addEventListener('click', async () => { const r = await api.snaps
 $('openFolder').addEventListener('click', () => void api.openFolder())
 
 setInterval(() => { if (sessionState === 'live' || sessionState === 'paused') setPill() }, 500)
+
+// ------------------------------------------------------------------ M1: HELP card
+const PENDING_TEXT: Record<string, string> = { pending: 'Working…', streaming: 'Working…' }
+const STALE_MS = 60_000
+
+function renderCard(): void {
+  const el = $('helpCard')
+  if (!card) {
+    el.hidden = true
+    return
+  }
+  el.hidden = false
+  const c = card.content
+  const done = card.status === 'complete'
+  const usable = !!c.primary
+  el.classList.toggle('pending', !usable)
+  el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
+  $('hcBadge').hidden = !card.mock
+  $('hcHappening').textContent = c.happening ?? ''
+  const prim = $('hcPrimary')
+  if (usable) {
+    prim.innerHTML = `<span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span>${esc(c.primary_kind === 'ask' ? `"${c.primary}"` : c.primary!)}`
+  } else if (card.status === 'failed' || card.status === 'timeout') {
+    prim.textContent = card.status === 'timeout' ? 'HELP took too long - press again.' : `HELP couldn't produce a usable line${card.error ? ` (${card.error})` : ''}.`
+  } else if (card.status === 'cancelled') {
+    prim.textContent = 'Cancelled.'
+  } else {
+    prim.textContent = PENDING_TEXT[card.status] ?? ''
+  }
+  const fol = $('hcFollow')
+  fol.hidden = !c.follow_up
+  fol.textContent = c.follow_up ?? ''
+  const warns = [...card.warnings]
+  if (c.note && done) warns.push(c.note)
+  $('hcWarn').hidden = warns.length === 0
+  $('hcWarn').textContent = warns.join(' · ')
+  $('hcSources').hidden = card.sources.length === 0
+  $('hcSourceList').innerHTML = card.sources.map((x) => `<div><b>${esc(x.label)}</b>: ${esc(x.detail)}</div>`).join('')
+  const t = card.timing
+  const ms = (x: number | null) => (x === null ? '' : `${(x / 1000).toFixed(1)} s`)
+  const age = done ? ` · ${Math.round((Date.now() - cardShownAt) / 1000)} s ago` : ''
+  const how = t.served_from_prefetch ? 'ready' : ms(t.first_usable_ms)
+  $('hcMeta').textContent = [how ? `line ${how}` : '', card.model_label.split(' · ')[0]].filter(Boolean).join(' · ') + age
+  el.querySelectorAll<HTMLButtonElement>('.fb').forEach((b) => (b.disabled = !done))
+}
+
+api.onHelp((raw) => {
+  const ev = raw as HelpCardEvent
+  // Only the newest request is ever displayed; an older one can't overwrite it.
+  if (card && ev.seq < card.seq) return
+  if (!card || ev.request_id !== card.request_id) {
+    cardShownAt = Date.now()
+    el_resetFeedback()
+  }
+  // A finished card is never rewritten in place.
+  if (card && card.request_id === ev.request_id && card.status === 'complete') return
+  card = ev
+  if (ev.status === 'complete') cardShownAt = Date.now()
+  renderCard()
+})
+
+api.onHelpNotice((msg) => showBanner('info', msg))
+
+function el_resetFeedback(): void {
+  $('helpCard').querySelectorAll('.fb').forEach((b) => b.classList.remove('chosen'))
+  $('hcBadReasons').hidden = true
+}
+
+async function pressHelp(): Promise<void> {
+  const r = await api.helpPress()
+  if (!r.ok) showBanner('info', r.reason)
+}
+
+$('helpBtn').addEventListener('click', () => void pressHelp())
+$('helpCard').querySelectorAll<HTMLButtonElement>('.fb').forEach((b) =>
+  b.addEventListener('click', async () => {
+    if (!card) return
+    const type = b.dataset.fb!
+    $('helpCard').querySelectorAll('.fb').forEach((x) => x.classList.toggle('chosen', x === b))
+    $('hcBadReasons').hidden = type !== 'bad'
+    await api.helpFeedback({ card_id: card.request_id, type })
+    addActivity('info', `Feedback recorded: ${b.textContent}`)
+  }),
+)
+$('hcBadReasons').querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+  b.addEventListener('click', async () => {
+    if (!card) return
+    await api.helpFeedback({ card_id: card.request_id, type: 'bad', bad_reason: b.dataset.reason })
+    $('hcBadReasons').hidden = true
+    addActivity('info', `Feedback recorded: Bad (${b.textContent})`)
+  }),
+)
+setInterval(() => { if (card?.status === 'complete') renderCard() }, 5000)
+
+// ---- call setup strip ----
+function saveSetup(): void {
+  void api.helpSetSetup({
+    call_type: $<HTMLSelectElement>('csType').value,
+    call_goal: $<HTMLInputElement>('csGoal').value,
+    desired_outcomes: $<HTMLInputElement>('csOutcomes').value.split(',').map((x) => x.trim()).filter(Boolean),
+    account: $<HTMLInputElement>('csAccount').value,
+  })
+}
+for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount']) $(id).addEventListener('change', saveSetup)
+
+// ---- tap-to-name speaker labels (per call; never required for HELP) ----
+let labelCluster: string | null = null
+$('transcript').addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement).closest<HTMLElement>('.who.clickable')
+  if (!el?.dataset.cluster) return
+  labelCluster = el.dataset.cluster
+  const pop = $('labelPop')
+  const r = el.getBoundingClientRect()
+  pop.style.left = `${Math.min(window.innerWidth - 310, r.left)}px`
+  pop.style.top = `${r.bottom + 6}px`
+  $<HTMLInputElement>('lpName').value = labels.get(labelCluster)?.name ?? ''
+  $('lpTitle').textContent = `Who is speaker ${/s(\d+)$/.exec(labelCluster)?.[1] ?? '?'}? (this call only)`
+  pop.hidden = false
+  $<HTMLInputElement>('lpName').focus()
+})
+$('labelPop').querySelectorAll<HTMLButtonElement>('button[data-role]').forEach((b) =>
+  b.addEventListener('click', async () => {
+    if (!labelCluster) return
+    const label = { cluster: labelCluster, role: b.dataset.role as SpeakerLabel['role'], name: $<HTMLInputElement>('lpName').value.trim() || null }
+    const r = await api.helpSetLabel(label)
+    if (r.ok) labels.set(label.cluster, label)
+    $('labelPop').hidden = true
+    renderTranscript()
+  }),
+)
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('labelPop').hidden = true })
+document.addEventListener('click', (e) => {
+  const pop = $('labelPop')
+  if (!pop.hidden && !pop.contains(e.target as Node) && !(e.target as HTMLElement).closest('.who.clickable')) pop.hidden = true
+})
+
+// ---- setup: Claude key, model, prefetch, knowledge ----
+async function refreshHelpInfo(): Promise<void> {
+  helpInfo = await api.helpInfo()
+  if (!helpInfo) return
+  $('aiDone').hidden = !helpInfo.hasKey
+  $('aiForm').hidden = helpInfo.hasKey
+  $('aiKeyChange').hidden = !helpInfo.hasKey
+  $('aiStep').classList.toggle('done', helpInfo.hasKey)
+  $<HTMLSelectElement>('aiModel').value = helpInfo.settings.model
+  $<HTMLInputElement>('aiPrefetch').checked = helpInfo.settings.prefetch
+  const su = helpInfo.setup
+  $<HTMLSelectElement>('csType').value = su.call_type
+  $<HTMLInputElement>('csGoal').value = su.call_goal
+  $<HTMLInputElement>('csOutcomes').value = su.desired_outcomes.join(', ')
+  $<HTMLInputElement>('csAccount').value = su.account
+  $('hotkeyHint').textContent = helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button'
+  $('helpBtn').title = helpInfo.hotkeyRegistered ? 'HELP (Ctrl+Alt+H)' : 'HELP'
+}
+
+async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
+  const list = docs ?? ((await api.knowledgeList()) as KnowledgeDocMeta[])
+  const today = new Date()
+  $('kbList').innerHTML = list.length
+    ? list.map((d) => {
+        const stale = d.review_by && new Date(d.review_by) < today
+        return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
+          ${stale ? '<span class="tag tag-warn">Stale</span>' : ''}
+          <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label></div>`
+      }).join('')
+    : '<div class="muted small">No documents yet. HELP still works: it asks good questions and offers follow-ups instead of stating facts.</div>'
+}
+
+$('kbList').addEventListener('change', async (e) => {
+  const cb = e.target as HTMLInputElement
+  if (!cb.dataset.doc) return
+  const r = await api.knowledgeApprove(cb.dataset.doc, cb.checked)
+  if (r.ok) void renderKnowledge(r.docs)
+})
+$('kbOpen').addEventListener('click', () => void api.knowledgeOpenFolder())
+$('kbReindex').addEventListener('click', async () => renderKnowledge(await api.knowledgeReindex()))
+$('pbOpen').addEventListener('click', () => void api.playbookOpen())
+$('aiKeySave').addEventListener('click', async () => {
+  const r = await api.helpSetKey($<HTMLInputElement>('aiKeyInput').value)
+  $<HTMLInputElement>('aiKeyInput').value = ''
+  const msg = $('aiMsg')
+  msg.className = `msg ${r.ok ? 'ok' : 'err'}`
+  msg.textContent = r.ok ? 'Saved. Takes effect on the next call.' : r.error
+  await refreshHelpInfo()
+})
+$('aiKeyChange').addEventListener('click', () => { $('aiForm').hidden = false; $('aiKeyChange').hidden = true })
+$('aiModel').addEventListener('change', async () => { await api.helpSetSettings({ model: $<HTMLSelectElement>('aiModel').value }); await refreshHelpInfo() })
+$('aiPrefetch').addEventListener('change', async () => { await api.helpSetSettings({ prefetch: $<HTMLInputElement>('aiPrefetch').checked }); await refreshHelpInfo() })
+
+void (async () => {
+  await refreshHelpInfo()
+  await renderKnowledge()
+})()
 
 void (async () => {
   const info = await api.info()
