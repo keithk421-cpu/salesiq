@@ -17,6 +17,7 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {
