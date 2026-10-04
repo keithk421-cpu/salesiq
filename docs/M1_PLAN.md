@@ -85,5 +85,5 @@ Normally Keith runs the live comparison from the app: **Diagnostics → Run HELP
 
 ## Open for Keith
 - Review the playbook draft (`config/playbook.json`; Setup → Edit sales playbook).
-- Review the 25 scenario drafts and approve the ones that match his judgment.
+- Review the 25 scenario drafts in plain English (`docs/SCENARIO_REVIEW.md`) and say which match his judgment; those get `golden_approved: true`.
 - Add the knowledge pack: product/evaluation overview, deployment/security answers, current competitive material, objection notes.

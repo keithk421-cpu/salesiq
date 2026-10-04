@@ -71,6 +71,7 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 1. **Setup → step 3 "Connect Claude for HELP":** paste your Anthropic API key there (on your PC, not in chat) and click **Save key**. Leave the model on **Claude Sonnet 5.5**.
 2. **Setup → step 4 "Knowledge pack" (optional but valuable):** click **Open knowledge folder** and drop in .md or .txt files: product/eval overview, deployment & security answers, current competitive notes, objection notes. Click **Re-scan folder**, then tick **Approved** on the ones that are current. Unticked files are never used.
 3. **Diagnostics (bottom of the call screen) → Run HELP speed test**, with no call running. It takes a few minutes, costs roughly $1, and compares Sonnet vs Opus on 25 practice moments. Send me the report (**Open report**).
+4. **Review the 25 practice moments** in `docs/SCENARIO_REVIEW.md` (about 20 minutes). Reply with the numbers you agree with and a one-line fix for the rest. Only the ones you approve decide which model wins.
 
 ## On a call
 - Before Start, fill the strip: call type, goal and outcomes (10 seconds; optional).

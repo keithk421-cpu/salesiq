@@ -16,7 +16,8 @@
     "package:win": "node scripts/build.mjs && electron-builder --win nsis --x64 --publish never",
     "check": "npm run typecheck && npm test",
     "eval:help": "node scripts/build-tools.mjs && node dist-tools/help-eval.mjs",
-    "eval:promptfoo": "node scripts/build-tools.mjs && npx -y promptfoo@0.123.1 eval -c evals/promptfooconfig.yaml"
+    "eval:promptfoo": "node scripts/build-tools.mjs && npx -y promptfoo@0.123.1 eval -c evals/promptfooconfig.yaml",
+    "scenarios:review": "node scripts/scenario-review.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
