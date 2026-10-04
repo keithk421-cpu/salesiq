@@ -1,0 +1,26 @@
+{
+  "_comment": "Search aliases for FTS5 (no embeddings). Each group is treated as equivalent terms. Edit freely.",
+  "groups": [
+    ["evals", "eval", "evaluation", "evaluations", "llm-as-a-judge", "llm judge", "judge"],
+    ["arize ax", "ax"],
+    ["phoenix", "arize phoenix"],
+    ["opentelemetry", "otel", "open telemetry"],
+    ["openinference"],
+    ["tracing", "traces", "trace", "spans", "span"],
+    ["observability", "monitoring"],
+    ["guardrails", "guardrail"],
+    ["hallucination", "hallucinations", "hallucinate"],
+    ["rag", "retrieval", "retrieval-augmented"],
+    ["weights & biases", "wandb", "w&b", "weave"],
+    ["langsmith", "langchain smith"],
+    ["datadog"],
+    ["sso", "single sign-on", "saml", "okta"],
+    ["self-hosted", "on-prem", "on premise", "on-premise", "vpc", "private cloud"],
+    ["soc2", "soc 2", "soc-2"],
+    ["hipaa"],
+    ["gdpr"],
+    ["pii", "personal data", "sensitive data"],
+    ["pricing", "price", "cost", "budget", "license", "licensing"],
+    ["poc", "proof of concept", "pilot", "trial"]
+  ]
+}

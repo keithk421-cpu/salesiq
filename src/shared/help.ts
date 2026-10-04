@@ -1,0 +1,174 @@
+/** M1 contracts: HELP, call setup, speaker labels, knowledge, feedback. Mirrors CONTRACTS.md where defined there. */
+import type { Stream } from './contracts'
+
+export const SALES_MOVES = [
+  'no_move', 'clarify_current_state', 'explore_process', 'test_for_friction', 'quantify_impact', 'clarify_scale',
+  'identify_owner', 'clarify_desired_state', 'clarify_requirement', 'clarify_decision', 'handle_objection',
+  'handle_competitor', 'technical_clarification', 'technical_answer', 'confirm_next_step', 'call_control',
+] as const
+export type SalesMove = (typeof SALES_MOVES)[number]
+
+export const CALL_TYPES = ['discovery', 'demo', 'technical_deep_dive', 'follow_up', 'negotiation', 'other'] as const
+export type CallType = (typeof CALL_TYPES)[number]
+
+export interface CallSetup {
+  call_type: CallType
+  call_goal: string
+  desired_outcomes: string[]
+  account: string
+}
+
+export type SpeakerRole = 'keith' | 'buyer' | 'teammate' | 'unknown'
+
+/** Per-call, manual (tap-to-name). Scoped to a Deepgram cluster in one connection epoch. Never gates HELP. */
+export interface SpeakerLabel {
+  cluster: string
+  role: Exclude<SpeakerRole, 'keith'>
+  name: string | null
+}
+
+/** A transcript utterance as the context builder sees it, with when it became available. */
+export interface MemoryTurn {
+  id: string
+  stream: Stream
+  cluster: string | null
+  start_ms: number
+  end_ms: number
+  text: string
+  /** Session ms when this text was available to the app (final arrival). Replay uses it to avoid leaking the future. */
+  available_ms: number
+}
+
+export interface MemoryGap {
+  id: string
+  stream: Stream
+  cause: string
+  start_ms: number
+  end_ms: number | null
+}
+
+// ---------------- knowledge ----------------
+
+export type KnowledgeCategory = 'product' | 'deployment_security' | 'competitive' | 'objection_handling' | 'other'
+
+export interface KnowledgeDocMeta {
+  doc_id: string
+  title: string
+  category: KnowledgeCategory
+  source: string
+  version: string
+  /** Importing is not approval. Only Keith sets this. */
+  approved: boolean
+  approved_by: string | null
+  approved_at: string | null
+  /** ISO date; past => stale (not stated as current fact). */
+  review_by: string | null
+  applies_to: string[]
+  tags: string[]
+  file: string
+}
+
+export interface KnowledgeChunk {
+  chunk_id: string
+  doc_id: string
+  title: string
+  heading: string
+  text: string
+  meta: KnowledgeDocMeta
+  stale: boolean
+}
+
+// ---------------- HELP card ----------------
+
+export type PrimaryKind = 'ask' | 'say'
+
+/** What the model returns (one bounded structured request; move chosen before wording). */
+export interface HelpCardContent {
+  /** Internal/debug only. Not shown as a section. */
+  move: SalesMove
+  primary_kind: PrimaryKind
+  primary: string
+  happening: string | null
+  follow_up: string | null
+  source_ids: string[]
+  /** e.g. "No approved current source for SSO details - offer to follow up". Debug + optional small note. */
+  note: string | null
+}
+
+export type HelpOrigin = 'help_requested' | 'coach_proactive'
+
+export type HelpStatus = 'pending' | 'streaming' | 'complete' | 'failed' | 'timeout' | 'cancelled' | 'superseded'
+
+export interface HelpTiming {
+  pressed_at_wall: number
+  /** Hotkey -> first complete, usable guidance (primary line complete and valid). */
+  first_usable_ms: number | null
+  /** Hotkey -> fully validated card. */
+  complete_ms: number | null
+  /** Hotkey -> first byte from the model. */
+  first_token_ms: number | null
+  served_from_prefetch: boolean
+}
+
+export interface HelpUsage {
+  input_tokens: number
+  output_tokens: number
+  cache_read_input_tokens: number
+  cache_creation_input_tokens: number
+  /** USD, computed from the configured price table (output includes billed thinking tokens). */
+  cost_usd: number
+}
+
+export interface HelpModelConfig {
+  /** 'mock' is a clearly-labelled offline stand-in. */
+  provider: 'anthropic' | 'mock'
+  model: string
+  effort: 'low' | 'medium' | 'high'
+  /** Sonnet 5.5 only: 'between_tools' turns thinking off. Opus 5.5 cannot disable thinking. */
+  thinking: 'adaptive' | 'off'
+  timeout_ms: number
+  max_tokens: number
+}
+
+/** Context references kept with the request so it can be audited/replayed later. */
+export interface HelpContextRefs {
+  at_session_ms: number
+  hot_turn_ids: string[]
+  thread_turn_ids: string[]
+  earlier_turn_ids: string[]
+  knowledge_chunk_ids: string[]
+  gaps_noted: string[]
+  provisional_text: boolean
+  transcript_lag_ms: number | null
+}
+
+export interface HelpCardEvent {
+  request_id: string
+  seq: number
+  origin: HelpOrigin
+  status: HelpStatus
+  content: Partial<HelpCardContent>
+  /** Shown as a small warning on the card, e.g. transcript gap or lag. */
+  warnings: string[]
+  timing: HelpTiming
+  model_label: string
+  mock: boolean
+  error: string | null
+  /** Sources resolved for display (collapsed by default). */
+  sources: Array<{ id: string; kind: 'turn' | 'knowledge'; label: string; detail: string }>
+}
+
+// ---------------- feedback ----------------
+
+export type FeedbackType = 'useful' | 'should_have_stayed_quiet' | 'bad'
+export type BadReason = 'wrong_move' | 'assumed_too_much' | 'already_known' | 'too_generic' | 'too_late' | 'bad_wording' | 'unsupported' | 'other'
+
+export interface FeedbackEvent {
+  card_id: string
+  /** HELP-requested feedback is a different signal from future proactive Coach feedback. */
+  origin: HelpOrigin
+  type: FeedbackType
+  bad_reason: BadReason | null
+  optional_note: string | null
+  timestamp: string
+}

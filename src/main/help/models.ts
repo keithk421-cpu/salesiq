@@ -1,0 +1,157 @@
+/**
+ * HELP model adapters.
+ * - ClaudeHelpModel: Anthropic SDK, streaming, cached system prompt, server-side fallback,
+ *   explicit api.anthropic.com base URL (ignores ambient env overrides).
+ * - MockHelpModel: offline stand-in for replay/UI/tests. Every card it produces is labelled MOCK.
+ */
+import Anthropic from '@anthropic-ai/sdk'
+import type { HelpModelConfig, HelpUsage } from '../../shared/help'
+
+export interface HelpModelRun {
+  system: string
+  user: string
+  config: HelpModelConfig
+  signal: AbortSignal
+  onText: (chunk: string) => void
+}
+
+export interface HelpModelResult {
+  usage: HelpUsage
+  stop_reason: string | null
+  served_model: string
+  fell_back: boolean
+}
+
+export interface HelpModel {
+  readonly mock: boolean
+  label(config: HelpModelConfig): string
+  run(req: HelpModelRun): Promise<HelpModelResult>
+  /** Warm the connection and the cached system prompt so the first press is fast. */
+  prewarm(system: string, config: HelpModelConfig): Promise<void>
+}
+
+/** USD per million tokens. Output price applies to billed thinking tokens too. Edit when prices change. */
+export const PRICES: Record<string, { input: number; output: number; cache_read: number; cache_write: number }> = {
+  'claude-sonnet-5-5': { input: 2, output: 10, cache_read: 0.2, cache_write: 2.5 },
+  'claude-opus-5-5': { input: 4, output: 20, cache_read: 0.2, cache_write: 5 },
+  'claude-haiku-4-5': { input: 1, output: 5, cache_read: 0.1, cache_write: 1.25 },
+}
+
+export function costUsd(model: string, u: Omit<HelpUsage, 'cost_usd'>): number {
+  const p = PRICES[model] ?? PRICES['claude-sonnet-5-5']
+  return (
+    (u.input_tokens * p.input + u.output_tokens * p.output + u.cache_read_input_tokens * p.cache_read + u.cache_creation_input_tokens * p.cache_write) /
+    1_000_000
+  )
+}
+
+export const DEFAULT_HELP_CONFIG: HelpModelConfig = {
+  provider: 'anthropic',
+  model: 'claude-sonnet-5-5',
+  effort: 'low',
+  thinking: 'off',
+  timeout_ms: 8000,
+  max_tokens: 400,
+}
+
+export const OPUS_HELP_CONFIG: HelpModelConfig = { ...DEFAULT_HELP_CONFIG, model: 'claude-opus-5-5', thinking: 'adaptive' }
+
+export class ClaudeHelpModel implements HelpModel {
+  readonly mock = false
+  private client: Anthropic
+
+  constructor(apiKey: string) {
+    this.client = new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com', maxRetries: 0 })
+  }
+
+  label(c: HelpModelConfig): string {
+    return `${c.model} · effort ${c.effort} · thinking ${this.thinkingParam(c).type}`
+  }
+
+  /** Sonnet 5.5 can turn thinking off ('between_tools'); Opus 5.5 always thinks (adaptive) - effort controls depth. */
+  private thinkingParam(c: HelpModelConfig): { type: 'adaptive' } | { type: 'between_tools' } {
+    return c.thinking === 'off' && c.model.startsWith('claude-sonnet-5-5') ? { type: 'between_tools' } : { type: 'adaptive' }
+  }
+
+  private params(system: string, user: string, c: HelpModelConfig, maxTokens: number) {
+    return {
+      model: c.model,
+      max_tokens: maxTokens,
+      betas: ['server-side-fallback-2026-07-01'],
+      fallbacks: 'default' as const,
+      system: [{ type: 'text' as const, text: system, cache_control: { type: 'ephemeral' as const } }],
+      messages: [{ role: 'user' as const, content: user }],
+      thinking: this.thinkingParam(c),
+      output_config: { effort: c.effort },
+    }
+  }
+
+  async run(req: HelpModelRun): Promise<HelpModelResult> {
+    const c = req.config
+    const stream = this.client.beta.messages.stream(this.params(req.system, req.user, c, c.max_tokens), {
+      signal: req.signal,
+      timeout: c.timeout_ms,
+    })
+    for await (const ev of stream) {
+      if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') req.onText(ev.delta.text)
+    }
+    const msg = await stream.finalMessage()
+    const u = msg.usage
+    const base = {
+      input_tokens: u.input_tokens ?? 0,
+      output_tokens: u.output_tokens ?? 0,
+      cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+    }
+    const fellBack = msg.content.some((b) => (b as { type: string }).type === 'fallback')
+    return {
+      usage: { ...base, cost_usd: costUsd(msg.model, base) },
+      stop_reason: msg.stop_reason ?? null,
+      served_model: msg.model,
+      fell_back: fellBack,
+    }
+  }
+
+  async prewarm(system: string, c: HelpModelConfig): Promise<void> {
+    // max_tokens 0: writes/refreshes the cached system prompt and opens the connection; no output billed.
+    const p = this.params(system, 'warm-up', c, 0)
+    await this.client.beta.messages.create({ ...p, stream: false }, { timeout: 10_000 })
+  }
+}
+
+/** Offline stand-in. Deterministic, clearly labelled, never presented as real guidance. */
+export class MockHelpModel implements HelpModel {
+  readonly mock = true
+  constructor(private readonly delayMs = 150) {}
+
+  label(): string {
+    return 'MOCK (no model; offline test output)'
+  }
+
+  async run(req: HelpModelRun): Promise<HelpModelResult> {
+    const last = /\[(T\d+)\][^\n]*$/m.exec(req.user.split('<last_30_seconds>')[1] ?? '')?.[1]
+    const lines = [
+      'MOVE: clarify_current_state',
+      'ASK: [MOCK] How does that work in practice today?',
+      'HAPPENING: [MOCK] Placeholder read - no model was called.',
+      'FOLLOW: -',
+      `SOURCES: ${last ?? '-'}`,
+      'NOTE: MOCK output for offline testing',
+    ]
+    for (const l of lines) {
+      if (req.signal.aborted) throw new Anthropic.APIUserAbortError()
+      await new Promise((r) => setTimeout(r, this.delayMs / lines.length))
+      req.onText(`${l}\n`)
+    }
+    return {
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 },
+      stop_reason: 'end_turn',
+      served_model: 'mock',
+      fell_back: false,
+    }
+  }
+
+  async prewarm(): Promise<void> {
+    /* nothing to warm */
+  }
+}

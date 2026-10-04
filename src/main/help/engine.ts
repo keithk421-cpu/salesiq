@@ -1,0 +1,363 @@
+/**
+ * HELP engine: manual, unrestricted by speaker role.
+ *
+ * Request rules (Keith's M1 corrections):
+ * - A new press supersedes any pending request; an older response can never overwrite a newer one.
+ * - A completed card is never rewritten; only a new press replaces it.
+ * - Pause/Stop cancel pending work and suppress late results.
+ * - Timing: hotkey -> first complete usable line, hotkey -> fully validated card; tokens + cost recorded.
+ *
+ * Latency levers:
+ * - Prefetch: after someone finishes speaking, a candidate card is prepared in the background
+ *   (never shown unless Keith presses, and only used if nothing new was said since).
+ * - Cache/connection pre-warm at session start and keep-warm while live.
+ */
+import { randomUUID } from 'node:crypto'
+import type { FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { Db } from '../db'
+import type { KnowledgeBase } from '../knowledge'
+import type { CallMemory } from './callMemory'
+import { buildHelpContext, type BuiltContext } from './context'
+import type { HelpModel } from './models'
+import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
+import { LineProtocolParser, validateCard } from './protocol'
+
+export interface HelpEngineDeps {
+  memory: CallMemory
+  kb: KnowledgeBase | null
+  model: HelpModel
+  config: HelpModelConfig
+  playbook: Playbook
+  db: Db | null
+  /** Current session time (ms) - the "as of" time for context. */
+  sessionNowMs: () => number
+  emit: (ev: HelpCardEvent) => void
+  /** Diagnostics: ids, timings, statuses, token counts only - never transcript or card text. */
+  log: (event: string, data?: Record<string, unknown>) => void
+  prefetch?: boolean
+  /** Wall clock in ms (injectable for tests). */
+  wallNow?: () => number
+}
+
+interface Run {
+  id: string
+  seq: number
+  origin: HelpOrigin
+  prefetch: boolean
+  /** Signature of the final transcript the context was built from. */
+  snapshotKey: string
+  ctx: BuiltContext
+  parser: LineProtocolParser
+  abort: AbortController
+  status: HelpStatus
+  startedWall: number
+  /** When Keith pressed (for prefetch adoption: the press time, not the prefetch start). */
+  pressedWall: number | null
+  firstTokenWall: number | null
+  completeWall: number | null
+  content: Partial<HelpCardContent>
+  card: HelpCardContent | null
+  issues: string[]
+  usage: HelpUsage | null
+  error: string | null
+  raw: string
+  done: Promise<void>
+}
+
+const PREFETCH_DEBOUNCE_MS = 700
+const PREFETCH_MAX_AGE_MS = 25_000
+const KEEP_WARM_MS = 4 * 60_000
+
+export class HelpEngine {
+  private seq = 0
+  /** The run currently shown (or being shown) to Keith. */
+  private current: Run | null = null
+  private prefetchRun: Run | null = null
+  private prefetchTimer: NodeJS.Timeout | null = null
+  private warmTimer: NodeJS.Timeout | null = null
+  private lastRequestWall = 0
+  private cancelled = false
+  private readonly system: string
+  private readonly wallNow: () => number
+
+  constructor(private readonly d: HelpEngineDeps) {
+    this.system = buildSystemPrompt(d.playbook)
+    this.wallNow = d.wallNow ?? (() => performance.now())
+  }
+
+  get modelLabel(): string {
+    return this.d.model.label(this.d.config)
+  }
+
+  /** Keith pressed HELP (hotkey or button). Returns the request id. */
+  press(origin: HelpOrigin = 'help_requested'): string {
+    this.cancelled = false
+    const pressedWall = this.wallNow()
+    const key = this.snapshotKey()
+    const liveSpeech = this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().split(/\s+/).length >= 4)
+    if (this.current && this.current.status !== 'complete' && this.current.status !== 'failed' && this.current.status !== 'timeout') {
+      this.finish(this.current, 'superseded')
+    }
+
+    // Reuse a prefetched candidate only if nothing new was said since it was built.
+    const pf = this.prefetchRun
+    if (pf && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
+      this.prefetchRun = null
+      pf.seq = ++this.seq
+      pf.origin = origin
+      pf.pressedWall = pressedWall
+      this.current = pf
+      this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status })
+      this.persist(pf)
+      this.emit(pf)
+      return pf.id
+    }
+    this.abortPrefetch()
+    const run = this.start(origin, false, pressedWall)
+    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false })
+    return run.id
+  }
+
+  /** Call when new final transcript words arrive. Schedules a background candidate. */
+  onFinalWords(): void {
+    if (!this.d.prefetch || this.d.model.mock || this.cancelled) return
+    if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    this.prefetchTimer = setTimeout(() => {
+      this.prefetchTimer = null
+      if (this.cancelled) return
+      const key = this.snapshotKey()
+      if (this.prefetchRun && this.prefetchRun.snapshotKey === key) return
+      this.abortPrefetch()
+      this.prefetchRun = this.start('help_requested', true, null)
+    }, PREFETCH_DEBOUNCE_MS)
+  }
+
+  /** Pause/Stop: cancel all pending work and suppress late results. */
+  cancelAll(reason: 'pause' | 'stop' | 'shutdown'): void {
+    this.cancelled = true
+    if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    this.prefetchTimer = null
+    this.abortPrefetch()
+    if (this.current && (this.current.status === 'pending' || this.current.status === 'streaming')) this.finish(this.current, 'cancelled')
+    this.stopKeepWarm()
+    this.d.log('help_cancel_all', { reason })
+  }
+
+  resume(): void {
+    this.cancelled = false
+  }
+
+  /** Warm the connection + cached system prompt, then keep it warm while live. */
+  async prewarm(): Promise<void> {
+    if (this.d.model.mock) return
+    try {
+      const t0 = this.wallNow()
+      await this.d.model.prewarm(this.system, this.d.config)
+      this.d.log('help_prewarm', { ms: Math.round(this.wallNow() - t0) })
+    } catch (err) {
+      this.d.log('help_prewarm_failed', { message: (err as Error).message })
+    }
+    this.lastRequestWall = this.wallNow()
+    this.startKeepWarm()
+  }
+
+  private startKeepWarm(): void {
+    this.stopKeepWarm()
+    this.warmTimer = setInterval(() => {
+      if (this.cancelled || this.wallNow() - this.lastRequestWall < KEEP_WARM_MS) return
+      void this.prewarm()
+    }, 60_000)
+  }
+
+  private stopKeepWarm(): void {
+    if (this.warmTimer) clearInterval(this.warmTimer)
+    this.warmTimer = null
+  }
+
+  recordFeedback(f: Omit<FeedbackEvent, 'timestamp'>): FeedbackEvent {
+    const ev: FeedbackEvent = { ...f, timestamp: new Date().toISOString() }
+    this.d.db?.sql.prepare('INSERT INTO feedback (card_id, origin, type, bad_reason, note, ts) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(ev.card_id, ev.origin, ev.type, ev.bad_reason, ev.optional_note, ev.timestamp)
+    this.d.log('help_feedback', { card_id: ev.card_id, origin: ev.origin, type: ev.type, bad_reason: ev.bad_reason })
+    return ev
+  }
+
+  dispose(): void {
+    this.cancelAll('shutdown')
+  }
+
+  // ------------------------------------------------------------------ internals
+
+  /** Signature of the final transcript as of now (what the context would be built from). */
+  private snapshotKey(): string {
+    const turns = this.d.memory.turnsAsOf(this.d.sessionNowMs()).slice(-6)
+    const gaps = this.d.memory.gapsAsOf(this.d.sessionNowMs()).map((g) => `${g.id}:${g.end_ms ?? 'open'}`).join(',')
+    const labels = [...this.d.memory.labels.values()].map((l) => `${l.cluster}=${l.role}/${l.name ?? ''}`).join(',')
+    return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
+  }
+
+  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null): Run {
+    const atMs = this.d.sessionNowMs()
+    const ctx = buildHelpContext({ memory: this.d.memory, kb: this.d.kb, atMs })
+    const run: Run = {
+      id: randomUUID(),
+      seq: prefetch ? 0 : ++this.seq,
+      origin,
+      prefetch,
+      snapshotKey: this.snapshotKey(),
+      ctx,
+      parser: new LineProtocolParser(this.wallNow),
+      abort: new AbortController(),
+      status: 'pending',
+      startedWall: this.wallNow(),
+      pressedWall,
+      firstTokenWall: null,
+      completeWall: null,
+      content: {},
+      card: null,
+      issues: [],
+      usage: null,
+      error: null,
+      raw: '',
+      done: Promise.resolve(),
+    }
+    if (!prefetch) this.current = run
+    this.lastRequestWall = run.startedWall
+    this.persist(run, buildUserMessage(ctx.text))
+    if (!prefetch) this.emit(run)
+    run.done = this.execute(run)
+    return run
+  }
+
+  private async execute(run: Run): Promise<void> {
+    const user = buildUserMessage(run.ctx.text)
+    const timer = setTimeout(() => run.abort.abort(new Error('timeout')), this.d.config.timeout_ms)
+    try {
+      const res = await this.d.model.run({
+        system: this.system,
+        user,
+        config: this.d.config,
+        signal: run.abort.signal,
+        onText: (chunk) => {
+          if (this.isDead(run)) return
+          if (run.firstTokenWall === null) run.firstTokenWall = this.wallNow()
+          run.raw += chunk
+          if (run.status === 'pending') run.status = 'streaming'
+          if (run.parser.feed(chunk)) {
+            run.content = run.parser.partial()
+            this.emit(run)
+          }
+        },
+      })
+      if (this.isDead(run)) return
+      run.parser.end()
+      run.content = run.parser.partial()
+      run.usage = res.usage
+      if (res.stop_reason === 'refusal') throw new Error('model declined (refusal)')
+      const v = validateCard(run.content, run.parser.fieldOrder, {
+        knownSourceIds: new Set(run.ctx.sources.keys()),
+        contextText: run.ctx.text,
+        limits: this.d.playbook.card_limits,
+      })
+      run.issues = v.issues
+      if (!v.ok || !v.card) {
+        run.error = v.issues.join('; ')
+        this.finish(run, 'failed')
+        return
+      }
+      run.card = v.card
+      run.content = v.card
+      run.completeWall = this.wallNow()
+      this.finish(run, 'complete')
+    } catch (err) {
+      if (this.isDead(run)) return
+      const timedOut = run.abort.signal.aborted && (run.abort.signal.reason as Error | undefined)?.message === 'timeout'
+      run.error = timedOut ? `no complete card within ${this.d.config.timeout_ms} ms` : (err as Error).message
+      this.finish(run, timedOut ? 'timeout' : 'failed')
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** A run whose results must be ignored (superseded, cancelled, or a discarded prefetch). */
+  private isDead(run: Run): boolean {
+    return run.status === 'superseded' || run.status === 'cancelled'
+  }
+
+  private finish(run: Run, status: HelpStatus): void {
+    if (this.isDead(run) || run.status === 'complete' || run.status === 'failed' || run.status === 'timeout') return
+    run.status = status
+    if (status === 'superseded' || status === 'cancelled') run.abort.abort(new Error(status))
+    this.persist(run)
+    const t = this.timing(run)
+    this.d.log(run.prefetch && run.pressedWall === null ? 'help_prefetch_done' : 'help_done', {
+      request_id: run.id, seq: run.seq, status, origin: run.origin, model: this.d.config.model,
+      first_usable_ms: t.first_usable_ms, complete_ms: t.complete_ms, first_token_ms: t.first_token_ms,
+      served_from_prefetch: t.served_from_prefetch, input_tokens: run.usage?.input_tokens, output_tokens: run.usage?.output_tokens,
+      cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.error,
+    })
+    // A finished prefetch nobody pressed for stays in memory, unseen.
+    if (run.pressedWall !== null || !run.prefetch) this.emit(run)
+  }
+
+  private abortPrefetch(): void {
+    const pf = this.prefetchRun
+    this.prefetchRun = null
+    if (pf && (pf.status === 'pending' || pf.status === 'streaming')) {
+      pf.status = 'cancelled'
+      pf.abort.abort(new Error('prefetch discarded'))
+      this.persist(pf)
+    }
+  }
+
+  private timing(run: Run): HelpTiming {
+    const pressed = run.pressedWall ?? run.startedWall
+    const rel = (t: number | null) => (t === null ? null : Math.max(0, Math.round(t - pressed)))
+    return {
+      pressed_at_wall: pressed,
+      first_usable_ms: rel(run.parser.firstUsableAt),
+      complete_ms: run.status === 'complete' ? rel(run.completeWall) : null,
+      first_token_ms: rel(run.firstTokenWall),
+      served_from_prefetch: run.prefetch && run.pressedWall !== null,
+    }
+  }
+
+  private emit(run: Run): void {
+    // Never let an older request reach the screen once a newer one exists.
+    if (this.current !== run || run.seq !== this.seq) return
+    const sources = (run.content.source_ids ?? [])
+      .map((s) => run.ctx.sources.get(s))
+      .filter((x): x is NonNullable<typeof x> => !!x)
+    const ev: HelpCardEvent = {
+      request_id: run.id,
+      seq: run.seq,
+      origin: run.origin,
+      status: run.status,
+      content: run.content,
+      warnings: run.ctx.warnings,
+      timing: this.timing(run),
+      model_label: this.d.model.label(this.d.config),
+      mock: this.d.model.mock,
+      error: run.error,
+      sources,
+    }
+    this.d.emit(ev)
+  }
+
+  private persist(run: Run, requestText?: string): void {
+    const db = this.d.db
+    if (!db) return
+    const t = this.timing(run)
+    db.sql.prepare(
+      `INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, context_refs_json, request_text, output_raw, card_json, timing_json, usage_json, error, prefetch)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET status = excluded.status, origin = excluded.origin, output_raw = excluded.output_raw, card_json = excluded.card_json,
+         timing_json = excluded.timing_json, usage_json = excluded.usage_json, error = excluded.error`,
+    ).run(
+      run.id, this.d.memory.sessionId, run.origin, new Date().toISOString(), run.ctx.refs.at_session_ms, run.status,
+      JSON.stringify({ ...this.d.config, label: this.d.model.label(this.d.config), mock: this.d.model.mock, playbook: this.d.playbook.version }),
+      JSON.stringify(run.ctx.refs), requestText ?? null, run.raw || null, run.card ? JSON.stringify(run.card) : null,
+      JSON.stringify({ ...t, issues: run.issues }), run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
+    )
+  }
+}
