@@ -41,6 +41,11 @@ export class ResidualEchoGate {
   private pending: Buffer[] = []
   private pendingSamples = 0
   suppressedWindows = 0
+
+  /** Samples buffered but not yet emitted as a window. */
+  get pendingSampleCount(): number {
+    return this.pendingSamples
+  }
   totalWindows = 0
 
   reset(): void {

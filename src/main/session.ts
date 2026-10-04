@@ -88,6 +88,9 @@ interface StreamRt {
   providerAttempts: number
   silentWarned: boolean
   lastStatusKey: string
+  lastRecoveredAt: number
+  recoveryBackoffMs: number
+  lostAt: number
 }
 
 export class SessionController {
@@ -101,7 +104,6 @@ export class SessionController {
   private closing = new Set<DeepgramStream>()
   private timers: NodeJS.Timeout[] = []
   private checkResolve: ((r: { ok: boolean; reason?: string }) => void) | null = null
-  private micGateClockMs: number | null = null
   private endpointsAtStart: EndpointInfo[] = []
   readonly counters = {
     echoSuppressedWindows: 0,
@@ -120,6 +122,7 @@ export class SessionController {
       openGap: null, nextDiscontinuity: false, seq: 0,
       recoveryTimer: null, providerRetryTimer: null, providerAttempts: 0,
       silentWarned: false, lastStatusKey: '',
+      lastRecoveredAt: 0, recoveryBackoffMs: 0, lostAt: 0,
     })
     this.rt = {
       local_mic: mk('local_mic', 'Microphone', deps.config.microphone.endpoint_id, deps.config.microphone.friendly_name),
@@ -254,7 +257,6 @@ export class SessionController {
   private goLive(): void {
     this.t0 = this.now()
     this.echoGate.reset()
-    this.micGateClockMs = null
     for (const rt of this.streams) rt.nextDiscontinuity = false
     this.setState('live')
     this.alert('info', `Listening. Meeting audio: "${this.rt.system_remote.friendlyName}". Mic: "${this.rt.local_mic.friendlyName}".`)
@@ -280,7 +282,6 @@ export class SessionController {
       rt.activity.reset()
       rt.activity.lastChunkAtMs = this.now()
       rt.silentWarned = false
-      if (rt.stream === 'local_mic') this.micGateClockMs = null
     }
     return res
   }
@@ -310,22 +311,20 @@ export class SessionController {
         this.echoGate.pushSystemPcm(ev.data)
         this.sendFrame(rt, ev.data, ev.samples, ev.monotonicMs)
       } else {
-        if (ev.discontinuity) {
-          this.echoGate.discardPending()
-          this.micGateClockMs = null
-        }
-        if (this.micGateClockMs === null) this.micGateClockMs = ev.monotonicMs
+        if (ev.discontinuity) this.echoGate.discardPending()
+        // Re-anchor on every chunk: the first buffered sample's time is this chunk's time minus what is still pending.
+        let ts = ev.monotonicMs - samplesToMs(this.echoGate.pendingSampleCount)
         for (const w of this.echoGate.pushMicPcm(ev.data)) {
-          const ts = this.micGateClockMs
-          this.micGateClockMs += 100
+          const windowTs = ts
+          ts += 100
           if (w.decision === 'echo' || w.decision === 'hold') {
             this.counters.echoSuppressedWindows++
             if (this.counters.echoSuppressedWindows % 10 === 1) {
               this.deps.emit({ type: 'suppressed', kind: 'echo_audio', stream: 'local_mic', detail: `Meeting audio leaking into mic was muted (corr ${w.correlation.toFixed(2)}).` })
             }
-            this.deps.log('echo_suppressed', { sessionMs: this.sessionMs(ts), corr: Number(w.correlation.toFixed(3)), decision: w.decision })
+            this.deps.log('echo_suppressed', { sessionMs: this.sessionMs(windowTs), corr: Number(w.correlation.toFixed(3)), decision: w.decision })
           }
-          this.sendFrame(rt, w.pcm, 1600, ts)
+          this.sendFrame(rt, w.pcm, 1600, windowTs)
         }
       }
       return
@@ -373,6 +372,12 @@ export class SessionController {
 
     this.closeCapture(rt)
     rt.capture = 'lost'
+    // A device that keeps failing right after recovery (e.g. headset off but dongle present) is retried
+    // with growing back-off so it does not flap.
+    const now = Date.now()
+    rt.recoveryBackoffMs =
+      rt.lastRecoveredAt && now - rt.lastRecoveredAt < 15000 ? Math.min(30000, Math.max(2000, rt.recoveryBackoffMs * 2)) : 0
+    rt.lostAt = now
     const deviceState = this.deps.native.getEndpointState(rt.endpointId)
     if (rt.openGap) this.closeGap(rt, this.sessionMs(), 'not_recovered')
     this.openGap(rt, cause, detail, deviceState)
@@ -390,6 +395,7 @@ export class SessionController {
     if (rt.recoveryTimer) clearInterval(rt.recoveryTimer)
     rt.recoveryTimer = setInterval(() => {
       if (this.state !== 'live') return
+      if (Date.now() - rt.lostAt < rt.recoveryBackoffMs) return
       if (this.deps.native.getEndpointState(rt.endpointId) === 'active') void this.tryRecover(rt)
     }, this.deps.recoveryPollMs ?? 1000)
   }
@@ -417,6 +423,7 @@ export class SessionController {
     if (rt.recoveryTimer) clearInterval(rt.recoveryTimer)
     rt.recoveryTimer = null
     rt.nextDiscontinuity = true
+    rt.lastRecoveredAt = Date.now()
     if (rt.stream === 'local_mic') this.echoGate.discardPending()
     this.counters.deviceRecoveries++
     this.alert('info', `${rt.label} reconnected to the same confirmed device "${rt.friendlyName}". Resuming from current audio only.`)
@@ -606,7 +613,6 @@ export class SessionController {
       this.retireProvider(rt)
     }
     this.echoGate.reset()
-    this.micGateClockMs = null
     const stillCapturing = this.streams.filter((rt) => this.deps.native.isCapturing(rt.stream)).map((rt) => rt.stream)
     this.deps.log('pause_verified', { stillCapturing })
     if (stillCapturing.length) this.alert('error', `Pause: native capture still running for ${stillCapturing.join(', ')}`)
@@ -655,7 +661,6 @@ export class SessionController {
       rt.nextDiscontinuity = true
     }
     this.echoGate.reset()
-    this.micGateClockMs = null
     this.setState('live')
     this.startLiveTimers()
     this.emitStatuses()

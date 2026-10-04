@@ -175,6 +175,28 @@ describe('device loss during a call', () => {
     await ctx.session.stop()
   })
 
+  it('a device that keeps stalling right after recovery backs off instead of flapping', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    // Mic endpoint stays "active" but delivers nothing (headset off, dongle still plugged in).
+    await feed(ctx, 20000, 'none', 'audio')
+    const micOpens = ctx.native.startCalls.filter((c) => c.stream === 'local_mic').length
+    // Without back-off this would reopen roughly every 2.5 s (6+ opens in 20 s here).
+    expect(micOpens).toBeLessThanOrEqual(4)
+    expect(others(ctx)).toHaveLength(0)
+    await ctx.session.stop()
+  })
+
+  it('mic frame timestamps follow the native clock (no drift)', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 2000)
+    const mic = ctx.frames.filter((f) => f.stream === 'local_mic')
+    const sys = ctx.frames.filter((f) => f.stream === 'system_remote')
+    expect(Math.abs(mic.at(-1)!.monotonic_start_ms - sys.at(-1)!.monotonic_start_ms)).toBeLessThanOrEqual(120)
+    await ctx.session.stop()
+  })
+
   it('a stalled stream (no data) is treated as a loss', async () => {
     const ctx = setup()
     await startLive(ctx)
