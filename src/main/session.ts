@@ -30,6 +30,9 @@ import { ResidualEchoGate } from './echoGate'
 import { resolveConfig } from './endpoints'
 import { samplesToMs } from './pcm'
 import { invalidNativeEvent } from './validate'
+
+/** Level above which a chunk counts as audible sound for duplicate-overlap checks. */
+const AUDIBLE_DBFS = -50
 import { TurnBuilder, type TurnEvent } from './turnBuilder'
 
 export type SessionState = 'idle' | 'checking' | 'live' | 'paused' | 'stopping' | 'stopped'
@@ -51,6 +54,7 @@ export type SessionEvent =
   | { type: 'gap_close'; gap: GapRecord }
   | { type: 'turn'; event: TurnEvent }
   | { type: 'interim'; stream: Stream; text: string }
+  | { type: 'timing'; stream: Stream; captureLagMs: number; sttDelayMs: number | null }
   | { type: 'alert'; level: 'error' | 'warning' | 'info'; message: string }
   | { type: 'suppressed'; kind: 'echo_audio' | 'duplicate_text'; stream: Stream; detail: string }
 
@@ -91,6 +95,12 @@ interface StreamRt {
   lastStatusKey: string
   /** Monotonic ms just past the last audio chunk from the current capture (null right after open). */
   lastChunkEndMono: number | null
+  /** Native -> JS delivery lag samples (ms) since the last timing report. */
+  lagSamples: number[]
+  /** STT delay: wall time of final words minus the end of the last word (ms), last report window. */
+  sttDelays: number[]
+  /** Session-ms intervals where this stream carried audible (non-synthetic) sound; last ~30 s. */
+  audible: Array<[number, number]>
   lastRecoveredAt: number
   recoveryBackoffMs: number
   lostAt: number
@@ -125,6 +135,7 @@ export class SessionController {
       openGap: null, nextDiscontinuity: false, seq: 0,
       recoveryTimer: null, providerRetryTimer: null, providerAttempts: 0,
       silentWarned: false, lastStatusKey: '', lastChunkEndMono: null,
+      lagSamples: [], sttDelays: [], audible: [],
       lastRecoveredAt: 0, recoveryBackoffMs: 0, lostAt: 0,
     })
     this.rt = {
@@ -313,6 +324,10 @@ export class SessionController {
       rt.activity.push(ev.data, now, ev.syntheticSilence)
       const prevEnd = rt.lastChunkEndMono
       rt.lastChunkEndMono = ev.monotonicMs + samplesToMs(ev.samples)
+      if (!ev.syntheticSilence) {
+        if (rt.lagSamples.length < 2000) rt.lagSamples.push(now - rt.lastChunkEndMono)
+        if (this.state === 'live' && rt.activity.level.rmsDbfs > AUDIBLE_DBFS) this.markAudible(rt, this.sessionMs(ev.monotonicMs), this.sessionMs(rt.lastChunkEndMono))
+      }
       // The first packet after opening a stream commonly carries the WASAPI discontinuity
       // flag; that is the start of capture, not a gap.
       if (ev.discontinuity && prevEnd !== null) {
@@ -555,16 +570,36 @@ export class SessionController {
     if (!this.turnBuilder) return
     if (this.state === 'idle' || this.state === 'checking') return
     if (!isFinal) {
+      // Interim text is provisional and display-only; turns are built from finals.
       this.deps.emit({ type: 'interim', stream: rt.stream, text: words.map((w) => w.word).join(' ') })
       return
     }
-    this.deps.log('final_words', { stream: rt.stream, epoch: words[0]?.connection_epoch, count: words.length, start_ms: words[0]?.start_ms })
+    const last = words[words.length - 1]
+    const sttDelayMs = last ? this.sessionMs() - last.end_ms : null
+    if (sttDelayMs !== null && rt.sttDelays.length < 500) rt.sttDelays.push(sttDelayMs)
+    this.deps.log('final_words', {
+      stream: rt.stream, epoch: words[0]?.connection_epoch, count: words.length,
+      start_ms: words[0]?.start_ms, end_ms: last?.end_ms, stt_delay_ms: sttDelayMs,
+    })
+    this.deps.emit({ type: 'interim', stream: rt.stream, text: '' })
     if (rt.stream === 'system_remote') {
       this.dupGate.addSystemWords(words)
       this.emitTurns(this.turnBuilder.addFinalWords(words))
     } else {
-      this.dupGate.addMicWords(words, Date.now())
+      const start = words[0].start_ms - 1500
+      const end = (last?.end_ms ?? words[0].end_ms) + 1500
+      const systemMayOverlap = this.rt.system_remote.audible.some(([a, b]) => b >= start && a <= end)
+      this.dupGate.addMicWords(words, Date.now(), systemMayOverlap)
+      if (!systemMayOverlap) this.pumpDuplicateGate()
     }
+  }
+
+  /** Record that a stream carried audible sound over [startMs, endMs] (session ms), keeping ~30 s. */
+  private markAudible(rt: StreamRt, startMs: number, endMs: number): void {
+    const lastIv = rt.audible[rt.audible.length - 1]
+    if (lastIv && startMs - lastIv[1] <= 50) lastIv[1] = Math.max(lastIv[1], endMs)
+    else rt.audible.push([startMs, endMs])
+    while (rt.audible.length && rt.audible[0][1] < endMs - 30000) rt.audible.shift()
   }
 
   private pumpDuplicateGate(force = false): void {
@@ -785,6 +820,27 @@ export class SessionController {
 
   private startLiveTimers(): void {
     this.startMeters()
+    // Timing report: where latency comes from (native delivery vs speech service).
+    this.timers.push(
+      setInterval(() => {
+        if (this.state !== 'live') return
+        for (const rt of this.streams) {
+          const lag = rt.lagSamples
+          const stt = rt.sttDelays
+          if (lag.length === 0 && stt.length === 0) continue
+          const avg = (a: number[]) => Math.round(a.reduce((x, y) => x + y, 0) / a.length)
+          const captureLagMs = lag.length ? avg(lag) : 0
+          const sttDelayMs = stt.length ? avg(stt) : null
+          this.deps.log('timing', {
+            stream: rt.stream, capture_lag_avg_ms: captureLagMs, capture_lag_max_ms: lag.length ? Math.round(Math.max(...lag)) : null,
+            stt_delay_avg_ms: sttDelayMs, stt_delay_max_ms: stt.length ? Math.round(Math.max(...stt)) : null, finals: stt.length,
+          })
+          this.deps.emit({ type: 'timing', stream: rt.stream, captureLagMs, sttDelayMs })
+          rt.lagSamples = []
+          rt.sttDelays = []
+        }
+      }, 10000),
+    )
     // Windows default / device-list changes: shown and logged, never acted on.
     let landscape = this.deviceLandscape(this.endpointsAtStart)
     this.timers.push(
@@ -829,14 +885,16 @@ export class SessionController {
             continue
           }
           if (rt.stream === 'local_mic') {
-            const zero = rt.activity.digitalZeroRunMs >= (this.deps.digitalZeroWarnMs ?? 4000)
+            // Many headsets (e.g. Razer BlackShark V2 Pro) noise-gate the mic to exact zeros whenever
+            // Keith is not talking, so short digital silence is normal. Only a long run is worth a note.
+            const zero = rt.activity.digitalZeroRunMs >= (this.deps.digitalZeroWarnMs ?? 60000)
             if (zero && !rt.silentWarned) {
               rt.silentWarned = true
-              this.alert('warning', `Microphone "${rt.friendlyName}" is sending pure digital silence. The headset may be off, out of range, or hardware-muted.`)
+              this.alert('warning', `No sound from microphone "${rt.friendlyName}" for ${Math.round(rt.activity.digitalZeroRunMs / 1000)} s. Fine if you've been listening; if you've been talking, check the headset's mute/power.`)
               this.deps.log('mic_digital_silence', { sessionMs: this.sessionMs() })
             } else if (!zero && rt.silentWarned && rt.activity.digitalZeroRunMs === 0) {
               rt.silentWarned = false
-              this.alert('info', `Microphone "${rt.friendlyName}" is sending audio again.`)
+              this.alert('info', `Microphone "${rt.friendlyName}" is picking up sound again.`)
             }
           }
         }
@@ -847,7 +905,15 @@ export class SessionController {
     this.timers.push(
       setInterval(() => {
         this.pumpDuplicateGate()
-        if (this.turnBuilder) this.emitTurns(this.turnBuilder.flushIdle(this.sessionMs() - 2000))
+        if (this.turnBuilder) {
+          const now = this.sessionMs()
+          // Keep a turn open while its stream still carries sound after the turn's last word
+          // (the speaker is still talking; finals lag), up to a hard cap of 10 s.
+          this.emitTurns(this.turnBuilder.flushIdle(now, (stream, end) => {
+            if (now - end > 10000) return false
+            return this.rt[stream].audible.some(([a, b]) => b > end + 300 && a < now)
+          }))
+        }
       }, 250),
     )
   }

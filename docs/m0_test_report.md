@@ -5,6 +5,7 @@ Status: **NOT YET RUN on Keith's PC.** The M0 gate stays open until this documen
 ## Progress log
 | Date | Who | What was checked | Result |
 |---|---|---|---|
+| 2026-10-04 | Keith | ~30 s test call: Keith on the Razer + his cell phone dialed in as the remote | Worked end to end: correct Razer output auto-found, both streams transcribed, clean stop (`teardown_verified`), no gaps. Issues: remote phone audio transcribed poorly (narrowband PSTN); finals 3-6 s late; false "mic digital silence" warnings from the BlackShark V2 Pro noise gate. Fixes in the next build: echo-gate double-talk fix, no mic hold when remote is silent, live interim text, turn fragmentation fix, 60 s silence note, Arize keyterms, timing diagnostics. |
 | 2026-10-04 | Keith | Installed CI build (commit 22ee9fc) on his Windows PC with the Razer headset; device setup; Zoom Settings → Audio speaker/mic test (no meeting) | Meeting-audio loopback and mic both captured and transcribed. Earlier build had a flat meeting-audio meter; fixed by keeping late-stamped loopback audio (see commit bcf34f3). |
 
 ## Environment

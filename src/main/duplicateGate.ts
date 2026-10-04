@@ -5,6 +5,8 @@
  *
  * Mic segments are held briefly (holdMs) so the matching system words can
  * arrive; then released or suppressed. Suppressions are counted and logged.
+ * When the system stream was silent around a mic segment there is nothing to
+ * duplicate, so the segment is released immediately (no added latency).
  */
 import type { DiarizedWord } from '../shared/contracts'
 
@@ -67,9 +69,13 @@ export class DuplicateGate {
     while (this.system.length && this.system[0].end_ms < newest - 30000) this.system.shift()
   }
 
-  addMicWords(words: DiarizedWord[], nowWallMs: number): void {
+  /**
+   * @param systemMayOverlap false when the system stream had no audible sound around this
+   *   segment: a duplicate is impossible, so the segment is released without the hold delay.
+   */
+  addMicWords(words: DiarizedWord[], nowWallMs: number, systemMayOverlap = true): void {
     const finals = words.filter((w) => w.is_final)
-    if (finals.length) this.pending.push({ words: finals, readyAt: nowWallMs + this.holdMs })
+    if (finals.length) this.pending.push({ words: finals, readyAt: nowWallMs + (systemMayOverlap ? this.holdMs : 0) })
   }
 
   /** Release mic segments whose hold time has passed (or all, when force). */

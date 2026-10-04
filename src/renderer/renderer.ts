@@ -34,6 +34,9 @@ const supp: Array<{ at: number; text: string }> = []
 const statuses: Record<string, StreamStatusEvent> = {}
 let lossStream: string | null = null
 let echoFiltered = 0
+/** Provisional (interim) text per stream, display-only. Cleared when finals arrive. */
+const interims: Record<string, string> = {}
+const delays: Record<string, number | null> = {}
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -296,6 +299,13 @@ function renderTranscript(): void {
   }
   for (const s of supp.slice(-20)) rows.push({ at: s.at, html: `<div class="supp">Filtered echo: “${esc(s.text)}”</div>` })
   rows.sort((a, b) => a.at - b.at)
+  // Live (interim) text goes last: provisional, replaced by final turns.
+  for (const stream of ['system_remote', 'local_mic'] as const) {
+    const text = interims[stream]
+    if (!text) continue
+    const me = stream === 'local_mic'
+    rows.push({ at: Infinity, html: `<div class="msgrow ${me ? 'me' : 'them'} live"><div class="who">${me ? 'Keith · mic' : 'Remote'}<span class="t">live, not final</span></div><div class="bubble">${esc(text)}</div></div>` })
+  }
   const box = $('transcript')
   const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40
   if (rows.length === 0) {
@@ -305,7 +315,9 @@ function renderTranscript(): void {
   if (atBottom) box.scrollTop = box.scrollHeight
   const finals = [...turns.values()].filter((t) => t.final).length
   const realGaps = [...gaps.values()].filter((g) => g.cause !== 'pause').length
-  $('counts').textContent = `${finals} turns · ${realGaps} gaps · ${echoFiltered + supp.length} echo filtered`
+  const d = (x: number | null | undefined) => (x === null || x === undefined ? '–' : `${(x / 1000).toFixed(1)} s`)
+  const delayText = delays.local_mic !== undefined || delays.system_remote !== undefined ? ` · delay: Keith ${d(delays.local_mic)}, remote ${d(delays.system_remote)}` : ''
+  $('counts').textContent = `${finals} turns · ${realGaps} gaps · ${echoFiltered + supp.length} echo filtered${delayText}`
 }
 const emptyState = $('emptyState')
 
@@ -326,12 +338,18 @@ api.onSession((raw) => {
     case 'state':
       if (ev.state === 'checking') {
         turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0; elapsedOffset = 0; liveSince = null
+        for (const k of Object.keys(interims)) delete interims[k]
+        for (const k of Object.keys(delays)) delete delays[k]
         $('banner').hidden = true
         renderTranscript()
       }
       if (ev.state === 'live') liveSince = Date.now()
       if (sessionState === 'live' && ev.state !== 'live' && liveSince) { elapsedOffset += Date.now() - liveSince; liveSince = null }
       sessionState = ev.state
+      if (ev.state !== 'live') {
+        for (const k of Object.keys(interims)) delete interims[k]
+        renderTranscript()
+      }
       if (ev.state === 'idle' && ev.detail) showBanner('error', ev.detail)
       if (ev.detail) addActivity(ev.state === 'idle' ? 'error' : 'info', ev.detail)
       setButtons()
@@ -361,7 +379,12 @@ api.onSession((raw) => {
       if (Date.now() - lastRender > 150 || ev.event.type === 'turn_final') { lastRender = Date.now(); renderTranscript() }
       break
     case 'interim':
-      $('interim').textContent = `(interim, not final) ${ev.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${ev.text}`
+      interims[ev.stream] = ev.text
+      if (Date.now() - lastRender > 120 || !ev.text) { lastRender = Date.now(); renderTranscript() }
+      break
+    case 'timing':
+      delays[ev.stream] = ev.sttDelayMs
+      renderTranscript()
       break
     case 'alert':
       addActivity(ev.level, ev.message)

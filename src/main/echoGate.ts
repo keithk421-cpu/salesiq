@@ -11,6 +11,12 @@
  *
  * Differences from Raven:
  * - No separate AEC-cleaned signal: raw mic is used for both decisions.
+ * - Echo requires a STRONG correlation (>= 0.5) at a STABLE lag in two consecutive
+ *   windows. Raven's single-window 0.32 rule muted 24-97% of near-end speech during
+ *   double-talk in our measurements (independent speech-like signals correlate by
+ *   chance at some lag). A real acoustic leak has a fixed delay; chance peaks do not.
+ *   Without AEC, muting Keith is worse than letting a faint echo through: the
+ *   transcript-level duplicate gate catches leaked text that survives.
  * - Echo windows are replaced with zeros instead of withheld, so the mic timeline stays
  *   continuous for timestamp mapping.
  * - Counts every suppressed window for the M0 leakage report.
@@ -21,7 +27,9 @@ const SAMPLE_RATE = 16000
 const RING_SAMPLES = (SAMPLE_RATE * 400) / 1000
 export const CORR_WINDOW = 1600 // 100 ms
 const LAG_STEP = 80 // 5 ms
-export const ECHO_CORR_THRESHOLD = 0.32
+export const ECHO_CORR_THRESHOLD = 0.5
+/** Max lag change (samples) between consecutive windows for a peak to count as the same echo path. */
+const LAG_TOLERANCE = 2 * 80
 const HOLDOVER_SAMPLES = (SAMPLE_RATE * 400) / 1000
 const SILENCE_RMS = 50
 
@@ -38,6 +46,8 @@ export class ResidualEchoGate {
   private write = 0
   private filled = 0
   private holdSamples = 0
+  /** Lag of the previous window's strong peak, or null. */
+  private prevPeakLag: number | null = null
   private pending: Buffer[] = []
   private pendingSamples = 0
   suppressedWindows = 0
@@ -53,6 +63,7 @@ export class ResidualEchoGate {
     this.write = 0
     this.filled = 0
     this.holdSamples = 0
+    this.prevPeakLag = null
     this.pending = []
     this.pendingSamples = 0
   }
@@ -93,7 +104,10 @@ export class ResidualEchoGate {
 
   private decide(window: Buffer): GatedMicWindow {
     this.totalWindows++
-    const { echo, corr } = this.looksLikeEcho(window)
+    const { strong, corr, lag } = this.peak(window)
+    // Echo only when this window AND the previous one peak strongly at (about) the same lag.
+    const echo = strong && this.prevPeakLag !== null && Math.abs(lag - this.prevPeakLag) <= LAG_TOLERANCE
+    this.prevPeakLag = strong ? lag : null
     if (echo) {
       this.holdSamples = HOLDOVER_SAMPLES
       this.suppressedWindows++
@@ -111,28 +125,62 @@ export class ResidualEchoGate {
     return { pcm: window, decision: micRms < SILENCE_RMS ? 'quiet' : 'send', correlation: corr }
   }
 
-  private looksLikeEcho(buf: Buffer): { echo: boolean; corr: number } {
+  /** Best |correlation| of the mic window against recent system audio, and its lag (samples). */
+  private peak(buf: Buffer): { strong: boolean; corr: number; lag: number } {
+    const none = { strong: false, corr: 0, lag: 0 }
     const mic = toInt16(buf)
-    if (rms(mic) < SILENCE_RMS) return { echo: false, corr: 0 }
-    if (this.filled < CORR_WINDOW) return { echo: false, corr: 0 }
-    if (ringRms(this.ring, this.write, this.filled) < SILENCE_RMS) return { echo: false, corr: 0 }
+    if (rms(mic) < SILENCE_RMS) return none
+    if (this.filled < CORR_WINDOW) return none
+    if (ringRms(this.ring, this.write, this.filled) < SILENCE_RMS) return none
     const windowLen = Math.min(CORR_WINDOW, mic.length)
-    const micWindow = mic.subarray(mic.length - windowLen)
+    // Pre-emphasis whitens both signals: chance correlation between unrelated voices is
+    // dominated by low frequencies; a real (linear) echo path survives the same filter.
+    const micWindow = preEmphasis(mic.subarray(mic.length - windowLen))
     const maxLag = this.filled - windowLen
     let best = 0
+    let bestLag = 0
     for (let lag = 0; lag <= maxLag; lag += LAG_STEP) {
       const far = ringSlice(this.ring, this.write, this.filled, lag, windowLen)
       if (!far) break
       if (rms(far) < SILENCE_RMS) continue
-      const c = Math.abs(pearson(micWindow, far))
-      if (c > best) best = c
-      if (best >= ECHO_CORR_THRESHOLD) break
+      const c = Math.abs(pearsonF(micWindow, preEmphasis(far)))
+      if (c > best) {
+        best = c
+        bestLag = lag
+      }
     }
-    return { echo: best >= ECHO_CORR_THRESHOLD, corr: best }
+    return { strong: best >= ECHO_CORR_THRESHOLD, corr: best, lag: bestLag }
   }
 }
 
 export function pearson(a: Int16Array, b: Int16Array): number {
+  const n = a.length
+  if (n === 0 || n !== b.length) return 0
+  let sa = 0, sb = 0, sab = 0, sa2 = 0, sb2 = 0
+  for (let i = 0; i < n; i++) {
+    const x = a[i]
+    const y = b[i]
+    sa += x
+    sb += y
+    sab += x * y
+    sa2 += x * x
+    sb2 += y * y
+  }
+  const cov = sab - (sa * sb) / n
+  const da = sa2 - (sa * sa) / n
+  const db = sb2 - (sb * sb) / n
+  if (da < 1e-6 || db < 1e-6) return 0
+  return cov / Math.sqrt(da * db)
+}
+
+/** y[n] = x[n] - 0.97 x[n-1] (first-order high-pass / pre-emphasis). */
+export function preEmphasis(x: Int16Array): Float32Array {
+  const y = new Float32Array(x.length)
+  for (let i = 1; i < x.length; i++) y[i] = x[i] - 0.97 * x[i - 1]
+  return y
+}
+
+function pearsonF(a: Float32Array, b: Float32Array): number {
   const n = a.length
   if (n === 0 || n !== b.length) return 0
   let sa = 0, sb = 0, sab = 0, sa2 = 0, sb2 = 0

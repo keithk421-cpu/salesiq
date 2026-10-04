@@ -38,6 +38,11 @@ Join a Zoom call with a friend, or with your phone as the second person. **Wear 
    - It must **never** jump to your laptop mic or speakers by itself.
 5. Click **Stop**.
 
+What's normal:
+- Faded, dashed bubbles marked **live, not final** are words still being heard. They firm up into normal bubbles a moment later.
+- The transcript header shows **delay**: how far behind real time the final text is running.
+- Your BlackShark mic goes fully silent between your words (it has a noise gate). That's fine; you'll only see a note if it's silent for 60+ seconds.
+
 ## 4. Check nothing changed
 - Open **Diagnostics & test report** → **Save device snapshot · AFTER**.
 - Re-check Zoom → Settings → Audio: same speaker and mic as your "before" screenshot?

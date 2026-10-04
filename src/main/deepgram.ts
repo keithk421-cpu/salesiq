@@ -47,7 +47,16 @@ export interface DeepgramOptions {
 /** Upstream buffer bound: ~3 s of 16 kHz mono Int16. Beyond this, audio is dropped and a gap is marked. */
 export const MAX_BUFFERED_BYTES = 16000 * 2 * 3
 
-export function buildListenUrl(diarize: boolean): string {
+/**
+ * Keyterm prompting (nova-3): vocabulary Keith's calls use that generic STT often mangles.
+ * Proper nouns and domain terms only; generic words here can cause false insertions.
+ */
+export const DEFAULT_KEYTERMS = [
+  'Arize', 'Arize AX', 'Phoenix', 'OpenInference', 'OpenTelemetry', 'LLM', 'evals',
+  'LangChain', 'LangGraph', 'LlamaIndex', 'Datadog', 'Databricks', 'Snowflake', 'Bedrock', 'Vertex AI',
+]
+
+export function buildListenUrl(diarize: boolean, keyterms: readonly string[] = DEFAULT_KEYTERMS): string {
   const p = new URLSearchParams({
     model: 'nova-3',
     language: 'en',
@@ -62,6 +71,7 @@ export function buildListenUrl(diarize: boolean): string {
     diarize: diarize ? 'true' : 'false',
     mip_opt_out: 'true',
   })
+  for (const k of keyterms.slice(0, 100)) p.append('keyterm', k)
   return `${DEEPGRAM_URL}?${p.toString()}`
 }
 

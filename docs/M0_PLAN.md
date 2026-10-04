@@ -58,6 +58,15 @@ Windows: WASAPI (MMDevice API, IAudioClient/IAudioClient2, IAudioCaptureClient),
 7. **Secrets and the renderer:** the Deepgram key is typed into a password field in the renderer and sent once to main (encrypted with DPAPI via safeStorage). Main never sends it back, logs it, or exposes it over IPC. Interpretation for review: user input transits the renderer once; no renderer code ever receives the key from main.
 8. **UI scope tension:** Keith asked for a less ugly UI. It remains a diagnostic view (endpoints, IDs, meters, capture/provider state, controls, transcript with channel/cluster/epoch/timestamps, gaps, errors) with no sales features or dashboards.
 
+9. **Echo gate deviates from Raven's thresholds, with evidence.** Raven's rule muted up to a third of Keith's speech during double-talk on real recordings. It was replaced by a stable-lag, pre-emphasised rule (see RAVEN_IMPLEMENTATION_NOTES.md row 7 and `tests/echoRealSpeech.test.ts`). This is a tuning change inside the locked architecture, not an architecture change.
+10. **Keith's headset (Razer BlackShark V2 Pro) noise-gates the mic** to exact digital zeros between words (seen in his first session). Short digital silence is therefore normal; a note appears only after 60 s.
+
+## Latency (from Keith's first call + live measurements)
+- Deepgram finals arrive ~0.5 s after speech ends when the stream goes truly quiet (measured live). During continuous speech or noisy lines they arrive at natural pauses, typically 2-4 s after the words.
+- Removed app-side delay: Keith's words are no longer held 1.5 s when the remote side was silent; turns stay open while the speaker is still talking, so late finals extend the bubble instead of fragmenting it.
+- Provisional (interim) text is shown live, marked "live, not final"; turns and all stored data still use finals only.
+- Every 10 s, `diagnostics.jsonl` logs `timing` per stream: native capture lag and speech-service delay (avg/max). The UI shows the speech-service delay.
+
 ## Acceptance traceability
 Legend: **T** = covered by automated test against the mock/fake provider · **CI** = verified on the Windows CI runner (no audio hardware) · **L** = verified against the live Deepgram API · **HW** = requires Keith's PC (not yet done).
 

@@ -67,11 +67,18 @@ export class TurnBuilder {
     return events
   }
 
-  /** Close turns that have been silent longer than maxGapMs. */
-  flushIdle(nowSessionMs: number): TurnEvent[] {
+  /**
+   * Close turns whose last word is older than maxGapMs. Finals can lag the audio by
+   * seconds during continuous speech, so the caller may keep a turn open while its stream
+   * is still carrying sound (`keepOpen`); the next final then extends it instead of
+   * starting a new bubble mid-sentence.
+   */
+  flushIdle(nowSessionMs: number, keepOpen?: (stream: Stream, turnEndMs: number) => boolean): TurnEvent[] {
     const events: TurnEvent[] = []
     for (const [stream, t] of this.open) {
-      if (nowSessionMs - t.end_ms > this.maxGapMs) events.push(this.finalize(stream))
+      if (nowSessionMs - t.end_ms <= this.maxGapMs) continue
+      if (keepOpen?.(stream, t.end_ms)) continue
+      events.push(this.finalize(stream))
     }
     return events
   }

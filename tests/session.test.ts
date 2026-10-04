@@ -205,11 +205,13 @@ describe('device loss during a call', () => {
     await ctx.session.stop()
   })
 
-  it('warns on digital silence from the mic without switching', async () => {
+  it('a noise-gated mic (exact zeros between words) does not raise false alarms; only a long run is noted', async () => {
     const ctx = setup()
     await startLive(ctx)
-    await feed(ctx, 5000, 'zero', 'audio')
-    expect(ctx.events.some((e) => e.type === 'alert' && /pure digital silence/.test(e.message))).toBe(true)
+    await feed(ctx, 10000, 'zero', 'audio') // e.g. Razer BlackShark V2 Pro gate while Keith listens
+    expect(ctx.events.some((e) => e.type === 'alert' && /No sound from microphone/.test(e.message))).toBe(false)
+    await feed(ctx, 51000, 'zero', 'audio')
+    expect(ctx.events.some((e) => e.type === 'alert' && /No sound from microphone .* 6\d s/.test(e.message))).toBe(true)
     expect(others(ctx)).toHaveLength(0)
     await ctx.session.stop()
   })
@@ -409,6 +411,67 @@ describe('audit fixes: discontinuities, overflow, validation, backpressure, devi
     expect(ctx.events.some((e) => e.type === 'alert' && /Windows default devices changed.*Ignored/.test(e.message))).toBe(true)
     expect(ctx.native.startCalls.length).toBe(calls)
     expect(ctx.logs.some((l) => l.event === 'windows_defaults_changed')).toBe(true)
+    await ctx.session.stop()
+  })
+})
+
+describe('latency', () => {
+  it('releases Keith\'s words immediately when the remote side was silent (no duplicate hold)', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 3500, 'voice', 'zero') // remote silent for the last ~3 s
+    const mic = ctx.ws.sockets.find((s) => !s.url.includes('diarize=true'))!
+    mic.message(dgResults([['Hello', 2.6, 2.9], ['there', 2.9, 3.2]]))
+    await vi.advanceTimersByTimeAsync(0)
+    const turn = ctx.events.find((e) => e.type === 'turn' && e.event.turn.stream === 'local_mic')
+    expect(turn).toBeTruthy()
+    await ctx.session.stop()
+  })
+
+  it('holds Keith\'s words briefly when the remote side was talking, to check for duplicates', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 1000, 'voice', 'audio')
+    const mic = ctx.ws.sockets.find((s) => !s.url.includes('diarize=true'))!
+    mic.message(dgResults([['Hello', 0.2, 0.5], ['there', 0.5, 0.8]]))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ctx.events.some((e) => e.type === 'turn' && e.event.turn.stream === 'local_mic')).toBe(false)
+    await vi.advanceTimersByTimeAsync(1800)
+    expect(ctx.events.some((e) => e.type === 'turn' && e.event.turn.stream === 'local_mic')).toBe(true)
+    await ctx.session.stop()
+  })
+
+  it('reports capture lag and speech-service delay', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 1000)
+    const sys = ctx.ws.sockets.find((s) => s.url.includes('diarize=true'))!
+    sys.message(dgResults([['Okay', 0.2, 0.5, 0]]))
+    await feed(ctx, 10000)
+    const t = ctx.logs.find((l) => l.event === 'timing' && l.data?.stream === 'system_remote')
+    expect(t?.data?.stt_delay_avg_ms).toBeTypeOf('number')
+    expect(ctx.events.some((e) => e.type === 'timing')).toBe(true)
+    expect(ctx.ws.sockets.every((s) => s.url.includes('keyterm=Arize'))).toBe(true)
+    await ctx.session.stop()
+  })
+})
+
+describe('turns during continuous speech', () => {
+  it('does not split one speaker into many bubbles when finals arrive seconds late', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const sys = ctx.ws.sockets.find((s) => s.url.includes('diarize=true'))!
+    // Remote talks continuously; each final segment arrives ~3 s after its audio.
+    await feed(ctx, 4000)
+    sys.message(dgResults([['As', 0.1, 0.4, 0], ['much', 0.4, 0.8, 0], ['as', 0.8, 1.0, 0]]))
+    await feed(ctx, 3500)
+    sys.message(dgResults([['the', 1.1, 1.3, 0], ['first', 1.3, 1.7, 0], ['spacewalk', 1.7, 2.4, 0]]))
+    await feed(ctx, 3500)
+    sys.message(dgResults([['with', 2.5, 2.7, 0], ['a', 2.7, 2.8, 0], ['team', 2.8, 3.2, 0]]))
+    // Speaker stops: the stream goes quiet, so the turn closes.
+    await feed(ctx, 4000, 'voice', 'zero')
+    const finals = ctx.events.filter((e) => e.type === 'turn' && e.event.type === 'turn_final' && e.event.turn.stream === 'system_remote').map((e) => (e as any).event.turn)
+    expect(finals.map((t: any) => t.text)).toEqual(['As much as the first spacewalk with a team'])
     await ctx.session.stop()
   })
 })

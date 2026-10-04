@@ -39,6 +39,8 @@ interface Active {
 export interface MockOptions {
   /** Generate synthetic audio every 20 ms (dev mode). Tests drive audio manually. */
   autoGenerate?: boolean
+  /** Dev mode: 16 kHz mono s16le speech looped as the remote (system) stream instead of a tone. */
+  demoRemotePcm?: Buffer
   now?: () => number
 }
 
@@ -50,6 +52,7 @@ export class MockNative implements NativeAudioModule {
   failNextStart: Partial<Record<CaptureStream, { code: string; error: string }>> = {}
   private readonly now: () => number
   private phase = 0
+  private demoPos = 0
 
   constructor(private readonly opts: MockOptions = {}) {
     this.now = opts.now ?? (() => performance.now())
@@ -156,6 +159,14 @@ export class MockNative implements NativeAudioModule {
     // Demo realism: only the Razer endpoints carry audio; other devices are idle.
     if (!endpointId.includes('r00')) {
       this.emitAudio(stream, Buffer.alloc(samples * 2), { syntheticSilence: stream === 'system_remote' || stream.startsWith('probe_render:') })
+      return
+    }
+    const isRemote = stream === 'system_remote' || stream.startsWith('probe_render:')
+    if (isRemote && this.opts.demoRemotePcm && this.opts.demoRemotePcm.length >= samples * 2) {
+      const src = this.opts.demoRemotePcm
+      if (this.demoPos + samples * 2 > src.length) this.demoPos = 0
+      this.emitAudio(stream, Buffer.from(src.subarray(this.demoPos, this.demoPos + samples * 2)))
+      this.demoPos += samples * 2
       return
     }
     const buf = Buffer.alloc(samples * 2)

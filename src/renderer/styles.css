@@ -202,6 +202,8 @@ b { font-weight: 620; }
 .msgrow.me .bubble { background: var(--accent); color: #fff; border-color: transparent; border-bottom-right-radius: 5px; }
 .msgrow.them .bubble { border-bottom-left-radius: 5px; }
 .msgrow.open .bubble { opacity: 0.7; }
+.msgrow.live .bubble { opacity: 0.55; font-style: italic; border-style: dashed; }
+.msgrow.live .who { color: var(--muted); }
 .gapline { display: flex; align-items: center; gap: 10px; color: var(--err); font-size: 12px; font-weight: 600; margin: 4px 0; }
 .gapline::before, .gapline::after { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--err) 35%, transparent); }
 .gapline.pause { color: var(--warn); }
