@@ -492,28 +492,29 @@ impl Pipeline {
             return Ok(out);
         }
 
-        // Re-anchor if the packet's QPC time strays from the sample clock.
+        // Re-anchor only when the packet's QPC time jumps AHEAD of the sample clock
+        // (a real gap, e.g. loopback resumed after idle). Packets stamped behind the
+        // clock (late loopback timestamps) stay in the current segment: re-anchoring
+        // backwards would overlap emitted audio, and re-anchoring every packet would
+        // reset the resampler and make the audio choppy.
         if let (Some(expected), Some(t)) = (self.input_end_ms(), qpc_ms) {
-            if (t - expected).abs() > REANCHOR_TOLERANCE_MS {
+            if t - expected > REANCHOR_TOLERANCE_MS {
                 out.extend(self.flush());
             }
         }
 
-        let mut input = mono;
+        let input = mono;
         if self.anchor_ms.is_none() {
             let mut t = qpc_ms.or(self.last_end_ms).unwrap_or(0.0);
-            // Never overlap audio already emitted: drop leading input that falls
-            // before the end of the previous output.
+            // Never overlap audio already emitted, and NEVER discard real audio:
+            // if the packet's QPC time falls before the end of the previous output
+            // (late loopback timestamps, or synthetic fill that ran ahead), start
+            // the segment at the previous end instead. Timing shifts slightly;
+            // audio is never lost.
             if let Some(prev_end) = self.last_end_ms {
                 if t < prev_end {
-                    let trim = (((prev_end - t) * self.source_rate as f64 / 1000.0).ceil() as usize)
-                        .min(input.len());
-                    input = &input[trim..];
-                    t += trim as f64 * 1000.0 / self.source_rate as f64;
+                    t = prev_end;
                 }
-            }
-            if input.is_empty() {
-                return Ok(out);
             }
             self.start_segment(t)?;
         }
@@ -794,11 +795,54 @@ mod tests {
         assert_eq!(syn[0].monotonic_ms, 10.0);
         let end = p.last_end_ms().unwrap();
         assert!((end - 170.0).abs() < 1e-9);
-        // A real packet whose QPC time is before the synthetic end gets trimmed.
-        let r = p.push(&[0.0; 4800], Some(160.0), false).unwrap();
-        if let Some(first) = r.first() {
-            assert!(first.monotonic_ms >= end - 1e-9);
+        // A real packet whose QPC time is before the synthetic end is kept in full
+        // and shifted to start at the synthetic end (never discarded).
+        let r = p.push(&[0.5; 4800], Some(160.0), false).unwrap();
+        let first = r.first().expect("real audio must be emitted");
+        assert!((first.monotonic_ms - end).abs() < 1e-9);
+        assert!(!first.synthetic_silence);
+    }
+
+    #[test]
+    fn late_loopback_timestamps_never_drop_audio() {
+        // Synthetic fill has run ahead to 1000 ms; real packets then arrive stamped
+        // far in the past (as some drivers do). Every real sample must still come out.
+        let mut p = Pipeline::new(48000).unwrap();
+        p.set_origin(0.0);
+        p.idle_tick(1100.0);
+        let mut real_out = 0usize;
+        let mut t = 500.0;
+        for _ in 0..50 {
+            for c in p.push(&[0.25; 480], Some(t), false).unwrap() {
+                assert!(!c.synthetic_silence);
+                real_out += c.samples.len();
+            }
+            t += 10.0;
         }
+        for c in p.flush() {
+            real_out += c.samples.len();
+        }
+        // 50 packets x 10 ms = 500 ms = 8000 samples at 16 kHz.
+        assert!((7990..=8010).contains(&real_out), "real_out = {real_out}");
+    }
+
+    #[test]
+    fn constant_late_timestamps_stay_in_one_continuous_segment() {
+        let mut p = Pipeline::new(16000).unwrap();
+        p.set_origin(0.0);
+        p.idle_tick(1000.0); // fill runs ahead to 970 ms
+        let mut chunks = Vec::new();
+        let mut t = 400.0; // packets stamped ~570 ms late
+        for _ in 0..20 {
+            chunks.extend(p.push(&[0.1; 160], Some(t), false).unwrap());
+            t += 10.0;
+        }
+        // Contiguous: each chunk starts where the previous one ended.
+        for w in chunks.windows(2) {
+            let end = w[0].monotonic_ms + w[0].samples.len() as f64 / 16.0;
+            assert!((w[1].monotonic_ms - end).abs() < 1e-6);
+        }
+        assert_eq!(chunks.iter().map(|c| c.samples.len()).sum::<usize>(), 3200);
     }
 
     #[test]

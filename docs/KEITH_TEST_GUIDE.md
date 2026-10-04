@@ -13,48 +13,46 @@ Takes about 20 minutes, plus one 60-minute call later.
 
 ## 1. Before you start: take a "before" snapshot
 - Take a screenshot of **Zoom → Settings → Audio** (shows your speaker and mic picks).
-- Open the app, scroll to the bottom and click **Save device snapshot: BEFORE**.
+- Open the app → **Diagnostics & test report** (bottom of the call screen) → **Save device snapshot · BEFORE**. (First launch shows Setup; do the snapshot right after setup.)
 
-## 2. Paste your Deepgram key
-Step 1 in the app. Paste the key and click **Save key**. You only do this once.
+## 2. Setup screen (first launch)
+**Step 1, Connect Deepgram:** paste the key and click **Save key**. You only do this once.
 
-## 3. Pick, test and save your devices
-Step 2 in the app.
-1. **Meeting audio:** pick the Razer output that Zoom plays to (in Zoom Settings → Audio → Speaker).
-2. **Microphone:** pick the Razer mic Zoom uses.
-3. Click **Test these devices**. Then:
-   - In Zoom Settings → Audio, click **Test Speaker**: the **Meeting audio** bar should jump and show ✓ heard.
-   - Say "testing one two three": the **Microphone** bar should jump and show ✓ heard.
-4. Click **Save these devices**.
+**Step 2, Find your headset:**
+1. Join a Zoom test meeting (or open Zoom Settings → Audio).
+2. Click **Start listening**. The app listens to *every* output and mic on your PC at once. It only listens and changes nothing.
+3. In Zoom: **Settings → Audio → Test Speaker**. Then say "testing, one two three".
+4. The devices Zoom is actually using get a green **ZOOM IS USING THIS** tag and are picked for you. Check they look right (your Razer), then click **Use these devices**.
 
-Tip: Razer software sometimes adds a "7.1 Surround" device. Pick whichever one Zoom is set to play to.
+Tip: Razer software can add extra outputs (e.g. "7.1 Surround", "Game", "Chat"). That's fine: whichever one lights up is the one Zoom plays to.
 
-## 4. Smoke test (about 5 minutes)
+## 3. Smoke test (about 5 minutes)
 Join a Zoom call with a friend, or with your phone as the second person. **Wear the headset.**
 1. Click **Start**. It checks both streams first. Play Zoom's Test Speaker or let your friend talk, and say a few words. Within a few seconds it should switch to **LIVE**.
-2. Talk back and forth. You should see **KEITH:** lines for you and **REMOTE_0 / REMOTE_1:** lines for the other side.
-3. Click **Pause**. Keep talking for 10 seconds, then click **Resume**. Nothing you said while paused should appear. You should see a red **GAP … pause** line.
+2. Talk back and forth. Your words show as blue **You** bubbles on the right; the other side shows as **Speaker 1 / Speaker 2** on the left.
+3. Click **Pause**. Keep talking for 10 seconds, then click **Resume**. Nothing you said while paused should appear. You should see a **Paused** line.
 4. **Headset test:** turn the headset **off** for about 10 seconds, then back **on**.
-   - Within about 2 seconds you should see a red alert: the device was lost, and it is **not switching devices**.
-   - A red **GAP** line should appear in the transcript.
+   - Within about 2 seconds a red banner says the device disconnected and that it **won't switch devices on its own**.
+   - A red **gap** line should appear in the transcript.
    - When the headset comes back, an alert says it reconnected to the **same** device, and the transcript continues.
    - It must **never** jump to your laptop mic or speakers by itself.
 5. Click **Stop**.
 
-## 5. Check nothing changed
-- Click **Save device snapshot: AFTER**.
+## 4. Check nothing changed
+- Open **Diagnostics & test report** → **Save device snapshot · AFTER**.
 - Re-check Zoom → Settings → Audio: same speaker and mic as your "before" screenshot?
 - Did Zoom audio get quieter at any point when the app started listening? (It shouldn't.)
 
-## 6. The 60-minute run
+## 5. The 60-minute run
 Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit it.
 
-## 7. Send back
-- Click **Open data folder**. Zip the `sessions` and `logs` folders and send them over. They hold the transcripts and diagnostics; your Deepgram key is not in them.
+## 6. Send back
+- Click **Diagnostics → Open data folder**. Zip the `sessions` and `logs` folders and send them over. They hold the transcripts and diagnostics; your Deepgram key is not in them.
 - Send your before/after Zoom screenshots.
 - Tell me anything weird, with a screenshot if you can.
 
 ### If something goes wrong
+- **No output lights up when you click Test Speaker:** take a screenshot of the setup screen during the test (each device shows "Nothing playing here", "Silent" or an error) plus Zoom → Settings → Audio, and send both. Also click **Diagnostics → Open data folder** and send `logs/app.jsonl`: it records exactly what Windows delivered for each device.
 - **"Start blocked: … not found"**: the headset is off or plugged into a different USB port. Turn it on. If it's on a different port, Windows may have given it a new ID: pick it again in Step 2, test, and save.
 - **"Start blocked: no meeting audio heard"**: click Zoom's Test Speaker during the check, or make sure Zoom is playing to the device you picked.
 - **"no voice heard"**: is the headset muted (Razer mute button)?

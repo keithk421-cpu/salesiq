@@ -4,6 +4,7 @@
  * on Windows builds (see native.ts).
  */
 import type {
+  AnyStream,
   CaptureStream,
   EndpointInfo,
   EndpointState,
@@ -43,9 +44,9 @@ export interface MockOptions {
 
 export class MockNative implements NativeAudioModule {
   endpoints: EndpointInfo[] = defaultMockEndpoints()
-  active = new Map<CaptureStream, Active>()
+  active = new Map<AnyStream, Active>()
   /** Every start call, for assertions (e.g. "never opened another endpoint"). */
-  startCalls: Array<{ stream: CaptureStream; endpointId: string }> = []
+  startCalls: Array<{ stream: AnyStream; endpointId: string }> = []
   failNextStart: Partial<Record<CaptureStream, { code: string; error: string }>> = {}
   private readonly now: () => number
   private phase = 0
@@ -62,26 +63,26 @@ export class MockNative implements NativeAudioModule {
     return this.endpoints.find((e) => e.id === endpointId)?.state ?? 'missing'
   }
 
-  startCapture(stream: CaptureStream, endpointId: string, onEvent: (ev: NativeCaptureEvent) => void): StartCaptureResult {
+  startCapture(stream: AnyStream, endpointId: string, onEvent: (ev: NativeCaptureEvent) => void): StartCaptureResult {
     this.startCalls.push({ stream, endpointId })
     if (this.active.has(stream)) return { ok: false, code: 'already_capturing', error: 'already capturing' }
-    const forced = this.failNextStart[stream]
+    const forced = stream === 'local_mic' || stream === 'system_remote' ? this.failNextStart[stream] : undefined
     if (forced) {
-      delete this.failNextStart[stream]
+      delete this.failNextStart[stream as CaptureStream]
       return { ok: false, ...forced }
     }
     const ep = this.endpoints.find((e) => e.id === endpointId)
     if (!ep) return { ok: false, code: 'device_not_found', error: 'Endpoint ID not found' }
     if (ep.state !== 'active') return { ok: false, code: 'device_not_active', error: `Endpoint is ${ep.state}` }
-    const wantFlow = stream === 'system_remote' ? 'render' : 'capture'
+    const wantFlow = stream === 'system_remote' || stream.startsWith('probe_render:') ? 'render' : 'capture'
     if (ep.flow !== wantFlow) return { ok: false, code: 'wrong_flow', error: `Expected a ${wantFlow} endpoint` }
     const a: Active = { endpointId, onEvent, timer: null }
-    if (this.opts.autoGenerate) a.timer = setInterval(() => this.generate(stream), 20)
+    if (this.opts.autoGenerate) a.timer = setInterval(() => this.generate(stream, endpointId), 20)
     this.active.set(stream, a)
     return { ok: true, mixFormat: ep.mixFormat }
   }
 
-  stopCapture(stream: CaptureStream): boolean {
+  stopCapture(stream: AnyStream): boolean {
     const a = this.active.get(stream)
     if (!a) return false
     if (a.timer) clearInterval(a.timer)
@@ -94,7 +95,7 @@ export class MockNative implements NativeAudioModule {
     for (const s of [...this.active.keys()]) this.stopCapture(s)
   }
 
-  isCapturing(stream: CaptureStream): boolean {
+  isCapturing(stream: AnyStream): boolean {
     return this.active.has(stream)
   }
 
@@ -104,7 +105,7 @@ export class MockNative implements NativeAudioModule {
 
   // ---- test helpers ----
 
-  emitAudio(stream: CaptureStream, pcm: Buffer, opts: { discontinuity?: boolean; syntheticSilence?: boolean } = {}): void {
+  emitAudio(stream: AnyStream, pcm: Buffer, opts: { discontinuity?: boolean; syntheticSilence?: boolean } = {}): void {
     const a = this.active.get(stream)
     if (!a) return
     a.onEvent({
@@ -144,15 +145,20 @@ export class MockNative implements NativeAudioModule {
     }
   }
 
-  private generate(stream: CaptureStream): void {
+  private generate(stream: AnyStream, endpointId: string): void {
     const samples = 320
+    // Demo realism: only the Razer endpoints carry audio; other devices are idle.
+    if (!endpointId.includes('r00')) {
+      this.emitAudio(stream, Buffer.alloc(samples * 2), { syntheticSilence: stream === 'system_remote' || stream.startsWith('probe_render:') })
+      return
+    }
     const buf = Buffer.alloc(samples * 2)
     for (let i = 0; i < samples; i++) {
       this.phase++
       const t = this.phase / 16000
       const env = Math.sin(t * Math.PI * 0.5) > 0 ? 1 : 0.05
       const v =
-        stream === 'system_remote'
+        stream === 'system_remote' || stream.startsWith('probe_render:')
           ? Math.sin(2 * Math.PI * 440 * t) * 4000 * env
           : (Math.random() - 0.5) * 1200 * (Math.sin(t * Math.PI * 0.7) > 0.3 ? 1 : 0.1)
       buf.writeInt16LE(Math.round(v), i * 2)

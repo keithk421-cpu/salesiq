@@ -4,8 +4,9 @@ const api = {
   info: () => ipcRenderer.invoke('app:info'),
   listDevices: () => ipcRenderer.invoke('devices:list'),
   getConfig: () => ipcRenderer.invoke('devices:config'),
+  findDevices: () => ipcRenderer.invoke('devices:find'),
   testDevices: (systemId: string, micId: string) => ipcRenderer.invoke('devices:test', systemId, micId),
-  stopTest: () => ipcRenderer.invoke('devices:stopTest'),
+  stopScan: () => ipcRenderer.invoke('devices:stopScan'),
   saveDevices: (systemId: string, micId: string) => ipcRenderer.invoke('devices:save', systemId, micId),
   snapshot: (label: string) => ipcRenderer.invoke('devices:snapshot', label),
   setKey: (key: string) => ipcRenderer.invoke('key:set', key),
@@ -16,7 +17,7 @@ const api = {
   switchEndpoint: (stream: string, id: string) => ipcRenderer.invoke('session:switchEndpoint', stream, id),
   openFolder: () => ipcRenderer.invoke('app:openFolder'),
   onSession: (cb: (ev: unknown) => void) => ipcRenderer.on('session-event', (_e, ev) => cb(ev)),
-  onTest: (cb: (ev: unknown) => void) => ipcRenderer.on('test-event', (_e, ev) => cb(ev)),
+  onScan: (cb: (ev: unknown) => void) => ipcRenderer.on('scan-event', (_e, ev) => cb(ev)),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

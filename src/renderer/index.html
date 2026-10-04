@@ -3,98 +3,176 @@
 <head>
   <meta charset="utf-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:" />
-  <title>Sales Copilot M0</title>
+  <title>Sales Copilot</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header>
-    <h1>Sales Copilot <span class="muted">M0 · ears test</span></h1>
-    <span id="mode" class="badge"></span>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span class="brand-name">Sales Copilot</span>
+      <span id="demoTag" class="tag tag-warn" hidden>DEMO · synthetic audio</span>
+    </div>
+    <div class="topbar-right">
+      <span id="statusPill" class="pill"><span class="dot"></span><span id="statusText">Ready</span></span>
+      <button id="navSetup" class="btn btn-ghost btn-sm" title="Audio & key setup">Setup</button>
+      <button id="navCall" class="btn btn-ghost btn-sm" hidden>Back to call</button>
+    </div>
   </header>
-  <div id="demoBanner" class="banner warn" hidden>DEMO MODE: not running on Windows. Audio is synthetic. Nothing here counts for M0.</div>
 
-  <main>
-    <section class="card" id="keyCard">
-      <h2>1 · Deepgram key</h2>
-      <div class="row">
-        <input id="keyInput" type="password" placeholder="Paste your Deepgram API key" autocomplete="off" />
-        <button id="keySave">Save key</button>
-        <span id="keyStatus" class="muted"></span>
-      </div>
-      <p class="hint">Stored on this PC only, encrypted by Windows.</p>
-    </section>
+  <!-- ============================== SETUP ============================== -->
+  <section id="setupView" class="view setup" hidden>
+    <div class="setup-head">
+      <h1>Let's set up your audio</h1>
+      <p class="sub">About 30 seconds. The app only listens. Nothing in Windows or Zoom changes.</p>
+    </div>
 
-    <section class="card" id="devCard">
-      <h2>2 · Your audio devices</h2>
-      <p class="hint">Pick the device Zoom plays meeting audio to, and the microphone Zoom uses. This app only listens. It never changes Windows or Zoom settings.</p>
-      <div id="savedStatus"></div>
-      <div class="grid2">
-        <label>Meeting audio (output Zoom plays to)
-          <select id="sysSelect"></select>
-        </label>
-        <label>Microphone
-          <select id="micSelect"></select>
-        </label>
+    <div class="card step" id="keyStep">
+      <div class="step-head">
+        <span class="step-num">1</span>
+        <div class="step-title">
+          <h2>Connect Deepgram</h2>
+          <p class="muted">Turns speech into text. Your key stays on this PC, encrypted.</p>
+        </div>
+        <span id="keyDone" class="tag tag-ok" hidden>Connected</span>
       </div>
-      <div class="row">
-        <button id="refreshDevices" class="secondary">Refresh list</button>
-        <button id="testDevices">Test these devices</button>
-        <button id="stopTest" class="secondary" hidden>Stop test</button>
-        <button id="saveDevices" disabled>Save these devices</button>
+      <div id="keyForm" class="row">
+        <input id="keyInput" class="input grow" type="password" placeholder="Paste your Deepgram API key" autocomplete="off" />
+        <button id="keySave" class="btn btn-primary">Save key</button>
       </div>
-      <div id="testPanel" hidden>
-        <p class="hint"><b>Do this now:</b> in Zoom, open Settings → Audio → click <b>Test Speaker</b>. Then say “testing one two three” into your headset.</p>
-        <div class="meter"><span class="mlabel">Meeting audio</span><div class="bar"><div id="tSysBar"></div></div><span id="tSysOk" class="ok"></span></div>
-        <div class="meter"><span class="mlabel">Microphone</span><div class="bar"><div id="tMicBar"></div></div><span id="tMicOk" class="ok"></span></div>
-        <p id="testMsg" class="muted"></p>
-      </div>
-    </section>
+      <button id="keyChange" class="link" hidden>Change key</button>
+      <p id="keyMsg" class="msg"></p>
+    </div>
 
-    <section class="card" id="sessCard">
-      <h2>3 · Session</h2>
+    <div class="card step" id="devStep">
+      <div class="step-head">
+        <span class="step-num">2</span>
+        <div class="step-title">
+          <h2>Find your headset</h2>
+          <p class="muted">We'll listen to every device for a moment and spot the ones Zoom is using.</p>
+        </div>
+        <span id="devDone" class="tag tag-ok" hidden>Saved</span>
+      </div>
+
+      <ol class="howto">
+        <li><b>Click "Start listening"</b> below.</li>
+        <li>In Zoom: <b>Settings → Audio → Test Speaker</b>.</li>
+        <li>Say <b>"testing, one two three"</b> into your headset.</li>
+      </ol>
+
       <div class="row">
-        <button id="startBtn">Start</button>
-        <button id="pauseBtn" disabled>Pause</button>
-        <button id="resumeBtn" disabled>Resume</button>
-        <button id="stopBtn" class="danger" disabled>Stop</button>
-        <span id="stateLabel" class="state">idle</span>
-        <span id="elapsed" class="muted"></span>
+        <button id="findBtn" class="btn btn-primary">Start listening</button>
+        <button id="scanStop" class="btn btn-ghost" hidden>Stop</button>
+        <span id="scanInfo" class="muted"></span>
       </div>
-      <div id="checkPanel" hidden>
-        <p class="hint"><b>Checking both streams before going live.</b> Play Zoom's Test Speaker (or let the meeting audio play) and say a few words.</p>
-        <p><span id="cSys">○ Meeting audio</span> &nbsp; <span id="cMic">○ Microphone</span> &nbsp; <span id="cDg">○ Speech service</span> &nbsp; <span id="cLeft" class="muted"></span></p>
+
+      <div id="savedNote" class="note" hidden></div>
+
+      <div class="device-cols">
+        <div>
+          <div class="col-head"><span class="ico ico-speaker"></span>Meeting audio <span class="muted">· where Zoom plays</span></div>
+          <div id="outList" class="device-list"></div>
+        </div>
+        <div>
+          <div class="col-head"><span class="ico ico-mic"></span>Microphone</div>
+          <div id="micList" class="device-list"></div>
+        </div>
       </div>
-      <div class="meter"><span class="mlabel">Meeting audio</span><div class="bar"><div id="sysBar"></div></div><span id="sysDb" class="muted"></span></div>
-      <div class="meter"><span class="mlabel">Microphone</span><div class="bar"><div id="micBar"></div></div><span id="micDb" class="muted"></span></div>
+
+      <div class="step-foot">
+        <span id="pairSummary" class="muted">Pick one of each.</span>
+        <button id="saveDevices" class="btn btn-primary" disabled>Use these devices</button>
+      </div>
+      <p id="devMsg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- ============================== CALL ============================== -->
+  <section id="callView" class="view call" hidden>
+    <div class="sources">
+      <div class="source" id="srcSys">
+        <div class="source-top">
+          <span class="ico ico-speaker"></span>
+          <div class="source-name">
+            <div class="label">Meeting audio</div>
+            <div class="dev" id="sysName">—</div>
+          </div>
+          <span class="state" id="sysState"><span class="dot"></span><span>Idle</span></span>
+        </div>
+        <div class="meter"><div id="sysBar"></div></div>
+      </div>
+      <div class="source" id="srcMic">
+        <div class="source-top">
+          <span class="ico ico-mic"></span>
+          <div class="source-name">
+            <div class="label">Your mic</div>
+            <div class="dev" id="micName">—</div>
+          </div>
+          <span class="state" id="micState"><span class="dot"></span><span>Idle</span></span>
+        </div>
+        <div class="meter"><div id="micBar"></div></div>
+      </div>
+      <div class="controls">
+        <button id="startBtn" class="btn btn-primary btn-lg">Start</button>
+        <button id="pauseBtn" class="btn btn-secondary btn-lg" hidden>Pause</button>
+        <button id="resumeBtn" class="btn btn-primary btn-lg" hidden>Resume</button>
+        <button id="stopBtn" class="btn btn-danger-ghost btn-lg" hidden>Stop</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" hidden>
+      <span class="banner-ico"></span>
+      <div class="banner-body">
+        <div id="bannerText"></div>
+        <div id="switchRow" class="row" hidden>
+          <select id="switchSelect" class="input"></select>
+          <button id="switchBtn" class="btn btn-sm btn-secondary">Use this device</button>
+        </div>
+      </div>
+      <button id="bannerClose" class="icon-btn" title="Dismiss">✕</button>
+    </div>
+
+    <div id="checkCard" class="card check" hidden>
+      <h2>Getting ready…</h2>
+      <p class="muted">Click <b>Test Speaker</b> in Zoom (or let the meeting play) and say a few words.</p>
+      <ul class="checks">
+        <li id="ckSys"><span class="ck"></span>Meeting audio</li>
+        <li id="ckMic"><span class="ck"></span>Your mic</li>
+        <li id="ckDg"><span class="ck"></span>Speech service</li>
+      </ul>
+      <div class="muted small" id="ckLeft"></div>
+    </div>
+
+    <div class="card transcript-card">
+      <div class="transcript-head">
+        <h2>Transcript</h2>
+        <span class="muted small" id="counts"></span>
+      </div>
+      <div id="transcript" class="transcript">
+        <div class="empty" id="emptyState">
+          <div class="empty-title">Ready when you are</div>
+          <div class="muted">Join your Zoom call, then press <b>Start</b>.</div>
+        </div>
+      </div>
+      <div id="interim" class="interim"></div>
+    </div>
+
+    <details class="card diag">
+      <summary>Diagnostics &amp; test report</summary>
       <table class="status">
-        <thead><tr><th>Stream</th><th>Device (ID)</th><th>Device state</th><th>Capture</th><th>Speech service</th></tr></thead>
+        <thead><tr><th>Stream</th><th>Device</th><th>Device state</th><th>Capture</th><th>Speech service</th></tr></thead>
         <tbody id="statusRows"></tbody>
       </table>
-      <div id="switchPanel" hidden class="banner err">
-        <span id="switchMsg"></span>
-        <select id="switchSelect"></select>
-        <button id="switchBtn">Use this device</button>
-      </div>
-      <div id="alerts"></div>
-    </section>
-
-    <section class="card">
-      <h2>Transcript <span class="muted">(debug)</span></h2>
-      <div id="transcript"></div>
-      <div id="interims" class="muted"></div>
-    </section>
-
-    <section class="card">
-      <h2>For the M0 test report</h2>
       <div class="row">
-        <button id="snapBefore" class="secondary">Save device snapshot: BEFORE</button>
-        <button id="snapAfter" class="secondary">Save device snapshot: AFTER</button>
-        <button id="openFolder" class="secondary">Open data folder</button>
+        <button id="snapBefore" class="btn btn-ghost btn-sm">Save device snapshot · BEFORE</button>
+        <button id="snapAfter" class="btn btn-ghost btn-sm">Save device snapshot · AFTER</button>
+        <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
-      <p id="counters" class="muted"></p>
-      <p id="snapMsg" class="muted"></p>
-    </section>
-  </main>
+      <p id="snapMsg" class="muted small"></p>
+      <div id="activity" class="activity"></div>
+    </details>
+  </section>
+
   <script src="renderer.js"></script>
 </body>
 </html>

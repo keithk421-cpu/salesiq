@@ -10,7 +10,7 @@ import WebSocket from 'ws'
 import type { AudioEndpointConfig, Stream } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule } from '../shared/nativeApi'
 import type { WsFactory, WsLike } from './deepgram'
-import { DeviceTester } from './deviceTest'
+import { DeviceScanner } from './deviceTest'
 import { resolveConfig, shortId, toEndpointRef } from './endpoints'
 import { loadNative } from './native'
 import { SessionController, type SessionEvent } from './session'
@@ -22,7 +22,7 @@ let demoMode = false
 let nativeSource = ''
 let storage: Storage
 let appLog: JsonlWriter
-let tester: DeviceTester
+let scanner: DeviceScanner
 let session: SessionController | null = null
 let sessionLog: JsonlWriter | null = null
 let transcriptLog: JsonlWriter | null = null
@@ -89,18 +89,25 @@ function registerIpc(): void {
     return { config, resolved: resolveConfig(config, native.listEndpoints()) }
   })
 
-  ipcMain.handle('devices:test', (_e, systemId: string, micId: string) => {
-    if (session && !['idle', 'stopped'].includes(session.state)) return { ok: false, error: 'Stop the session before testing devices.' }
-    return tester.start(systemId, micId)
+  const sessionBusy = () => !!session && !['idle', 'stopped'].includes(session.state)
+
+  ipcMain.handle('devices:find', () => {
+    if (sessionBusy()) return { ok: false, error: 'Stop the session before scanning devices.' }
+    return scanner.find()
   })
 
-  ipcMain.handle('devices:stopTest', () => {
-    tester.stop()
+  ipcMain.handle('devices:test', (_e, systemId: string, micId: string) => {
+    if (sessionBusy()) return { ok: false, error: 'Stop the session before testing devices.' }
+    return scanner.test(systemId, micId)
+  })
+
+  ipcMain.handle('devices:stopScan', () => {
+    scanner.stop()
     return { ok: true }
   })
 
   ipcMain.handle('devices:save', (_e, systemId: string, micId: string) => {
-    if (!tester.passedFor(systemId, micId)) return { ok: false, error: 'Test this exact pair first: both meters must show real audio.' }
+    if (!scanner.passedFor(systemId, micId)) return { ok: false, error: 'These two devices have not both been heard yet. Play Zoom\'s Test Speaker and talk, then try again.' }
     const eps = native.listEndpoints()
     const sys = eps.find((e) => e.id === systemId)
     const mic = eps.find((e) => e.id === micId)
@@ -115,7 +122,7 @@ function registerIpc(): void {
       last_verified_at: now,
     }
     storage.saveConfig(config)
-    tester.stop()
+    scanner.stop()
     log('devices_saved', { system: systemId, mic: micId })
     return { ok: true, config }
   })
@@ -135,7 +142,7 @@ function registerIpc(): void {
 
   ipcMain.handle('session:start', async () => {
     if (session && ['checking', 'live', 'paused', 'stopping'].includes(session.state)) return { ok: false, reason: 'A session is already running.' }
-    tester.stop()
+    scanner.stop()
     const config = storage.loadConfig()
     if (!config) return { ok: false, reason: 'Pick, test and save your devices first.' }
     sessionLog?.close()
@@ -205,7 +212,7 @@ function createWindow(): void {
 
 function shutdownCapture(reason: string): void {
   try {
-    tester?.stop()
+    scanner?.stop()
     session?.shutdownNow()
     native?.stopAll()
     log('capture_shutdown', { reason })
@@ -238,7 +245,7 @@ if (!app.requestSingleInstanceLock()) {
       return
     }
     log('app_start', { version: app.getVersion(), demoMode, nativeSource, platform: process.platform })
-    tester = new DeviceTester(native, (e) => send('test-event', e), log)
+    scanner = new DeviceScanner(native, (e) => send('scan-event', e), log)
     registerIpc()
     createWindow()
   })

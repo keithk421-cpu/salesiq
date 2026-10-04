@@ -11,6 +11,12 @@
 
 export type DataFlow = 'render' | 'capture'
 export type CaptureStream = 'local_mic' | 'system_remote'
+/**
+ * Device-finder probes: the same read-only shared-mode capture, used during setup to
+ * listen to several endpoints at once so Keith can see which one carries Zoom.
+ */
+export type ProbeStream = `probe_render:${string}` | `probe_capture:${string}`
+export type AnyStream = CaptureStream | ProbeStream
 
 /** Windows DEVICE_STATE_* mapped to strings; 'missing' = ID not found at all. */
 export type EndpointState = 'active' | 'disabled' | 'notpresent' | 'unplugged' | 'missing'
@@ -91,12 +97,12 @@ export interface NativeAudioModule {
    * 'local_mic' must be a capture endpoint. Fails rather than falling back to
    * any other endpoint.
    */
-  startCapture(stream: CaptureStream, endpointId: string, onEvent: (ev: NativeCaptureEvent) => void): StartCaptureResult
+  startCapture(stream: AnyStream, endpointId: string, onEvent: (ev: NativeCaptureEvent) => void): StartCaptureResult
   /** Stop that stream and join its thread. When it returns, nothing is capturing for that stream. */
-  stopCapture(stream: CaptureStream): boolean
+  stopCapture(stream: AnyStream): boolean
   /** Stop everything (app exit). */
   stopAll(): void
-  isCapturing(stream: CaptureStream): boolean
+  isCapturing(stream: AnyStream): boolean
   /** Same monotonic clock as NativeAudioChunk.monotonicMs. */
   monotonicNowMs(): number
 }

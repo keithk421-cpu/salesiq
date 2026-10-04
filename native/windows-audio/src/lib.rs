@@ -19,7 +19,8 @@
 extern crate napi_derive;
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 
 use napi::JsFunction;
@@ -86,10 +87,16 @@ pub enum StreamKind {
 }
 
 impl StreamKind {
+    /// Stream names: 'local_mic', 'system_remote', and device-finder probes
+    /// 'probe_render:<key>' (loopback) / 'probe_capture:<key>' (mic). Probes let the
+    /// setup screen listen to several endpoints at once so Keith can see which one
+    /// carries Zoom; they are the same read-only shared-mode capture.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "local_mic" => Some(StreamKind::LocalMic),
             "system_remote" => Some(StreamKind::SystemRemote),
+            _ if s.len() > 13 && s.starts_with("probe_render:") => Some(StreamKind::SystemRemote),
+            _ if s.len() > 14 && s.starts_with("probe_capture:") => Some(StreamKind::LocalMic),
             _ => None,
         }
     }
@@ -101,12 +108,6 @@ impl StreamKind {
         }
     }
 
-    fn index(self) -> usize {
-        match self {
-            StreamKind::LocalMic => 0,
-            StreamKind::SystemRemote => 1,
-        }
-    }
 }
 
 /// Events sent from a capture thread to JS (`NativeCaptureEvent`).
@@ -151,10 +152,11 @@ impl CaptureSlot {
     }
 }
 
-static SLOTS: [Mutex<Option<CaptureSlot>>; 2] = [Mutex::new(None), Mutex::new(None)];
+/// One capture slot per stream name (see StreamKind::parse).
+static SLOTS: LazyLock<Mutex<HashMap<String, CaptureSlot>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn slot(kind: StreamKind) -> MutexGuard<'static, Option<CaptureSlot>> {
-    SLOTS[kind.index()].lock().unwrap_or_else(|p| p.into_inner())
+fn slots() -> MutexGuard<'static, HashMap<String, CaptureSlot>> {
+    SLOTS.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -186,15 +188,15 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
     let Some(kind) = StreamKind::parse(&stream) else {
         return Ok(StartCaptureResult::fail(
             "invalid_stream",
-            format!("unknown stream '{stream}' (expected 'local_mic' or 'system_remote')"),
+            format!("unknown stream '{stream}' (expected 'local_mic', 'system_remote' or a probe)"),
         ));
     };
     if endpoint_id.is_empty() {
         return Ok(StartCaptureResult::fail("device_not_found", "empty endpoint ID"));
     }
 
-    let mut guard = slot(kind);
-    if let Some(existing) = guard.as_ref() {
+    let mut map = slots();
+    if let Some(existing) = map.get(&stream) {
         if !existing.join.is_finished() {
             let msg = if existing.stop.load(Ordering::SeqCst) {
                 "previous capture for this stream is still shutting down"
@@ -205,13 +207,13 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
         }
     }
     // Reap a capture thread that already ended on its own (e.g. after an error).
-    if let Some(old) = guard.take() {
+    if let Some(old) = map.remove(&stream) {
         let _ = old.join.join();
     }
 
     #[cfg(not(windows))]
     {
-        let _ = on_event;
+        let _ = (on_event, kind);
         Ok(StartCaptureResult::fail(
             "unsupported_platform",
             "WASAPI capture is only available on Windows",
@@ -231,7 +233,7 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
         let (tx, rx) = mpsc::channel::<StartupReport>();
         let thread_stop = stop.clone();
         let join = std::thread::Builder::new()
-            .name(format!("sales-copilot-audio-{}", kind.as_str()))
+            .name(format!("sales-copilot-audio-{stream}"))
             .spawn(move || {
                 let emit = move |ev: CaptureEvent| {
                     tsfn.call(ev, ThreadsafeFunctionCallMode::NonBlocking);
@@ -242,7 +244,7 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
 
         let result = match rx.recv_timeout(START_TIMEOUT) {
             Ok(StartupReport::Started(mix_format)) => {
-                *guard = Some(CaptureSlot { stop, join });
+                map.insert(stream.clone(), CaptureSlot { stop, join });
                 StartCaptureResult { ok: true, error: None, code: None, mix_format: Some(mix_format) }
             }
             Ok(StartupReport::Failed { code, error }) => {
@@ -253,7 +255,7 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
                 // Do not block the JS thread on a hung driver: flag the thread to stop and
                 // keep its handle so stopCapture()/stopAll() can join it later.
                 stop.store(true, Ordering::SeqCst);
-                *guard = Some(CaptureSlot { stop, join });
+                map.insert(stream.clone(), CaptureSlot { stop, join });
                 StartCaptureResult::fail("open_failed", "timed out opening the endpoint (3 s)")
             }
             Err(RecvTimeoutError::Disconnected) => {
@@ -268,14 +270,7 @@ pub fn start_capture(stream: String, endpoint_id: String, on_event: JsFunction) 
 /// Stop that stream and join its thread. Returns whether a capture was running.
 #[napi]
 pub fn stop_capture(stream: String) -> bool {
-    match StreamKind::parse(&stream) {
-        Some(kind) => stop_kind(kind),
-        None => false,
-    }
-}
-
-fn stop_kind(kind: StreamKind) -> bool {
-    let taken = slot(kind).take();
+    let taken = slots().remove(&stream);
     match taken {
         None => false,
         Some(s) => {
@@ -291,24 +286,18 @@ fn stop_kind(kind: StreamKind) -> bool {
 /// Stop everything (app exit).
 #[napi]
 pub fn stop_all() {
-    let slots: Vec<CaptureSlot> = [StreamKind::LocalMic, StreamKind::SystemRemote]
-        .into_iter()
-        .filter_map(|k| slot(k).take())
-        .collect();
-    for s in &slots {
+    let taken: Vec<CaptureSlot> = slots().drain().map(|(_, v)| v).collect();
+    for s in &taken {
         s.stop.store(true, Ordering::SeqCst);
     }
-    for s in slots {
+    for s in taken {
         let _ = s.join.join();
     }
 }
 
 #[napi]
 pub fn is_capturing(stream: String) -> bool {
-    match StreamKind::parse(&stream) {
-        Some(kind) => slot(kind).as_ref().map(CaptureSlot::running).unwrap_or(false),
-        None => false,
-    }
+    slots().get(&stream).map(CaptureSlot::running).unwrap_or(false)
 }
 
 /// Same monotonic clock (QPC, ms) as NativeAudioChunk.monotonicMs.
@@ -354,6 +343,9 @@ mod tests {
         assert_eq!(StreamKind::parse("local_mic"), Some(StreamKind::LocalMic));
         assert_eq!(StreamKind::parse("system_remote"), Some(StreamKind::SystemRemote));
         assert_eq!(StreamKind::parse("mic"), None);
+        assert_eq!(StreamKind::parse("probe_render:3"), Some(StreamKind::SystemRemote));
+        assert_eq!(StreamKind::parse("probe_capture:a"), Some(StreamKind::LocalMic));
+        assert_eq!(StreamKind::parse("probe_render:"), None);
         assert_eq!(StreamKind::SystemRemote.as_str(), "system_remote");
     }
 
