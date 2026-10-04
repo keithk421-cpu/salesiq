@@ -1,0 +1,74 @@
+{
+  "id": "competitor-04-datadog-consolidation-unknown-gap",
+  "category": "competitor",
+  "tags": [
+    "unknown_speaker",
+    "buyer_claim"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Finalize order-form structure with Harborview Telecom and surface anything that could stall signature",
+  "desired_outcomes": [
+    "Understand the VP's consolidation question and what would settle it",
+    "Keep the response factual about Datadog",
+    "Agree how to address the VP before signature"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Ken Adeyemi (Sr. Dir. Platform Engineering)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 980, "end": 996, "who": "keith", "text": "So on the order form, we've got the platform tier for the care assistant, the annual term, and we left the second use case as an option. Any questions on structure before we talk timing?" },
+    { "t": 997, "end": 1008, "who": "e1:s0", "text": "Structure's fine. Um. There's one thing that came up, and, go ahead, you were on that call." },
+    { "t": 1009.5, "end": 1032, "who": "e1:s1", "text": "Yeah. So the question that came up from our VP is, we already pay Datadog a lot of money, and they've got their LLM observability thing now, so why wouldn't we just turn that on? Like, that's literally what he asked. And he also said" },
+    { "t": 1039, "end": 1041, "who": "e1:s1", "text": "so, yeah." },
+    { "t": 1042, "end": 1058, "who": "e1:s0", "text": "Yeah, and to be fair to him, he's not wrong that it's one less vendor. I honestly don't know the details of what theirs does. We haven't looked." },
+    { "t": 1058.5, "end": 1060, "who": "keith", "text": "Okay. That's fair." },
+    { "t": 1060.5, "end": 1063, "who": "e1:s0", "text": "So, yeah. How do you want to handle that?" },
+    { "t": 1063.5, "end": 1064.5, "who": "keith", "text": "Yeah, let me think about that." }
+  ],
+  "gaps": [
+    { "start": 1032, "end": 1039, "stream": "system_remote", "cause": "provider_disconnect" }
+  ],
+  "help_at_s": 1066,
+  "knowledge": [
+    {
+      "id": "k-competitive-positioning",
+      "title": "Competitive positioning: general guidance",
+      "text": "Anchor on the buyer's own evaluation criteria first. Arize talking points: OpenTelemetry-based tracing via OpenInference instrumentation; open-source Phoenix for local development and experimentation; tracing, evaluation and production monitoring in one workflow; enterprise deployment options. Do not make specific claims about a named competitor's features, roadmap or pricing; ask what the buyer has seen.",
+      "category": "competitive",
+      "source": "Arize competitive guide (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-15"
+    }
+  ],
+  "best_moves": [
+    "handle_competitor",
+    "clarify_decision"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "identify_owner",
+    "call_control"
+  ],
+  "unacceptable_behaviors": [
+    "Claims Datadog's LLM observability lacks specific capabilities without an approved source",
+    "Disparages Datadog or the VP's question",
+    "Assumes the VP's preference is final or that the deal is lost",
+    "Offers a discount or concession to counter vendor consolidation",
+    "Fills in what the VP 'also said' during the transcript gap as if it was heard",
+    "Discounts the unlabeled speaker's input because their role is unknown"
+  ],
+  "forbid_regex": [
+    "\\bdiscount",
+    "\\bdatadog (can['’]?t|cannot|doesn['’]?t|does not|lacks)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "That's a fair question for him to ask. What would he need to see to decide: is it mainly vendor count, or how the eval workflow compares?",
+    "Sorry, I lost you for a second there. What else did he say after the Datadog question?"
+  ],
+  "keith_notes": ""
+}

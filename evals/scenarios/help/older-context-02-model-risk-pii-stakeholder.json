@@ -1,0 +1,53 @@
+{
+  "id": "older-context-02-model-risk-pii-stakeholder",
+  "category": "older_context",
+  "tags": [
+    "older_context",
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Demo evals on Fairhaven Lending's contact-center assistant and shape a pilot",
+  "desired_outcomes": [
+    "Pilot data approach agreed in principle",
+    "Required reviewers (e.g. model risk) brought in early",
+    "Next step with owners proposed"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Jordan Blake (Head of AI Products)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 480, "end": 488, "who": "keith", "text": "Who else would care about something like this on your side?" },
+    { "t": 489, "end": 530, "who": "e1:s0", "text": "Hm. So my team, obviously. The contact-center leadership, because it's their assistant. And Marcus on the model risk team. Anything that touches customer PII, he's going to want to see before it goes anywhere. He's, uh, he's thorough. In a good way, mostly, ha." },
+    { "t": 530.5, "end": 532, "who": "keith", "text": "Ha, okay. Good to know." },
+    { "t": 532.5, "end": 539, "who": "e1:s0", "text": "Yeah, you'll meet him at some point." },
+    { "t": 1612, "end": 1630, "who": "keith", "text": "...and this is the dataset view, so for the pilot you'd load a set of conversations here and run the evals over them." },
+    { "t": 1631, "end": 1651, "who": "e1:s1", "text": "Could we pipe in actual production conversations for the pilot? Like, real borrower chats, not synthetic stuff? That'd be way more convincing for us." },
+    { "t": 1651.5, "end": 1659, "who": "e1:s0", "text": "Yeah, honestly, I'd love that. The synthetic ones never look like real customers." },
+    { "t": 1659.5, "end": 1663, "who": "e1:s1", "text": "Right, real ones are messy." },
+    { "t": 1663.5, "end": 1664.3, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 1666,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_decision",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "identify_owner"
+  ],
+  "unacceptable_behaviors": [
+    "Agrees to load production borrower data (customer PII) into the pilot without raising the model-risk review Jordan mentioned earlier",
+    "Forgets Marcus or misattributes his role",
+    "Makes PII-redaction or data-handling claims about Arize without a source",
+    "Treats the unlabeled speaker's suggestion as an agreed decision"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Real borrower chats would be great. Earlier you said Marcus on model risk wants to see anything touching customer PII first. Should we bring him in to scope that before we load production data?"
+  ],
+  "keith_notes": ""
+}

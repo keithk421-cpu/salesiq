@@ -1,8 +1,8 @@
-# Sales Copilot: M0 (prove the ears)
+# Sales Copilot: M0 (ears) + M1 (HELP)
 
 Windows-first Electron app that listens to Zoom calls through Keith's existing audio setup and produces a debug transcript. **M0 only**: no HELP/Deeper/Coach yet.
 
-Start with **START_HERE.md** (spec) and **AUDIO_DEVICE_REQUIREMENT.md** (locked). For Keith: **docs/KEITH_TEST_GUIDE.md**. Plan, traceability and status: **docs/M0_PLAN.md**. Raven teardown: **docs/RAVEN_IMPLEMENTATION_NOTES.md**.
+Start with **START_HERE.md** (spec) and **AUDIO_DEVICE_REQUIREMENT.md** (locked). For Keith: **docs/KEITH_TEST_GUIDE.md**. M1 HELP: **docs/M1_PLAN.md**. Plan, traceability and status: **docs/M0_PLAN.md**. Raven teardown: **docs/RAVEN_IMPLEMENTATION_NOTES.md**.
 
 ## What it does
 - WASAPI loopback on the **selected** output endpoint + separate WASAPI mic capture on the **selected** mic, both opened by saved endpoint ID, shared mode, read-only toward Windows/Zoom settings (`native/windows-audio`, Rust/NAPI, adapted from Project Raven).

@@ -1,0 +1,53 @@
+{
+  "id": "older-context-01-march-go-live",
+  "category": "older_context",
+  "tags": [
+    "older_context"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Agree pilot timing and scope for Riverstone Utilities' outage-reporting agent",
+  "desired_outcomes": [
+    "Pilot timing tied to their real milestones",
+    "Pilot scope agreed in principle",
+    "Next step proposed with an owner"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Elena Vasquez (Dir. Digital Channels)" },
+    "e1:s1": { "role": "buyer", "name": "Omar Haddad (Sr. Engineer)" }
+  },
+  "transcript": [
+    { "t": 288, "end": 296, "who": "keith", "text": "Can you remind me where the outage-reporting agent is at?" },
+    { "t": 297, "end": 337, "who": "e1:s0", "text": "Yeah. So it's in pilot in two districts right now. It takes outage reports by chat and SMS, checks them against grid status, gives an estimated restore time. It goes live for the whole service territory March first. That's the date in the commission filing, so that's not moving." },
+    { "t": 337.5, "end": 339.5, "who": "keith", "text": "Got it, March first." },
+    { "t": 340, "end": 355, "who": "e1:s1", "text": "And the SMS piece is newer, that only went into the pilot like three weeks ago." },
+    { "t": 1395, "end": 1419, "who": "e1:s1", "text": "...yeah, the restore-time estimates come from the grid system, the agent just reads them out, it doesn't calculate anything." },
+    { "t": 1420, "end": 1432, "who": "keith", "text": "That's helpful. So, on trying this out. How are you thinking about timing for a pilot on our side?" },
+    { "t": 1433, "end": 1461, "who": "e1:s0", "text": "Yeah, I mean, honestly we could start whenever. January? February? Whenever the team has room, really. There's no rush on our side from a procurement standpoint, we've got the budget line already." },
+    { "t": 1461.5, "end": 1462.3, "who": "keith", "text": "Okay." },
+    { "t": 1463, "end": 1468, "who": "e1:s0", "text": "So, yeah. Whatever works for you guys." }
+  ],
+  "help_at_s": 1470,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_decision",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_desired_state",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Ignores the March 1 territory-wide go-live mentioned about 19 minutes earlier",
+    "Misstates the date, or treats the commission filing as a deadline to buy Arize",
+    "Pressures the buyer to start now or claims they'll miss launch otherwise",
+    "Treats 'start whenever' as an agreed pilot date",
+    "Asks about budget even though the buyer said the budget line already exists"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "You mentioned the outage agent goes live territory-wide March 1st per the commission filing. Would you want the pilot wrapped before go-live, or running alongside it?"
+  ],
+  "keith_notes": ""
+}

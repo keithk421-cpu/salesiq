@@ -1,0 +1,54 @@
+{
+  "id": "sa-leading-02-eval-criteria-buyer-thinking",
+  "category": "sa_leading",
+  "tags": [
+    "sa_handling",
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Demo evals for Copperline Bank's mortgage FAQ assistant, grounded in how they judge answers today",
+  "desired_outcomes": [
+    "SA maps their current eval criteria before showing the eval setup",
+    "Understand who reviews and approves prompt changes",
+    "Agree a pilot eval design"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Mei Lin (Data Science Manager)" },
+    "e1:s1": { "role": "teammate", "name": "Kenji (Arize SA)" },
+    "e1:s2": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 1540, "end": 1553, "who": "keith", "text": "Kenji, do you want to take them through how the evals would plug into this?" },
+    { "t": 1555, "end": 1570, "who": "e1:s1", "text": "Sure. So before I show the eval setup, how do you judge a good answer today for the mortgage FAQ assistant?" },
+    { "t": 1571, "end": 1608, "who": "e1:s0", "text": "We have, um, a golden set. About three hundred questions with reference answers that compliance signed off on. We run new prompts against it and eyeball the diffs. For faithfulness we sort of, we haven't really formalized it. It's mostly the eyeballing." },
+    { "t": 1608.5, "end": 1618, "who": "e1:s1", "text": "Okay, so the golden set's the anchor. And when you say eyeball the diffs, is that one person, or..." },
+    { "t": 1618.5, "end": 1628, "who": "e1:s2", "text": "It's usually me and Mei. Sometimes compliance looks, if it's a big change." },
+    { "t": 1628.5, "end": 1650, "who": "e1:s1", "text": "Got it, that helps. And on faithfulness, when you judge it, would you want to judge against the reference answer, or against the documents the assistant actually retrieved? Because those give you pretty different signals." },
+    { "t": 1650.5, "end": 1658, "who": "e1:s0", "text": "Hm. Good question. Probably... the docs? Actually, I'd have to think about it. Let me..." },
+    { "t": 1659, "end": 1660, "who": "e1:s0", "text": "Hm." }
+  ],
+  "help_at_s": 1662,
+  "knowledge": [],
+  "best_moves": [
+    "no_move"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "confirm_next_step",
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "Tells Keith to speak into Mei's pause or answer the faithfulness question for her",
+    "Has Keith cut across Kenji's eval-criteria thread with a new topic",
+    "Pitches LLM-as-a-judge or faithfulness evals into the pause",
+    "Labels 'mostly the eyeballing' as a problem the buyer acknowledged",
+    "Ignores or misattributes the unlabeled speaker's point that they and Mei review, with compliance on big changes"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "(Hold: Mei is thinking and Kenji owns this thread.) Later, if it fits: when a prompt change is big enough for compliance to look, who makes the final call to ship it?"
+  ],
+  "keith_notes": ""
+}

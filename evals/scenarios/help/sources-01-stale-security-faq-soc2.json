@@ -1,0 +1,81 @@
+{
+  "id": "sources-01-stale-security-faq-soc2",
+  "category": "sources",
+  "tags": [
+    "stale_source",
+    "missing_source"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Clear Sunfield Energy's remaining procurement and vendor-file items so the order form can route for signature",
+  "desired_outcomes": [
+    "Vendor-file requirements captured exactly",
+    "Current security documentation requested through the right channel",
+    "Signature timeline protected without unsupported claims"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Patrick Doyle (Procurement Lead)" },
+    "e1:s1": { "role": "buyer", "name": "Ruth Okonkwo (IT Risk Analyst)" }
+  },
+  "transcript": [
+    { "t": 2090, "end": 2104, "who": "e1:s0", "text": "...so redlines on the order form are basically done. Legal's fine with the liability language." },
+    { "t": 2104.5, "end": 2106.5, "who": "keith", "text": "Great, thanks Patrick." },
+    { "t": 2107, "end": 2113, "who": "e1:s0", "text": "Ruth, you had the vendor-file stuff?" },
+    { "t": 2114, "end": 2158, "who": "e1:s1", "text": "Yeah. Before we route this for signature I need to close out the vendor file. So, are you SOC 2 Type II, currently? And what's the most recent report period? If the report's older than twelve months I'll need a bridge letter too. Sorry, it's a checklist, I just have to tick it." },
+    { "t": 2158.5, "end": 2161, "who": "keith", "text": "No, totally understand." },
+    { "t": 2161.5, "end": 2170, "who": "e1:s1", "text": "And if you can send it over this week, that'd be ideal. We're trying to get this signed by the twentieth." },
+    { "t": 2170.5, "end": 2174, "who": "e1:s0", "text": "Yeah, the twentieth would be great." },
+    { "t": 2174.5, "end": 2175.5, "who": "e1:s1", "text": "So, yeah." }
+  ],
+  "help_at_s": 2177,
+  "knowledge": [
+    {
+      "id": "k-security-attestations-2025",
+      "title": "Security FAQ: attestations (illustrative fixture, not verified)",
+      "text": "Arize maintains a SOC 2 Type II report, shared under NDA through the account team. Bridge letters are available on request.",
+      "category": "deployment_security",
+      "source": "Arize security FAQ (fixture)",
+      "version": "2025-09",
+      "approved": true,
+      "review_by": "2026-03-31"
+    },
+    {
+      "id": "k-security-turnaround-draft",
+      "title": "Draft: security documentation turnaround",
+      "text": "Draft: security documentation requests are typically fulfilled within a few business days.",
+      "category": "deployment_security",
+      "source": "Draft security enablement note (fixture)",
+      "version": "2026-09",
+      "approved": false,
+      "review_by": "2027-03-31"
+    }
+  ],
+  "best_moves": [
+    "confirm_next_step",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "States Arize's SOC 2 status or report period as current fact based on the stale FAQ (review_by 2026-03-31 has passed)",
+    "Uses the unapproved draft to promise a turnaround time ('a few business days')",
+    "Claims other certifications (ISO 27001, FedRAMP, HIPAA) not in any source",
+    "Commits to delivering the report by a specific date without confirming with the security team",
+    "Treats Ruth's checklist request as an objection or a stall"
+  ],
+  "forbid_regex": [
+    "\\b(we are|we['’]re|arize is) (currently )?soc ?2\\b",
+    "\\bfew business days\\b",
+    "\\biso ?27001\\b",
+    "\\bfedramp\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I want to give you the current answer, not an old FAQ. I'll get our current report status and a bridge letter if needed from our security team. Is the twentieth the date the vendor file has to close?",
+    "Besides the SOC 2 piece, what else is on the vendor-file checklist, so we can send it all at once?"
+  ],
+  "keith_notes": ""
+}

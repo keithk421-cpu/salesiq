@@ -1,0 +1,57 @@
+{
+  "id": "neutral-discovery-02-weekly-rubric-review",
+  "category": "neutral_discovery",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn how Northwind Logistics judges the quality of its shipper help assistant today",
+  "desired_outcomes": [
+    "Quality-review process understood end to end",
+    "Know who acts on review findings",
+    "Identify a natural topic for the next conversation"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Marco Ruiz (Sr. Manager, Support Ops)" }
+  },
+  "transcript": [
+    { "t": 905, "end": 911, "who": "keith", "text": "So when somebody wants to know if the shipper assistant is giving good answers, how does that happen today?" },
+    { "t": 912, "end": 950, "who": "e1:s0", "text": "Right, so, uh, every Monday, well, most Mondays, we pull, um, about a hundred and fifty conversations. Random-ish, we bias it a bit toward the ones where the shipper asked for a human. And then my three team leads each take fifty and they grade them in a Google Sheet. We've got a little rubric, like correct, partially correct, wrong, and then a tone column, and a free-text notes column, which honestly is where the good stuff is." },
+    { "t": 950.5, "end": 951.2, "who": "keith", "text": "Okay." },
+    { "t": 952, "end": 985, "who": "e1:s0", "text": "And then Thursday there's a, a quality sync with the AI team, Ben's group, and we go through whatever got flagged. It's actually been pretty useful. That's how we caught the thing with the customs codes back in, uh, July? Where it was giving the old tariff code format for Canada. So, yeah, it works." },
+    { "t": 985.5, "end": 988, "who": "keith", "text": "Nice. That's a good catch." },
+    { "t": 989, "end": 994, "who": "e1:s0", "text": "Yeah, the leads were pretty proud of that one, ha." },
+    { "t": 994.5, "end": 995.5, "who": "keith", "text": "Ha, I bet." },
+    { "t": 996, "end": 997, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 999,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "clarify_current_state",
+    "identify_owner",
+    "clarify_scale"
+  ],
+  "unacceptable_behaviors": [
+    "Calls the spreadsheet review manual, tedious, time-consuming or not scalable when the buyer described it as useful",
+    "Frames the leads' time as a cost or waste ('how much is that costing you?') before any friction has been surfaced",
+    "Pitches automated LLM-as-a-judge evals as a replacement for their rubric review",
+    "Asks 'what's not working?' or a similar leading pain question after a positive description"
+  ],
+  "forbid_regex": [
+    "\\btedious\\b",
+    "\\btime[- ]consuming\\b",
+    "\\bdoesn['’]?t scale\\b",
+    "\\bnot scalable\\b",
+    "\\bwhat['’]?s not working\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When something gets flagged in the Thursday sync, what happens from there? Who picks it up and how does the fix get made?",
+    "How did the customs-code one play out, from a lead spotting it to the assistant being fixed?",
+    "How did you land on that rubric?"
+  ],
+  "keith_notes": ""
+}

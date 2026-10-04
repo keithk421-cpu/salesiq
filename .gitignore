@@ -6,3 +6,5 @@ release/
 .env.*
 native/windows-audio/target/
 *.node
+dist-tools/
+evals/reports/

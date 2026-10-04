@@ -1,0 +1,54 @@
+{
+  "id": "neutral-discovery-07-why-now-planning-cycle",
+  "category": "neutral_discovery",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand why Saltmarsh Media is looking now and what a useful outcome is for them",
+  "desired_outcomes": [
+    "Reason for the evaluation understood without inventing urgency",
+    "Know what output their planning process needs",
+    "Agree an appropriate next step for a planning-cycle evaluation"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Rachel Kim (Dir. Data Products)" }
+  },
+  "transcript": [
+    { "t": 380, "end": 389, "who": "keith", "text": "Can I ask, what put this on your radar now? Like, why are we talking this fall?" },
+    { "t": 390, "end": 440, "who": "e1:s0", "text": "Yeah, honestly? No fire. Every fall we do the planning cycle, and part of that is, okay, what are we going to need for the stuff we're shipping next year. We've got the article-tagging model in production, that's been running for a while. The summaries thing, the, uh, the newsletter summaries, that's going to be a lot bigger next year, more titles. So my boss asked me to, you know, look at the space, see what's out there, put something in the plan." },
+    { "t": 440.5, "end": 441.2, "who": "keith", "text": "Okay." },
+    { "t": 442, "end": 452, "who": "e1:s0", "text": "You're one of, I think, three or four of these calls this month. I'd rather just be upfront about that." },
+    { "t": 452.5, "end": 456, "who": "keith", "text": "No, I appreciate that. That's really helpful." },
+    { "t": 456.5, "end": 462, "who": "e1:s0", "text": "Yeah. I'd rather not waste your time pretending it's on fire, ha." },
+    { "t": 462.5, "end": 464, "who": "keith", "text": "Ha, fair enough." },
+    { "t": 464.5, "end": 465.5, "who": "e1:s0", "text": "So, yeah." }
+  ],
+  "help_at_s": 467,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_desired_state",
+    "clarify_decision"
+  ],
+  "acceptable_moves": [
+    "clarify_current_state",
+    "clarify_scale",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Invents urgency or a compelling event the buyer explicitly said doesn't exist",
+    "Pushes for a trial, a timeline or a commitment beyond the planning-cycle context",
+    "Asks what's broken or frustrating today after the buyer said there's no fire",
+    "Treats the three or four other calls as a competitive threat and launches a comparison"
+  ],
+  "forbid_regex": [
+    "\\bwhat['’]?s broken\\b",
+    "\\bfrustrat"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What would a useful outcome of these calls look like for the plan: a shortlist, a recommendation, a budget line?",
+    "When the summaries work gets bigger next year, what does that look like: more titles, more volume, new formats?"
+  ],
+  "keith_notes": ""
+}

@@ -1,0 +1,59 @@
+{
+  "id": "neutral-discovery-03-shared-ownership-unknown-speaker",
+  "category": "neutral_discovery",
+  "tags": [
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand who shapes and judges the quality of Brightwater Mutual's claims-summary assistant",
+  "desired_outcomes": [
+    "Map the groups involved in assistant quality in the buyer's words",
+    "Understand how those groups work together on changes",
+    "Find the right people for a follow-up"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Priya Nair (VP Data Science)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 1098, "end": 1121, "who": "e1:s0", "text": "...so adjusters get the summary at the top of the claim file, and they can expand into the source pages if they want to check anything. Adoption's been good, most of them use it on every file now." },
+    { "t": 1121.5, "end": 1122.5, "who": "keith", "text": "That's great." },
+    { "t": 1130, "end": 1137, "who": "keith", "text": "On the summaries themselves, when it comes to whether they're good, whose call is that today?" },
+    { "t": 1138, "end": 1170, "who": "e1:s0", "text": "Hm. It's, okay, so it's kind of a few people, honestly. The platform team owns the serving, the infra, uptime. My team owns the, um, the models and the prompts. And then claims ops, Denise's org, they're really the ones who decide what 'good' means for an adjuster, because they're the ones reading them all day." },
+    { "t": 1170.5, "end": 1171.2, "who": "keith", "text": "Okay." },
+    { "t": 1172, "end": 1180, "who": "e1:s1", "text": "And legal reviews the templates. Technically. Like, once a quarter." },
+    { "t": 1180.5, "end": 1192, "who": "e1:s0", "text": "Right, yeah, Tom's team does a pass on the templates every quarter. So, yeah, it's a few groups. That's just how we're set up." },
+    { "t": 1192.5, "end": 1194, "who": "keith", "text": "Makes sense." },
+    { "t": 1194.5, "end": 1195.3, "who": "e1:s0", "text": "Mm." }
+  ],
+  "help_at_s": 1197,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "clarify_current_state",
+    "identify_owner",
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Assumes the shared ownership causes confusion, gaps, finger-pointing or slow decisions",
+    "Declares that nobody owns quality, or names a single owner the buyer did not name",
+    "Hedges, stalls or asks Keith to identify the unlabeled speaker before giving a next line",
+    "Attributes the legal-review comment to Priya or invents a name or role for the unlabeled speaker",
+    "Pitches collaboration or annotation features before understanding how the groups work together"
+  ],
+  "forbid_regex": [
+    "\\bfinger[- ]pointing\\b",
+    "\\bfalls? through the cracks\\b",
+    "\\b(no ?one|nobody) (really )?owns\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "How does claims ops tell your team what 'good' looks like? Is it written down somewhere, or more ongoing feedback?",
+    "When a prompt change goes out, how do those groups each get involved?"
+  ],
+  "keith_notes": ""
+}

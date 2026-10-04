@@ -1,0 +1,56 @@
+{
+  "id": "neutral-discovery-01-datadog-otel-current-stack",
+  "category": "neutral_discovery",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Helio Health observes its patient-intake assistant today and who relies on that view",
+  "desired_outcomes": [
+    "Current tooling and data flow for the intake assistant understood in the buyer's own words",
+    "Know which teams look at assistant behavior, and how",
+    "Agree whether a technical follow-up with the platform team makes sense"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Dana Whitfield (Dir. ML Platform)" }
+  },
+  "transcript": [
+    { "t": 612, "end": 621, "who": "keith", "text": "Okay, so, and stop me if I'm off here, but on the intake assistant, what are you actually using today to see what it's doing in production?" },
+    { "t": 622.5, "end": 651, "who": "e1:s0", "text": "Yeah, so, um. We're a Datadog shop, basically, for everything. APM, logs, the whole thing. And when we stood up the intake assistant the, uh, the platform team just kind of extended that, so the orchestration service emits OTel spans and they land in Datadog next to everything else." },
+    { "t": 651.5, "end": 668, "who": "e1:s0", "text": "And then the prompt and the response we log to, I think it's a separate index? With a redaction step in front of it, because, you know, PHI. Somebody on the data engineering side set that up, I'd have to double-check the details." },
+    { "t": 668.5, "end": 669.5, "who": "keith", "text": "Got it." },
+    { "t": 670, "end": 677, "who": "e1:s0", "text": "So yeah. That's sort of the setup. It's been in place since we launched in the spring." },
+    { "t": 678, "end": 683, "who": "keith", "text": "Okay. And who's, like, who's in there looking at it, typically?" },
+    { "t": 684, "end": 708, "who": "e1:s0", "text": "Mostly the on-call engineers, honestly. If latency spikes or the, uh, the model provider has a bad afternoon, that's where they go. The clinical content folks don't really go into Datadog. They, um, they review stuff a different way, they've got their own thing." },
+    { "t": 708.5, "end": 709.2, "who": "keith", "text": "Mm-hm." },
+    { "t": 710, "end": 712, "who": "e1:s0", "text": "Yeah. So, that's... yeah." }
+  ],
+  "help_at_s": 714,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process",
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "technical_clarification"
+  ],
+  "unacceptable_behaviors": [
+    "Treats 'we're a Datadog shop' as dissatisfaction with Datadog",
+    "Asks a leading pain question such as 'What's frustrating about Datadog for LLM traces?' or says the setup must be hard to piece together",
+    "Pitches Arize or compares Arize to Datadog before understanding how the current setup is used",
+    "Assumes the clinical content team's review is manual, slow or broken",
+    "Makes claims about Datadog's LLM capabilities"
+  ],
+  "forbid_regex": [
+    "\\bfrustrat",
+    "\\bpainful\\b",
+    "\\bmust be (hard|tough|difficult|painful)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "You mentioned the clinical content folks review outputs a different way. How does that work today?",
+    "When on-call goes into Datadog for the intake assistant, what are they usually looking at?"
+  ],
+  "keith_notes": ""
+}

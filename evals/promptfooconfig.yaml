@@ -1,13 +1,20 @@
-description: Keith Sales Copilot draft evaluation scaffold
+# Keith Sales Copilot - HELP evals (promptfoo 0.123.1, pinned in package.json script).
+# Run: SALES_COPILOT_ANTHROPIC_KEY=... npm run eval:promptfoo
+# Level 1 (javascript) is a hard gate. Level 2 (llm-rubric) is the quality threshold.
+# Level 3 = Keith-approved scenarios only (golden_approved: true); drafts never gate.
+description: HELP card - Sonnet 5.5 vs Opus 5.5 on the same scenarios
 prompts:
-  - file://prompt.txt
+  - '{{scenario_id}}'
 providers:
-  - id: echo
-    label: placeholder-until-M1
-    config: {}
-tests:
-  - vars:
-      scenario: "Placeholder. Agent drafts scenarios only after M0; Golden approval is always false by default."
-    assert:
-      - type: contains
-        value: "Placeholder"
+  - id: file://dist-tools/promptfoo-provider.mjs
+    label: sonnet-5-5
+    config: { model: claude-sonnet-5-5 }
+  - id: file://dist-tools/promptfoo-provider.mjs
+    label: opus-5-5
+    config: { model: claude-opus-5-5 }
+defaultTest:
+  options:
+    provider: anthropic:messages:claude-opus-5-5
+tests: file://dist-tools/promptfoo-tests.mjs
+evaluateOptions:
+  maxConcurrency: 1

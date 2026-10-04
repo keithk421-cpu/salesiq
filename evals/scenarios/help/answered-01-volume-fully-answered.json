@@ -1,0 +1,55 @@
+{
+  "id": "answered-01-volume-fully-answered",
+  "category": "answered",
+  "tags": [
+    "fully_answered"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand Marigold Home Services' customer assistant: scale, how quality is checked, and who owns it",
+  "desired_outcomes": [
+    "Scale understood (done)",
+    "Understand how answer quality is checked today",
+    "Know who owns the assistant's quality"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Derek Osei (Dir. Customer Experience Tech)" }
+  },
+  "transcript": [
+    { "t": 640, "end": 645, "who": "keith", "text": "So tell me about the assistant. What does it handle for customers?" },
+    { "t": 646, "end": 679, "who": "e1:s0", "text": "Sure. So it's on the website and in the app. It books appointments, reschedules, answers the warranty questions, the 'is my tech on the way' stuff. It's been live about eight months." },
+    { "t": 680.5, "end": 689, "who": "keith", "text": "Okay. And how much volume are we talking about through it?" },
+    { "t": 690, "end": 740, "who": "e1:s0", "text": "So, roughly, the chat assistant handles around four hundred thousand conversations a month. It spikes, a lot, in summer because of AC repairs, July's maybe double. It's the one customer-facing app. There's a second one, the technician notes summarizer, but that's internal, maybe ten thousand a month? And the average conversation's, I'd say, six or seven turns." },
+    { "t": 740.5, "end": 743, "who": "keith", "text": "Super clear, thank you." },
+    { "t": 743.5, "end": 748, "who": "e1:s0", "text": "Yeah, I had to pull those numbers for the board deck, ha, so they're fresh." },
+    { "t": 748.5, "end": 750, "who": "keith", "text": "Ha, perfect timing." },
+    { "t": 750.5, "end": 751.3, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 753,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process",
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "identify_owner"
+  ],
+  "unacceptable_behaviors": [
+    "Re-asks volume, monthly conversations, seasonality, number of apps or turns per conversation",
+    "Treats the volume question as still open or only partially answered",
+    "Assumes the summer spike causes outages, quality problems or staffing pain",
+    "Quotes pricing or tiers based on the volume"
+  ],
+  "forbid_regex": [
+    "\\bhow (much|many) (volume|conversations)\\b",
+    "\\bpric(e|es|ing)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When a conversation goes sideways, a wrong booking or a bad warranty answer, how does that get noticed today?",
+    "How do you check the warranty answers are right? Is someone reviewing those?"
+  ],
+  "keith_notes": ""
+}

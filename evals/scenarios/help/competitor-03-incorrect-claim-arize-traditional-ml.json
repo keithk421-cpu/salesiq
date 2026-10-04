@@ -1,0 +1,74 @@
+{
+  "id": "competitor-03-incorrect-claim-arize-traditional-ml",
+  "category": "competitor",
+  "tags": [
+    "buyer_claim"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Resolve open questions from Ashgrove Insurance's internal review and confirm fit for their LLM use cases",
+  "desired_outcomes": [
+    "Correct the misconception using approved material",
+    "Tie the answer to their actual LLM use cases",
+    "Keep the competitive conversation factual"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Nadia Petrov (Director, AI Engineering)" }
+  },
+  "transcript": [
+    { "t": 300, "end": 312, "who": "keith", "text": "Before we jump in, anything that came up internally since last time that you want to make sure we cover?" },
+    { "t": 313, "end": 320, "who": "e1:s0", "text": "Actually, yeah. One thing I want to clear up." },
+    { "t": 320.5, "end": 321.3, "who": "keith", "text": "Sure." },
+    { "t": 322, "end": 365, "who": "e1:s0", "text": "So it came up on our side. One of the folks on my team said, and honestly the Datadog rep kind of said the same thing when we talked to them, that Arize is really more for traditional ML. Like tabular models, drift, that world. Not really built for LLM apps. And we're, like, ninety percent LLM stuff now. Claims intake, the adjuster copilot, all of it." },
+    { "t": 365.5, "end": 366.3, "who": "keith", "text": "Okay." },
+    { "t": 367, "end": 375, "who": "e1:s0", "text": "So is that, is that wrong? I'm genuinely asking, I don't know." },
+    { "t": 375.5, "end": 377, "who": "keith", "text": "No, good question." },
+    { "t": 377.5, "end": 378.3, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 380,
+  "knowledge": [
+    {
+      "id": "k-product-llm-scope",
+      "title": "Product scope: LLM and agent applications",
+      "text": "Arize supports LLM and agent applications (tracing, evaluations including LLM-as-a-judge, code-based checks and human annotation, prompt iteration and production monitoring) alongside traditional ML observability.",
+      "category": "product",
+      "source": "Arize product overview (fixture)",
+      "version": "2026-06",
+      "approved": true,
+      "review_by": "2027-01-01"
+    },
+    {
+      "id": "k-competitive-positioning",
+      "title": "Competitive positioning: general guidance",
+      "text": "Anchor on the buyer's own evaluation criteria first. Arize talking points: OpenTelemetry-based tracing via OpenInference instrumentation; open-source Phoenix for local development and experimentation; tracing, evaluation and production monitoring in one workflow; enterprise deployment options. Do not make specific claims about a named competitor's features, roadmap or pricing; ask what the buyer has seen.",
+      "category": "competitive",
+      "source": "Arize competitive guide (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-15"
+    }
+  ],
+  "best_moves": [
+    "handle_competitor",
+    "technical_answer"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "Agrees with, or leaves standing, the claim that Arize isn't built for LLM apps",
+    "Attacks Datadog, the Datadog rep or Nadia's teammate",
+    "Overstates capabilities beyond the approved source (invented feature names, customer counts, benchmarks)",
+    "Makes claims about Datadog's own products",
+    "Treats the buyer's genuine question as an objection she holds"
+  ],
+  "forbid_regex": [
+    "\\b(datadog|their rep|the rep) (is|was) (wrong|lying|misleading)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Good thing to clear up. Arize covers LLM and agent apps (tracing, evals, prompt iteration and monitoring) alongside traditional ML. Which piece, claims intake or the adjuster copilot, would you want to see it on first?"
+  ],
+  "keith_notes": ""
+}

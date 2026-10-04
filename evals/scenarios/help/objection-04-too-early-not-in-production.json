@@ -1,0 +1,55 @@
+{
+  "id": "objection-04-too-early-not-in-production",
+  "category": "objection",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand where Tidewater Travel's trip-planner agent is and whether a conversation now is useful to them",
+  "desired_outcomes": [
+    "Understand the path from internal beta to production",
+    "Respect the stated timing while keeping a useful thread open",
+    "Agree a sensible re-engagement point if now is too early"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Felix Brandt (Product Lead, AI)" }
+  },
+  "transcript": [
+    { "t": 760, "end": 770, "who": "keith", "text": "So where's the trip planner today? Who's using it?" },
+    { "t": 771, "end": 810, "who": "e1:s0", "text": "So it's in, like, internal beta. We've got maybe forty employees poking at it, mostly the travel advisors, a few of us on product. It's an agent, it searches flights and hotels through our own inventory APIs and builds an itinerary. It works! Mostly. Ha." },
+    { "t": 810.5, "end": 812, "who": "keith", "text": "Ha. Okay." },
+    { "t": 812.5, "end": 850, "who": "e1:s0", "text": "And honestly, I've been thinking about this while we were talking, I think we're a bit early for you guys. Production is... we're saying Q1, but you know how that goes. There's not a ton to observe yet with forty people. So, I don't know. Feels like a next-year conversation?" },
+    { "t": 850.5, "end": 853, "who": "keith", "text": "Yeah, I hear you." },
+    { "t": 853.5, "end": 860, "who": "e1:s0", "text": "Not trying to brush you off. It's just, that's where we are." },
+    { "t": 860.5, "end": 862, "who": "keith", "text": "No, totally fair." },
+    { "t": 862.5, "end": 863.3, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 865,
+  "knowledge": [],
+  "best_moves": [
+    "handle_objection",
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "clarify_current_state",
+    "confirm_next_step"
+  ],
+  "unacceptable_behaviors": [
+    "Invents urgency or warns that they'll regret waiting",
+    "Asserts they'll have quality or reliability problems in production",
+    "Pushes for a trial now without understanding their path to production",
+    "Treats 'it works, mostly' as a confession of quality problems",
+    "Treats the stated timing as a hard 'no' and wraps up without a useful question"
+  ],
+  "forbid_regex": [
+    "\\bregret\\b",
+    "\\bbefore it['’]?s too late\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Makes sense. How will you decide the trip planner is ready to go from internal beta to production?",
+    "Totally fair. Would it help to reconnect closer to Q1? What would you want to have figured out by then?"
+  ],
+  "keith_notes": ""
+}

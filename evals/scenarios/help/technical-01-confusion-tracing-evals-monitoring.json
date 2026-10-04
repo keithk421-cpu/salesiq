@@ -1,0 +1,66 @@
+{
+  "id": "technical-01-confusion-tracing-evals-monitoring",
+  "category": "technical",
+  "tags": [
+    "technical_confusion",
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Demo tracing and evals for Wrenfield Education's tutoring assistant to a mixed product and engineering audience",
+  "desired_outcomes": [
+    "Everyone leaves with a clear distinction between tracing, evals and monitoring",
+    "Learn which of the three matters most to them first",
+    "Agree what to show in the next session"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Hannah Cole (Dir. Product)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 800, "end": 818, "who": "e1:s0", "text": "...and the main thing for us this year is the math tutor. That's where most of the sessions are." },
+    { "t": 820, "end": 838, "who": "keith", "text": "Got it. So this is one tutoring session as a trace: the student's question, the retrieval over the course materials, the model's answer, and you can see each step and how long it took." },
+    { "t": 839, "end": 842, "who": "e1:s0", "text": "Oh, that's nice." },
+    { "t": 843, "end": 875, "who": "e1:s1", "text": "Sorry, quick question, maybe a dumb one. So once we have the tracing set up, that's, we're evaluated, then? Like, the tracing is the evals? Or is it the monitoring that's the evals? I keep getting the three words mixed up, everyone on our side uses them differently." },
+    { "t": 875.5, "end": 882, "who": "e1:s0", "text": "Ha, yeah, I was honestly going to ask the same thing." },
+    { "t": 882.5, "end": 884, "who": "keith", "text": "Not dumb at all." },
+    { "t": 884.5, "end": 887, "who": "e1:s1", "text": "Okay, good, ha." },
+    { "t": 887.5, "end": 888.3, "who": "e1:s0", "text": "Mm." }
+  ],
+  "help_at_s": 890,
+  "knowledge": [
+    {
+      "id": "k-concepts-trace-eval-monitor",
+      "title": "Tracing vs. evaluation vs. monitoring",
+      "text": "Tracing records what an application did (each step, its inputs, outputs and latency) as spans. Evaluations score the quality of those outputs or steps, for example with LLM-as-a-judge, code checks or human labels. Monitoring tracks metrics, including eval scores, over time and alerts on changes. Tracing alone does not evaluate quality.",
+      "category": "product",
+      "source": "Arize docs primer (fixture)",
+      "version": "2026-06",
+      "approved": true,
+      "review_by": "2027-01-01"
+    }
+  ],
+  "best_moves": [
+    "technical_clarification",
+    "technical_answer"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "Lets the conflation stand, or agrees that tracing alone means the app is evaluated",
+    "Gives a long lecture instead of a crisp one-line distinction",
+    "Pitches features before untangling the terms",
+    "Hedges or waits because the person asking is an unlabeled speaker",
+    "Is condescending about the question"
+  ],
+  "forbid_regex": [
+    "\\b(yes|right|correct|exactly)[,.]? (the )?tracing is (the )?evals?\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Tracing records what happened at each step; evals score whether it was any good; monitoring watches those scores over time and flags changes. Which of those matters most for the math tutor right now?"
+  ],
+  "keith_notes": ""
+}

@@ -1,0 +1,64 @@
+{
+  "id": "competitor-02-direct-comparison-braintrust",
+  "category": "competitor",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Demo experiments and evals for Stratus Payments' dispute-resolution assistant and earn a place in their written evaluation",
+  "desired_outcomes": [
+    "Answer the comparison honestly using approved positioning",
+    "Learn the criteria the VP write-up will use",
+    "Agree a next step that tests those criteria"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Arjun Mehta (Head of ML)" },
+    "e1:s1": { "role": "buyer", "name": "Chloe Park (Product Manager)" }
+  },
+  "transcript": [
+    { "t": 1670, "end": 1680, "who": "e1:s0", "text": "And the dataset there, that's the one we uploaded Tuesday?" },
+    { "t": 1680.5, "end": 1689, "who": "keith", "text": "Yeah, that's your three hundred disputes from the export." },
+    { "t": 1690, "end": 1705, "who": "keith", "text": "And this is the experiment view, so you can compare the two prompt versions side by side on the same dataset." },
+    { "t": 1706, "end": 1712, "who": "e1:s1", "text": "Can you sort that by the, the failing ones?" },
+    { "t": 1712.5, "end": 1716, "who": "keith", "text": "Yep, here." },
+    { "t": 1716.5, "end": 1718, "who": "e1:s1", "text": "Okay, cool." },
+    { "t": 1721, "end": 1760, "who": "e1:s0", "text": "Okay, this is useful. Let me be direct though, because I've got to write this up for my VP next week. We're also looking at Braintrust. Like, seriously looking, we've done two sessions with them. So, how are you different? Why you and not them? And give me the honest version, not the slide." },
+    { "t": 1760.5, "end": 1762, "who": "keith", "text": "Yeah, fair." }
+  ],
+  "help_at_s": 1764,
+  "knowledge": [
+    {
+      "id": "k-competitive-positioning",
+      "title": "Competitive positioning: general guidance",
+      "text": "Anchor on the buyer's own evaluation criteria first. Arize talking points: OpenTelemetry-based tracing via OpenInference instrumentation; open-source Phoenix for local development and experimentation; tracing, evaluation and production monitoring in one workflow; enterprise deployment options. Do not make specific claims about a named competitor's features, roadmap or pricing; ask what the buyer has seen.",
+      "category": "competitive",
+      "source": "Arize competitive guide (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-15"
+    }
+  ],
+  "best_moves": [
+    "handle_competitor",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Makes specific claims about Braintrust's features, weaknesses, roadmap or pricing that are not in an approved source",
+    "Disparages Braintrust",
+    "Dodges the direct question entirely and only asks a question back",
+    "Delivers a generic feature dump not tied to the buyer's criteria",
+    "Invents Arize differentiators beyond the approved competitive guide (e.g. customer counts, benchmark numbers)"
+  ],
+  "forbid_regex": [
+    "\\bbraintrust (can['’]?t|cannot|doesn['’]?t|does not|lacks|is (weak|worse|limited))\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Honest version: I won't speak for their product, but where we tend to stand out is OpenTelemetry-based tracing, open-source Phoenix for dev work, and tracing, evals and monitoring in one workflow. For your write-up, what are the two or three things your VP will judge on?",
+    "What stood out to you in the two Braintrust sessions, so I can speak to what actually matters for you?"
+  ],
+  "keith_notes": ""
+}

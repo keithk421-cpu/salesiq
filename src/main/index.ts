@@ -227,6 +227,10 @@ function registerIpc(): void {
   })
   ipcMain.handle('knowledge:openFolder', () => (help ? shell.openPath(help.knowledgeDir) : ''))
   ipcMain.handle('playbook:open', () => (help ? shell.openPath(help.playbookPath()) : ''))
+  ipcMain.handle('help:benchmark', async (_e, raw: unknown) =>
+    help ? help.runBenchmark(raw, (p) => send('benchmark-progress', p)) : { ok: false, reason: 'HELP unavailable' })
+  ipcMain.handle('help:openReport', (_e, file: unknown) =>
+    typeof file === 'string' && help && file.startsWith(path.join(app.getPath('userData'), 'reports')) ? shell.openPath(file) : '')
 }
 
 function createWindow(): void {

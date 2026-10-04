@@ -677,6 +677,26 @@ $('aiKeyChange').addEventListener('click', () => { $('aiForm').hidden = false; $
 $('aiModel').addEventListener('change', async () => { await api.helpSetSettings({ model: $<HTMLSelectElement>('aiModel').value }); await refreshHelpInfo() })
 $('aiPrefetch').addEventListener('change', async () => { await api.helpSetSettings({ prefetch: $<HTMLInputElement>('aiPrefetch').checked }); await refreshHelpInfo() })
 
+let benchFile = ''
+$('benchRun').addEventListener('click', async () => {
+  $<HTMLButtonElement>('benchRun').disabled = true
+  $('benchOpen').hidden = true
+  $('benchStatus').textContent = 'Starting…'
+  const r = await api.helpBenchmark({ repeats: Number($<HTMLSelectElement>('benchRepeats').value) })
+  $<HTMLButtonElement>('benchRun').disabled = false
+  if (!r.ok) {
+    $('benchStatus').textContent = r.reason
+    return
+  }
+  benchFile = r.reportFile
+  $('benchStatus').textContent = 'Done. Report saved.'
+  $('benchOpen').hidden = false
+  $('benchSummary').hidden = false
+  $('benchSummary').textContent = r.markdown
+})
+$('benchOpen').addEventListener('click', () => { if (benchFile) void api.helpOpenReport(benchFile) })
+api.onBenchmarkProgress((p) => { $('benchStatus').textContent = `${p.done}/${p.total} · ${p.scenario}` })
+
 void (async () => {
   await refreshHelpInfo()
   await renderKnowledge()

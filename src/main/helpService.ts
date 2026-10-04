@@ -12,6 +12,7 @@ import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpModel } from './help/models'
 import { loadPlaybook, type Playbook } from './help/prompt'
+import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
 
@@ -244,6 +245,42 @@ export class HelpService {
     else this.db.sql.prepare('INSERT INTO feedback (card_id, origin, type, bad_reason, note, ts) VALUES (?, ?, ?, ?, ?, ?)')
       .run(ev.card_id, ev.origin, ev.type, ev.bad_reason, ev.optional_note, new Date().toISOString())
     return { ok: true }
+  }
+
+  /**
+   * In-app speed/quality benchmark: Sonnet 5.5 vs Opus 5.5 on the same scenarios, on Keith's PC
+   * and network (what matters for live latency). Uses the locally stored key. Not during a call.
+   */
+  private benchmarking = false
+  async runBenchmark(raw: unknown, progress: (p: { done: number; total: number; scenario: string; ok: boolean }) => void): Promise<{ ok: boolean; reason?: string; reportFile?: string; markdown?: string }> {
+    if (this.benchmarking) return { ok: false, reason: 'A benchmark is already running.' }
+    if (this.sessionState === 'live' || this.sessionState === 'checking' || this.sessionState === 'paused') return { ok: false, reason: 'Stop the call first.' }
+    const r = (raw ?? {}) as Record<string, unknown>
+    const repeats = Math.min(3, Math.max(1, Number(r.repeats) || 1))
+    const which = Array.isArray(r.models) ? r.models : ['claude-sonnet-5-5', 'claude-opus-5-5']
+    const configs = [DEFAULT_HELP_CONFIG, OPUS_HELP_CONFIG].filter((c) => which.includes(c.model))
+    const scenarios = loadScenarios(path.join(this.appPath, 'evals', 'scenarios', 'help'))
+    if (scenarios.length === 0) return { ok: false, reason: 'No scenarios found.' }
+    const model = this.createModel()
+    this.benchmarking = true
+    try {
+      this.log('help_benchmark_start', { scenarios: scenarios.length, repeats, configs: configs.map((c) => c.model), mock: model.mock })
+      const report = await benchmark({
+        scenarios, model, configs, playbook: this.playbook, repeats,
+        onProgress: (done, total, last) => progress({ done, total, scenario: last.scenario_id, ok: last.level1.pass }),
+      })
+      const dir = path.join(this.storage.root, 'reports')
+      fs.mkdirSync(dir, { recursive: true })
+      const stamp = report.created_at.replace(/[:.]/g, '-')
+      const file = path.join(dir, `help-benchmark-${stamp}${model.mock ? '-MOCK' : ''}.json`)
+      fs.writeFileSync(file, JSON.stringify({ ...report, mock: model.mock }, null, 2))
+      const md = (model.mock ? '> MOCK RUN - no model was called. Latency and quality numbers are meaningless.\n\n' : '') + reportMarkdown(report)
+      fs.writeFileSync(file.replace(/\.json$/, '.md'), md)
+      this.log('help_benchmark_done', { file, summaries: report.summaries.map((x) => ({ model: x.model, p50: x.first_usable_median_ms, p95: x.first_usable_p95_ms, l1: x.level1_pass_rate, cost: x.cost_usd })) })
+      return { ok: true, reportFile: file, markdown: md }
+    } finally {
+      this.benchmarking = false
+    }
   }
 
   shutdown(): void {

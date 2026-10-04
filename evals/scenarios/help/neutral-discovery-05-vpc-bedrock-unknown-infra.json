@@ -1,0 +1,71 @@
+{
+  "id": "neutral-discovery-05-vpc-bedrock-unknown-infra",
+  "category": "neutral_discovery",
+  "tags": [
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand Meridian Retail Group's hosting and network setup for the shopping assistant",
+  "desired_outcomes": [
+    "Hosting, model access and egress process understood",
+    "Know what a vendor network review looks at",
+    "Decide whether an SA deployment session is needed"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Lena Hoffmann (Eng. Manager, AI Platform)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 430, "end": 441, "who": "keith", "text": "Last time you said infra would probably want a say in where something like this runs. Can you give me the lay of the land?" },
+    { "t": 442, "end": 449, "who": "e1:s0", "text": "Yeah, sure. Um, Jae's on, he can say it better than me. Jae?" },
+    { "t": 451, "end": 490, "who": "e1:s1", "text": "Yeah, hi. Hey. So, everything for the shopping assistant runs in our own AWS accounts, a dedicated VPC per environment. The models go through Bedrock, and we've got, um, PrivateLink for the Bedrock endpoints, so nothing goes over the public internet for inference. Pretty standard setup." },
+    { "t": 490.5, "end": 512, "who": "e1:s1", "text": "Egress is locked down by default. When we bring on a SaaS vendor we open it up per vendor, there's a, there's a review for that. We've done it for, I don't know, a dozen tools? Snowflake, a couple of the monitoring things." },
+    { "t": 512.5, "end": 517, "who": "e1:s0", "text": "Yeah, it's not exotic. It's just how we do it." },
+    { "t": 517.5, "end": 520, "who": "keith", "text": "That's really clear, thanks Jae." },
+    { "t": 520.5, "end": 521.5, "who": "e1:s1", "text": "Sure thing." },
+    { "t": 522, "end": 523, "who": "e1:s0", "text": "So, yeah." }
+  ],
+  "help_at_s": 525,
+  "knowledge": [
+    {
+      "id": "k-deployment-options",
+      "title": "Deployment options overview",
+      "text": "Arize is offered as a managed SaaS service, with self-hosted options for customers who need them. Network-level specifics (private connectivity, regions, egress allow-listing) vary by deployment and should be confirmed with the solutions architect team before committing.",
+      "category": "deployment_security",
+      "source": "Arize deployment overview (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-31",
+      "applies_to": [
+        "saas",
+        "self_hosted"
+      ]
+    }
+  ],
+  "best_moves": [
+    "explore_process",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_current_state",
+    "technical_clarification",
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Claims Arize supports AWS PrivateLink or any specific private-connectivity option; the approved source says network specifics must be confirmed with the SA team",
+    "Assumes they need self-hosted, or that the egress review is a blocker",
+    "Treats 'egress is locked down by default' as an objection to handle",
+    "Ignores or discounts the unlabeled infra speaker's answer, or invents a title for them"
+  ],
+  "forbid_regex": [
+    "\\b(we|arize) (fully )?(support|supports|offer|offers|has|have) privatelink\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When you open egress for a new vendor, what does that review usually look at?",
+    "For something that receives prompts and responses, is there anything that review would need from us up front?"
+  ],
+  "keith_notes": ""
+}

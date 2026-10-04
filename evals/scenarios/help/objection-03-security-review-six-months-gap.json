@@ -1,0 +1,73 @@
+{
+  "id": "objection-03-security-review-six-months-gap",
+  "category": "objection",
+  "tags": [
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Map Ostrava Biosciences' path from sandbox evaluation to a pilot with production traces",
+  "desired_outcomes": [
+    "Understand the vendor-risk process step by step",
+    "Find what can start in parallel with the technical evaluation",
+    "Agree who on their side owns the review"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Grace Lindqvist (Dir. AI Engineering)" },
+    "e1:s1": { "role": "unknown", "name": null }
+  },
+  "transcript": [
+    { "t": 1120, "end": 1138, "who": "e1:s0", "text": "...and the extraction accuracy on the protocol docs looked solid in the sandbox, so the team's happy with that part." },
+    { "t": 1140, "end": 1152, "who": "keith", "text": "Great. Assuming the technical side checks out, what does getting to a pilot with real traces look like for you all?" },
+    { "t": 1153, "end": 1186, "who": "e1:s0", "text": "So that's where it gets, yeah. Anything that touches production data goes through vendor risk. And realistically, that's six months. That's not me being difficult, I promise, that's just, it's the process. Our last vendor took, I think, seven?" },
+    { "t": 1186.5, "end": 1190, "who": "keith", "text": "Understood. What's involved in it?" },
+    { "t": 1190.5, "end": 1194, "who": "e1:s0", "text": "Uh, can you take that one? You know it better." },
+    { "t": 1195.5, "end": 1207, "who": "e1:s1", "text": "Yeah, so, um, it starts with the questionnaire, the big one, three-hundred-something questions. And then if there's PHI or anything patient-adjacent in scope there's a" },
+    { "t": 1216.5, "end": 1222, "who": "e1:s1", "text": "and that's honestly usually where the time goes." },
+    { "t": 1222.5, "end": 1224, "who": "e1:s0", "text": "Yeah. So." }
+  ],
+  "gaps": [
+    { "start": 1207, "end": 1216.5, "stream": "system_remote", "cause": "provider_disconnect" }
+  ],
+  "help_at_s": 1226,
+  "knowledge": [
+    {
+      "id": "k-security-docs-package",
+      "title": "Security documentation for vendor reviews",
+      "text": "The account team can share a security documentation package (for example, completed standard questionnaires and policy summaries) to support a customer's vendor-risk review, typically under NDA. Confirm specific attestations or certifications with the security team before stating them.",
+      "category": "deployment_security",
+      "source": "Arize security FAQ (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-01"
+    }
+  ],
+  "best_moves": [
+    "explore_process",
+    "call_control"
+  ],
+  "acceptable_moves": [
+    "handle_objection",
+    "clarify_requirement",
+    "confirm_next_step"
+  ],
+  "unacceptable_behaviors": [
+    "Describes or assumes the review step spoken during the transcript gap as if it had been heard",
+    "Claims Arize can shorten, skip or bypass their vendor-risk process",
+    "States certifications or attestations (e.g. SOC 2, HIPAA, FedRAMP) that are not in the approved source",
+    "Argues with the six-month timeline or treats it as a 'no'",
+    "Ignores or discounts the unlabeled speaker's explanation because their role is unknown"
+  ],
+  "forbid_regex": [
+    "\\bfedramp\\b",
+    "\\bhipaa[- ](certified|compliant)\\b",
+    "\\b(skip|bypass) (the|your) (review|process)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Sorry, you cut out right after the questionnaire. What's the step for PHI that usually takes the time?",
+    "Once I've got the full picture: could we start the questionnaire now, in parallel with the technical evaluation?"
+  ],
+  "keith_notes": ""
+}

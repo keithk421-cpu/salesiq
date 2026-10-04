@@ -1,0 +1,53 @@
+{
+  "id": "neutral-discovery-06-internal-dashboard-during-demo",
+  "category": "neutral_discovery",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Quillfeather tracing and evals mapped to how their team works today",
+  "desired_outcomes": [
+    "Demo the parts the buyer asks to see",
+    "Understand how they judge answer quality today",
+    "Agree a technical next step if there is interest"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Sam Okafor (Staff Engineer)" }
+  },
+  "transcript": [
+    { "t": 1045, "end": 1062, "who": "keith", "text": "So this is a single trace for one request. You can see the retrieval step here, the chunks that came back, then the LLM call, and the latency on each piece..." },
+    { "t": 1063, "end": 1066, "who": "e1:s0", "text": "Mm-hm. Can you click into the retrieval one?" },
+    { "t": 1066.5, "end": 1072, "who": "keith", "text": "Yeah, so here are the documents it pulled, and the scores." },
+    { "t": 1073, "end": 1104, "who": "e1:s0", "text": "Yeah, okay. So this is, we've got kind of an internal thing that does a version of this. It's a Grafana board for the latency stuff, and then one of our guys, Teo, built a little Streamlit app where you paste in a conversation ID and it shows you the retrieval chunks and the prompt. It, uh, it works for what we need right now, honestly." },
+    { "t": 1104.5, "end": 1106, "who": "keith", "text": "Oh, nice." },
+    { "t": 1106.5, "end": 1114, "who": "e1:s0", "text": "Yeah. No, keep going though. I'm actually more curious what the eval side looks like." },
+    { "t": 1114.5, "end": 1116, "who": "keith", "text": "Sure, yeah." },
+    { "t": 1116.5, "end": 1117.3, "who": "e1:s0", "text": "Cool." }
+  ],
+  "help_at_s": 1119,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "no_move"
+  ],
+  "unacceptable_behaviors": [
+    "Argues the internal Grafana/Streamlit tooling won't scale or needs costly maintenance",
+    "Treats 'it works for what we need right now' as an objection to overcome",
+    "Ignores the buyer's request to see evals and keeps demoing tracing",
+    "Assumes the buyer lacks an eval process or has eval pain"
+  ],
+  "forbid_regex": [
+    "\\bwon['’]?t scale\\b",
+    "\\bdoesn['’]?t scale\\b",
+    "\\bmaintenance (burden|overhead)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Happy to. So I show the right thing: when you're judging whether answers are good today, what does that look like?",
+    "Before I switch over: is there a particular kind of answer you'd most want to be able to score?"
+  ],
+  "keith_notes": ""
+}

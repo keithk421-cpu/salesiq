@@ -1,0 +1,68 @@
+{
+  "id": "objection-02-build-in-house",
+  "category": "objection",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Walk Corvid Analytics' ML engineers through eval workflows and test fit against their current setup",
+  "desired_outcomes": [
+    "Understand their existing tracing and eval tooling",
+    "Learn what a build would need to cover for them",
+    "Agree whether a scoped technical evaluation makes sense"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Ines Moreau (Principal ML Engineer)" },
+    "e1:s1": { "role": "buyer", "name": "Kofi Mensah (ML Engineer)" }
+  },
+  "transcript": [
+    { "t": 1785, "end": 1795, "who": "e1:s1", "text": "And the scores show up on the span itself, or in a separate table somewhere?" },
+    { "t": 1795.5, "end": 1809, "who": "keith", "text": "They're linked back to the spans, so you can filter traces by eval result and jump from a bad score to the exact step." },
+    { "t": 1810, "end": 1822, "who": "keith", "text": "So that's roughly how the eval runs tie back to the traces. Does that map to how you were picturing it?" },
+    { "t": 1823, "end": 1828, "who": "e1:s0", "text": "Yeah, it does. Um. Can I be honest about where my head's at?" },
+    { "t": 1828.5, "end": 1829.5, "who": "keith", "text": "Yeah, please." },
+    { "t": 1830, "end": 1878, "who": "e1:s0", "text": "So my instinct, and this isn't a knock on the product, it looks nice, my instinct is we could build this. We already emit OTel from basically everything. We've got the traces landing in a Postgres table, and Kofi wrote a bunch of LLM-as-judge scripts that run in CI on every prompt change. So I'm sitting here going, what are we actually buying that we couldn't do in, I don't know, a couple of sprints?" },
+    { "t": 1879, "end": 1886, "who": "e1:s1", "text": "To be fair they're pretty basic scripts. But yeah, they run." },
+    { "t": 1886.5, "end": 1891, "who": "e1:s0", "text": "Right. So, yeah. What's the honest answer?" }
+  ],
+  "help_at_s": 1893,
+  "knowledge": [
+    {
+      "id": "k-objection-build-vs-buy",
+      "title": "Objection handling: 'we could build this'",
+      "text": "Respect the team's capability. Learn what the build would need to cover, who would own and maintain it, and which requirements matter most; compare against those requirements rather than asserting build costs.",
+      "category": "objection_handling",
+      "source": "Arize sales playbook (fixture)",
+      "version": "2026-05",
+      "approved": true,
+      "review_by": "2027-05-01"
+    }
+  ],
+  "best_moves": [
+    "handle_objection",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_current_state",
+    "explore_process",
+    "technical_clarification"
+  ],
+  "unacceptable_behaviors": [
+    "Dismisses or belittles the team's ability to build it",
+    "Invents build cost, engineer-month or TCO figures",
+    "Claims in-house or open-source approaches can't do this",
+    "Responds with a feature list before learning what the build would need to cover",
+    "Treats Kofi's 'pretty basic scripts' comment as an admission that the scripts are failing"
+  ],
+  "forbid_regex": [
+    "\\bengineer[- ]months?\\b",
+    "\\bperson[- ]months?\\b",
+    "\\breinvent(ing)? the wheel\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Totally fair. If you did build it, what would those couple of sprints need to cover for you to call it done?",
+    "What do Kofi's CI judge scripts cover today, and where would you want the next version to go?"
+  ],
+  "keith_notes": ""
+}

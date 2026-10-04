@@ -14,7 +14,9 @@
     "doctor": "node scripts/doctor.mjs",
     "build:native": "node scripts/build-native.mjs",
     "package:win": "node scripts/build.mjs && electron-builder --win nsis --x64 --publish never",
-    "check": "npm run typecheck && npm test"
+    "check": "npm run typecheck && npm test",
+    "eval:help": "node scripts/build-tools.mjs && node dist-tools/help-eval.mjs",
+    "eval:promptfoo": "node scripts/build-tools.mjs && npx -y promptfoo@0.123.1 eval -c evals/promptfooconfig.yaml"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -38,7 +40,8 @@
     "files": [
       "dist/**",
       "package.json",
-      "config/**"
+      "config/**",
+      "evals/scenarios/help/*.json"
     ],
     "extraResources": [
       {

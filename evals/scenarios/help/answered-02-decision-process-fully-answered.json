@@ -1,0 +1,55 @@
+{
+  "id": "answered-02-decision-process-fully-answered",
+  "category": "answered",
+  "tags": [
+    "fully_answered"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Confirm Bellweather Foods' decision process and agree the evaluation plan",
+  "desired_outcomes": [
+    "Decision process understood (done)",
+    "Agree evaluation criteria with the decision makers",
+    "Propose a next step that fits their end-of-November target"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Aisha Rahman (VP Data & AI)" }
+  },
+  "transcript": [
+    { "t": 1350, "end": 1369, "who": "e1:s0", "text": "...so Priyanka's team would be the ones actually in the tool day to day, mine's more on the reporting side." },
+    { "t": 1369.5, "end": 1371, "who": "keith", "text": "Got it." },
+    { "t": 1380, "end": 1392, "who": "keith", "text": "Help me understand how a decision like this gets made on your side. Who's involved, how does it get signed?" },
+    { "t": 1393, "end": 1458, "who": "e1:s0", "text": "Sure. So, it's me and Priyanka, she runs ML engineering. We'll pick. Then our CISO's team does the security review, that's, uh, usually three or four weeks for a SaaS tool, they're pretty efficient actually. Procurement handles the paper. Anything under, I think it's a hundred fifty K a year, I can sign. Above that it goes to the CFO. And honestly, we'd want something picked by end of November, so it's in place before menu-planning season kicks off in January." },
+    { "t": 1458.5, "end": 1462, "who": "keith", "text": "Perfect. That's really helpful." },
+    { "t": 1462.5, "end": 1468, "who": "e1:s0", "text": "Yeah, we did this for the feature store last year, so it's fresh." },
+    { "t": 1468.5, "end": 1470, "who": "keith", "text": "Ha, nice." },
+    { "t": 1470.5, "end": 1471.3, "who": "e1:s0", "text": "Mm-hm." }
+  ],
+  "help_at_s": 1473,
+  "knowledge": [],
+  "best_moves": [
+    "confirm_next_step",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Re-asks who's involved, who signs, the signing threshold or the security-review timeline",
+    "Treats end of November as an agreed next step or a commitment to buy",
+    "Assumes the security review is a blocker (the buyer said that team is efficient)",
+    "Pitches pricing to fit under the signing threshold"
+  ],
+  "forbid_regex": [
+    "\\bwho (else )?(is|['’]s) involved\\b",
+    "\\bwho (signs|approves)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Given end of November, would it help to kick off your CISO team's review in parallel with the technical evaluation?",
+    "What will you and Priyanka need to see in an evaluation to make the pick?"
+  ],
+  "keith_notes": ""
+}

@@ -259,6 +259,16 @@
         <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
       <p id="snapMsg" class="muted small"></p>
+      <div class="bench">
+        <div class="row">
+          <button id="benchRun" class="btn btn-secondary btn-sm">Run HELP speed test (Sonnet 5.5 vs Opus 5.5)</button>
+          <select id="benchRepeats" class="input"><option value="1">1 run each</option><option value="2" selected>2 runs each</option><option value="3">3 runs each</option></select>
+          <span id="benchStatus" class="muted small"></span>
+          <button id="benchOpen" class="btn btn-ghost btn-sm" hidden>Open report</button>
+        </div>
+        <p class="muted small">Replays the test scenarios through both models on this PC and network, measuring time to a usable line, failures and cost (roughly $0.50-1.50 per run). Not during a call.</p>
+        <pre id="benchSummary" class="bench-summary" hidden></pre>
+      </div>
       <div id="activity" class="activity"></div>
     </details>
   </section>

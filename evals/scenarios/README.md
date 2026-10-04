@@ -1,2 +1,5 @@
 # Scenario drafts
-Do not write Golden Set scenarios during M0. When M1 begins, agent may draft the first 50 described in EVALS.md. Every Level 3 candidate must include `golden_approved: false` until Keith explicitly approves it.
+HELP (M1) scenarios live in `help/`, one JSON per moment, format in `SCHEMA.md`.
+Every scenario starts with `"golden_approved": false`. Only Keith approves (sets true) after review; agents never do.
+The remaining EVALS.md categories (partial-vs-answered, next-step states, teammate inquiry -> buyer answer,
+should've-stayed-quiet for proactive Coach) belong to M2/M3 and are drafted with those milestones.

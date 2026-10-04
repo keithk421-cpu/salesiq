@@ -1,0 +1,68 @@
+{
+  "id": "sa-leading-01-custom-spans-propagation",
+  "category": "sa_leading",
+  "tags": [
+    "sa_handling"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Show Ambergate Retail how their full RAG pipeline, including the in-house retriever, would be traced",
+  "desired_outcomes": [
+    "Buyer's instrumentation questions answered by the SA",
+    "Scope the in-house services that need manual instrumentation",
+    "Agree a hands-on instrumentation session"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Tariq Hassan (Sr. ML Engineer)" },
+    "e1:s1": { "role": "teammate", "name": "Raj (Arize SA)" }
+  },
+  "transcript": [
+    { "t": 1105, "end": 1135, "who": "e1:s0", "text": "So the one piece that's not off-the-shelf is retrieval. Our retriever's an in-house Rust service, the Python orchestrator calls it over gRPC. So how does that show up? Is it just a black box in the trace?" },
+    { "t": 1136, "end": 1176, "who": "e1:s1", "text": "Yeah, good question. So for the framework pieces, like your LangChain orchestration, you'd use the auto-instrumentation. For the Rust retriever, since it's in-house, you'd add manual spans: basically wrap the call, set the span kind to retriever, attach the documents as attributes. Let me actually pull up the semantic conventions page so you can see the attribute names. One sec, I'm sharing." },
+    { "t": 1176.5, "end": 1179, "who": "e1:s0", "text": "Yeah, that'd be great." },
+    { "t": 1180, "end": 1182, "who": "keith", "text": "Raj, I think it's showing now." },
+    { "t": 1182.5, "end": 1184.5, "who": "e1:s1", "text": "Perfect, thanks Keith." },
+    { "t": 1185, "end": 1203, "who": "e1:s0", "text": "And would the, um, would the parent span from the Python side carry over across the gRPC hop? Or do we end up with two separate traces?" },
+    { "t": 1203.5, "end": 1224, "who": "e1:s1", "text": "Right, so that's context propagation, and that's standard OTel. You'd pass the trace context in the gRPC metadata and pick it up on the Rust side. Let me, I'll show you on the, uh, on the example, give me a sec, it's in the other tab" },
+    { "t": 1224.5, "end": 1226, "who": "e1:s0", "text": "Sure, no rush." }
+  ],
+  "help_at_s": 1228,
+  "knowledge": [
+    {
+      "id": "k-otel-tracing",
+      "title": "Tracing is OpenTelemetry-based",
+      "text": "Arize tracing is built on OpenTelemetry. OpenInference provides OTel-based instrumentation and semantic conventions for LLM applications, and spans are exported over OTLP; a proprietary agent is not required to send traces. Instrumentation effort depends on the frameworks and services involved.",
+      "category": "product",
+      "source": "Arize tracing docs (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-28"
+    }
+  ],
+  "best_moves": [
+    "no_move",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step",
+    "clarify_scale"
+  ],
+  "unacceptable_behaviors": [
+    "Tells Keith to interrupt Raj or change topics while he is mid-explanation",
+    "Gives Keith a competing or contradicting answer on context propagation",
+    "Has Keith re-ask Tariq's question as if it were unanswered",
+    "Pivots to pricing, procurement or timeline while the technical thread is open",
+    "Claims specific Rust SDK or Rust auto-instrumentation support not in a source"
+  ],
+  "forbid_regex": [
+    "\\bpric(e|es|ing)\\b",
+    "\\brust (sdk|auto[- ]?instrumentation)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "(Let Raj finish the example.) Then: besides the Rust retriever, are there other in-house services we should plan to instrument?",
+    "(After Raj's example) Would a working session with Raj and your team to instrument the retriever be a useful next step?"
+  ],
+  "keith_notes": ""
+}

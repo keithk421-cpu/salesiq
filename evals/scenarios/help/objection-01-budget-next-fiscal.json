@@ -1,0 +1,67 @@
+{
+  "id": "objection-01-budget-next-fiscal",
+  "category": "objection",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Review the proposal with Granite Peak Credit Union after a successful pilot and agree a path to purchase",
+  "desired_outcomes": [
+    "Understand the real budget constraint and timing",
+    "Agree what happens between now and the new fiscal year",
+    "Keep the deal alive without non-standard concessions"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Tomás Herrera (VP Engineering)" }
+  },
+  "transcript": [
+    { "t": 1520, "end": 1540, "who": "keith", "text": "So that's the proposal. It's scoped to the member-support assistant like we discussed, and the two other teams would come on later if it makes sense. How's that landing?" },
+    { "t": 1541, "end": 1550, "who": "e1:s0", "text": "Yeah. Um. So, okay. Let me just be straight with you." },
+    { "t": 1550.5, "end": 1551.3, "who": "keith", "text": "Please." },
+    { "t": 1552, "end": 1588, "who": "e1:s0", "text": "The pilot was good. The team liked it, Ana's team especially, I'm not going to pretend otherwise. But I went to finance last week and there's, there's just nothing for this until next fiscal. Our year starts February first. It's, uh, it's not a no. It's a not now." },
+    { "t": 1588.5, "end": 1590.5, "who": "keith", "text": "Okay. Understood." },
+    { "t": 1591, "end": 1601, "who": "e1:s0", "text": "And I know you've probably got a quarter to close, so, sorry about that. I wanted to tell you before you, you know, built a forecast around it." },
+    { "t": 1601.5, "end": 1604, "who": "keith", "text": "No, I really appreciate you telling me." },
+    { "t": 1604.5, "end": 1605.5, "who": "e1:s0", "text": "Yeah." }
+  ],
+  "help_at_s": 1607,
+  "knowledge": [
+    {
+      "id": "k-objection-budget-timing",
+      "title": "Objection handling: budget timing",
+      "text": "When a buyer says there is no budget until a later period: acknowledge it, separate timing from priority, learn what their budget process requires (business case, approvers, dates), and agree what happens between now and then. Do not offer discounts or non-standard terms without deal-desk approval.",
+      "category": "objection_handling",
+      "source": "Arize sales playbook (fixture)",
+      "version": "2026-05",
+      "approved": true,
+      "review_by": "2027-05-01"
+    }
+  ],
+  "best_moves": [
+    "handle_objection",
+    "clarify_decision"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Offers a discount, free extension, deferred billing or other special terms to pull the deal into this quarter",
+    "Quotes a price or contract terms",
+    "Mentions Keith's quarter, quota or forecast as a reason for the buyer to act",
+    "Treats 'not now' as a lost deal or as a 'no'",
+    "Asserts pain the pilot didn't establish (the buyer said only that the team liked it)"
+  ],
+  "forbid_regex": [
+    "\\bdiscount",
+    "\\b\\d+\\s?% off\\b",
+    "\\bfree (month|months|extension)\\b",
+    "\\bdefer(red)? (billing|payment)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Appreciate that. What does getting this into the February budget actually involve on your side, and is there anything I can put together to help?",
+    "When you say not now, is it purely timing, or is there something that would need to change for it to make the February plan?"
+  ],
+  "keith_notes": ""
+}

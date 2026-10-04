@@ -112,3 +112,24 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   }
   return { memory, kb, atMs, hiddenLineIndexes: hidden }
 }
+
+/**
+ * Turn a saved real session (sessions/<id>/transcript.jsonl) into a replayable scenario,
+ * so HELP can be re-run at any moment of a real call with only what was known then.
+ * Stays local: real-call content is never written into the repo.
+ */
+export function scenarioFromSession(transcriptJsonl: string, helpAtS: number): Scenario {
+  const lines = fs.readFileSync(transcriptJsonl, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>)
+  const turns = lines.filter((l) => l.kind === 'turn') as Array<{ stream: string; speaker_cluster: string | null; start_ms: number; end_ms: number; text: string }>
+  const gaps = lines.filter((l) => l.kind === 'gap_close') as Array<{ stream: Stream; cause: string; start_ms: number; end_ms: number }>
+  const speakers: Scenario['speakers'] = {}
+  for (const t of turns) if (t.stream === 'system_remote' && t.speaker_cluster) speakers[t.speaker_cluster] = { role: 'unknown', name: null }
+  return {
+    id: `session-${transcriptJsonl.split(/[\\/]/).slice(-2, -1)[0] ?? 'real'}`,
+    category: 'real_call', golden_approved: false, synthetic: false, call_type: 'other', call_goal: '', desired_outcomes: [],
+    speakers,
+    transcript: turns.sort((a, b) => a.start_ms - b.start_ms).map((t) => ({ t: t.start_ms / 1000, end: t.end_ms / 1000, who: t.stream === 'local_mic' ? 'keith' : (t.speaker_cluster ?? 'e0:s0'), text: t.text })),
+    gaps: gaps.filter((g) => g.cause !== 'pause').map((g) => ({ start: g.start_ms / 1000, end: g.end_ms / 1000, stream: g.stream, cause: g.cause })),
+    help_at_s: helpAtS, best_moves: [], acceptable_moves: [], unacceptable_behaviors: [],
+  }
+}

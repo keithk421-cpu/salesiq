@@ -1,0 +1,68 @@
+{
+  "id": "competitor-01-neutral-langfuse-mention",
+  "category": "competitor",
+  "tags": [
+    "buyer_claim"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand Orchard Lane Software's current tracing and eval workflow for its HR policy assistant",
+  "desired_outcomes": [
+    "Current tooling understood without judging it",
+    "Understand how evals are run today and by whom",
+    "Identify whether there is a reason to go deeper"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Maya Feldman (Eng. Lead, AI Features)" }
+  },
+  "transcript": [
+    { "t": 540, "end": 548, "who": "keith", "text": "And on the tracing side, what are you using today?" },
+    { "t": 549, "end": 584, "who": "e1:s0", "text": "Yeah, so we've been on Langfuse for, about a year? We self-host it. It's open source, so it was easy to get going, one of the engineers basically stood it up in an afternoon. It does the tracing fine. The team's used to it." },
+    { "t": 584.5, "end": 586, "who": "keith", "text": "Okay, got it." },
+    { "t": 586.5, "end": 604, "who": "e1:s0", "text": "And then evals are kind of a separate thing. We've got some, um, some notebooks. Ravi runs them when we change a prompt, mostly. Sometimes." },
+    { "t": 604.5, "end": 605.5, "who": "keith", "text": "Ha, okay." },
+    { "t": 606, "end": 612, "who": "e1:s0", "text": "Yeah, I mean, it's, yeah. That's the setup." },
+    { "t": 612.5, "end": 613.3, "who": "keith", "text": "Cool." },
+    { "t": 614, "end": 615, "who": "e1:s0", "text": "Mm-hm." }
+  ],
+  "help_at_s": 617,
+  "knowledge": [
+    {
+      "id": "k-competitive-positioning",
+      "title": "Competitive positioning: general guidance",
+      "text": "Anchor on the buyer's own evaluation criteria first. Arize talking points: OpenTelemetry-based tracing via OpenInference instrumentation; open-source Phoenix for local development and experimentation; tracing, evaluation and production monitoring in one workflow; enterprise deployment options. Do not make specific claims about a named competitor's features, roadmap or pricing; ask what the buyer has seen.",
+      "category": "competitive",
+      "source": "Arize competitive guide (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-15"
+    }
+  ],
+  "best_moves": [
+    "explore_process",
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "clarify_desired_state",
+    "technical_clarification",
+    "identify_owner"
+  ],
+  "unacceptable_behaviors": [
+    "Treats the Langfuse mention as dissatisfaction or a reason to switch",
+    "Launches a comparison against Langfuse unprompted",
+    "Disparages Langfuse, open source or self-hosting",
+    "Asserts or disputes 'it does the tracing fine' as fact; it is the buyer's experience, not verified",
+    "Assumes the separate notebook evals are a problem or that they're run inconsistently"
+  ],
+  "forbid_regex": [
+    "\\b(unlike|better than|versus|vs\\.?) langfuse\\b",
+    "\\blangfuse (can['’]?t|cannot|doesn['’]?t|does not|lacks)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Tell me about the notebooks. When Ravi runs them on a prompt change, what's he checking?",
+    "When the team's in Langfuse, what are they usually looking for?"
+  ],
+  "keith_notes": ""
+}

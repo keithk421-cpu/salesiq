@@ -1,0 +1,57 @@
+{
+  "id": "neutral-discovery-04-rambling-buried-agent-signoff",
+  "category": "neutral_discovery",
+  "tags": [],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand Larkspur Financial's agent roadmap and what it will take to put agents into production",
+  "desired_outcomes": [
+    "Identify the agent use case that matters most in the next two quarters",
+    "Understand how they plan to decide an agent is ready",
+    "Know who else weighs in (e.g. model risk)"
+  ],
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Owen Achebe (Head of Applied AI)" }
+  },
+  "transcript": [
+    { "t": 1262, "end": 1279, "who": "e1:s0", "text": "...and yeah, the FAQ bot's been pretty stable, honestly. It's RAG over the policy docs, we don't touch it much anymore. A couple of prompt tweaks a quarter." },
+    { "t": 1279.5, "end": 1280.5, "who": "keith", "text": "Got it." },
+    { "t": 1282, "end": 1290, "who": "keith", "text": "Okay, so zooming out a bit. Where are you headed with the agent work over the next couple of quarters?" },
+    { "t": 1291, "end": 1294, "who": "e1:s0", "text": "Ha. Okay. How long do you have?" },
+    { "t": 1294.5, "end": 1296, "who": "keith", "text": "Ha, take your time." },
+    { "t": 1297, "end": 1356, "who": "e1:s0", "text": "So, it's been a year. We got reorged in, uh, May, we moved under the CTO, which is good, honestly, more air cover. And around the same time we moved most of the workloads off one model provider onto another, mostly cost, partly latency, that was a whole thing for like two months. And then in the summer we did a hackathon, which produced, I want to say fourteen prototypes? Most of which were, you know, hackathon prototypes, ha. But the one that actually got funded is the mortgage document agent. It reads the borrower's docs, figures out what's missing, and, this is the new part, it actually calls the underwriting system to open the conditions, rather than just telling a processor what to do." },
+    { "t": 1356.5, "end": 1357.2, "who": "keith", "text": "Okay." },
+    { "t": 1358, "end": 1404, "who": "e1:s0", "text": "And so that's, the piece we genuinely haven't, I wouldn't say figured out, we just haven't decided, is how we sign off on it when it's taking actions. Like, when it's just answering a question, fine, we know how to review answers. When it's calling underwriting, what's the bar? What do we look at? Model risk is going to ask us that, and we don't have a position yet. Which is fine, it's early. Um. And the FAQ bot, we'll probably fold that into the agent eventually, but that's not this year." },
+    { "t": 1404.5, "end": 1422, "who": "e1:s0", "text": "Plus there's the vendor consolidation thing, which is a whole other story, procurement's been on everybody about how many tools we have. Anyway. Sorry. That was a lot. That's roughly where we are." },
+    { "t": 1422.5, "end": 1424, "who": "keith", "text": "No, that's super helpful." }
+  ],
+  "help_at_s": 1426,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_desired_state",
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "identify_owner",
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Responds to a surface detail (the reorg, the model-provider switch, the hackathon, the FAQ bot, vendor consolidation) instead of the real point: how they will sign off on the mortgage agent when it takes actions in underwriting",
+    "Calls the undecided sign-off bar a problem, risk, gap or struggle; the buyer said they simply haven't decided yet and that it's early",
+    "Invents a model-risk review date, deadline or launch date",
+    "Pitches Arize agent or tool-call evaluation before learning how they want to set the bar",
+    "Stacks several questions or recaps the whole answer back instead of one focused follow-up",
+    "Treats the vendor-consolidation remark as an objection against Arize"
+  ],
+  "forbid_regex": [
+    "\\bstruggl"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "You said you haven't decided the bar for when the agent is actually calling underwriting. How do you expect to work that out, and with whom?",
+    "When model risk asks about the agent taking actions, what do you think they'll want to see?"
+  ],
+  "keith_notes": ""
+}

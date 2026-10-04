@@ -365,3 +365,25 @@ describe('HELP engine', () => {
     expect(row).toEqual({ origin: 'help_requested', type: 'should_have_stayed_quiet' })
   })
 })
+
+describe('replay of a real saved session', () => {
+  it('rebuilds the call as of any moment, with gaps and nothing from later', async () => {
+    const fs = await import('node:fs')
+    const os = await import('node:os')
+    const { scenarioFromSession } = await import('../src/main/help/replay')
+    const dir = fs.mkdtempSync(`${os.tmpdir()}/sess-`)
+    const file = `${dir}/transcript.jsonl`
+    fs.writeFileSync(file, [
+      { kind: 'turn', stream: 'local_mic', speaker_cluster: null, start_ms: 1000, end_ms: 3000, text: 'How do you review outputs?' },
+      { kind: 'turn', stream: 'system_remote', speaker_cluster: 'e1:s0', start_ms: 4000, end_ms: 9000, text: 'Mostly spot checks each week.' },
+      { kind: 'gap_close', stream: 'system_remote', cause: 'provider_disconnect', start_ms: 10000, end_ms: 12000 },
+      { kind: 'turn', stream: 'system_remote', speaker_cluster: 'e2:s0', start_ms: 30000, end_ms: 34000, text: 'Later we will move vendors.' },
+    ].map((x) => JSON.stringify(x)).join('\n'))
+    const s = scenarioFromSession(file, 15)
+    const r = replayAt(s)
+    const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
+    expect(ctx.text).toContain('Mostly spot checks each week.')
+    expect(ctx.text).not.toContain('move vendors')
+    expect(ctx.warnings.join(' ')).toMatch(/Gap 0:10–0:12/)
+  })
+})

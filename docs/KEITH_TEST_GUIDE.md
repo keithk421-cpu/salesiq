@@ -62,3 +62,21 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 - **"Start blocked: … not found"**: the headset is off or plugged into a different USB port. Turn it on. If it's on a different port, Windows may have given it a new ID: pick it again in Step 2, test, and save.
 - **"Start blocked: no meeting audio heard"**: click Zoom's Test Speaker during the check, or make sure Zoom is playing to the device you picked.
 - **"no voice heard"**: is the headset muted (Razer mute button)?
+
+---
+
+# M1: HELP
+
+## One-time setup (5 minutes)
+1. **Setup → step 3 "Connect Claude for HELP":** paste your Anthropic API key there (on your PC, not in chat) and click **Save key**. Leave the model on **Claude Sonnet 5.5**.
+2. **Setup → step 4 "Knowledge pack" (optional but valuable):** click **Open knowledge folder** and drop in .md or .txt files: product/eval overview, deployment & security answers, current competitive notes, objection notes. Click **Re-scan folder**, then tick **Approved** on the ones that are current. Unticked files are never used.
+3. **Diagnostics (bottom of the call screen) → Run HELP speed test**, with no call running. It takes a few minutes, costs roughly $1, and compares Sonnet vs Opus on 25 practice moments. Send me the report (**Open report**).
+
+## On a call
+- Before Start, fill the strip: call type, goal and outcomes (10 seconds; optional).
+- Press **Ctrl+Alt+H** (or the **HELP** button) whenever you want a line. You'll see one Ask or Say line, maybe a one-line read above it, maybe a follow-up.
+- Click a remote speaker's name in the transcript to tag them as Buyer or Teammate/SA. Optional; HELP works without it.
+- Tap **Useful**, **Should've stayed quiet** or **Bad** on cards. Each tap records feedback, nothing more.
+
+## Send me after a few calls
+Diagnostics → **Open data folder** → zip `copilot.db`, `logs`, `sessions` and `reports`. These hold your calls, so send them privately.
