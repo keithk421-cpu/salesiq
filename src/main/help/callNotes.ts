@@ -18,7 +18,7 @@ import { NOTE_FACT_KINDS, NOT_COVERED_TOPICS, type CallNoteItem, type CallNotes,
 export const CALL_NOTES_BLOCK_MAX_CHARS = 800
 /** One item in the stored notes / in the HELP block. */
 const ITEM_MAX_CHARS = 140
-const BLOCK_ITEM_MAX_CHARS = 100
+const BLOCK_ITEM_MAX_CHARS = 80
 const LIST_MAX = 6
 const FACTS_MAX = 10
 
@@ -191,9 +191,11 @@ export const NOT_COVERED_LABEL: Record<NotCoveredTopic, string> = {
 
 /**
  * The block HELP's user message carries (null without notes, or when the notes were built after `atMs`).
- * At most CALL_NOTES_BLOCK_MAX_CHARS: sections go in the order HELP needs them most, items that don't
- * fit are left out. `ref` names an item's first turn in the context ([T#], so the card's sources can
- * show the real line); it's called only for items that make it into the block.
+ * At most CALL_NOTES_BLOCK_MAX_CHARS. Sections share the room: items are taken one per section in
+ * turn (open questions, facts, concerns, wants, next steps, not covered, topic), so a long list of
+ * questions can't push out the facts; items that don't fit are left out. `ref` names an item's first
+ * turn in the context ([T#], so the card's sources can show the real line); it's called only for
+ * items that make it into the block.
  */
 export function callNotesBlock(
   snap: CallNotesSnapshot | null | undefined,
@@ -205,9 +207,9 @@ export function callNotesBlock(
   type Piece = { text: string; turnId: string | null }
   const p = (it: CallNoteItem, prefix = ''): Piece => ({ text: `${prefix}${clip(it.text, BLOCK_ITEM_MAX_CHARS)}`, turnId: it.turn_ids[0] ?? null })
   const sections: Array<{ label: string; pieces: Piece[] }> = [
-    { label: 'Open questions (asked, not answered yet)', pieces: n.open_questions.map((x) => p(x)) },
-    { label: 'Concerns they raised', pieces: n.concerns.map((x) => p(x)) },
+    { label: 'Open questions (not answered yet)', pieces: n.open_questions.map((x) => p(x)) },
     { label: 'Facts they stated', pieces: n.facts.map((f) => p(f, FACT_LABEL[f.kind] ? `${FACT_LABEL[f.kind]}: ` : '')) },
+    { label: 'Concerns they raised', pieces: n.concerns.map((x) => p(x)) },
     { label: 'They want', pieces: n.buyer_wants.map((x) => p(x)) },
     { label: 'Next steps', pieces: n.next_steps.map((s) => p(s, s.status === 'agreed' ? 'agreed: ' : 'proposed, not agreed: ')) },
     { label: 'Not covered yet', pieces: n.not_covered.map((k) => ({ text: NOT_COVERED_LABEL[k], turnId: null })) },
@@ -218,25 +220,27 @@ export function callNotesBlock(
   // Room for a citation like " [T123]" is kept for every cited item, so the real one always fits.
   const CITE = 7
   let room = CALL_NOTES_BLOCK_MAX_CHARS - head.length - tail.length - 1
-  const picked: Array<{ label: string; pieces: Piece[] }> = []
-  for (const s of sections) {
-    // "Label: " and the line's newline.
-    let len = s.label.length + 3
-    const keep: Piece[] = []
-    for (const x of s.pieces) {
-      const add = (keep.length ? 2 : 0) + x.text.length + (x.turnId ? CITE : 0)
-      if (len + add > room) continue
-      len += add
-      keep.push(x)
-    }
-    if (!keep.length) continue
-    room -= len
-    picked.push({ label: s.label, pieces: keep })
+  const keep: Piece[][] = sections.map(() => [])
+  const next = sections.map(() => 0)
+  for (let added = true; added; ) {
+    added = false
+    sections.forEach((s, i) => {
+      // This section's next item that still fits ("Label: " and the line's newline come with its first).
+      while (next[i] < s.pieces.length) {
+        const x = s.pieces[next[i]++]
+        const add = (keep[i].length ? 2 : s.label.length + 3) + x.text.length + (x.turnId ? CITE : 0)
+        if (add > room) continue
+        room -= add
+        keep[i].push(x)
+        added = true
+        break
+      }
+    })
   }
-  if (!picked.length) return null
-  const lines = picked.map((s) => `${s.label}: ${s.pieces.map((x) => {
+  const lines = sections.flatMap((s, i) => keep[i].length ? [`${s.label}: ${keep[i].map((x) => {
     const r = x.turnId ? o.ref(x.turnId) : null
     return r ? `${x.text} [${r}]` : x.text
-  }).join('; ')}`)
+  }).join('; ')}`] : [])
+  if (!lines.length) return null
   return `${head}\n${lines.join('\n')}\n${tail}`
 }

@@ -8,8 +8,8 @@ import type { CallNotes, CallNotesState, HelpModelConfig } from '../src/shared/h
 import type { Turn } from '../src/shared/contracts'
 import { Db } from '../src/main/db'
 import { CallMemory } from '../src/main/help/callMemory'
-import { CALL_NOTES_BLOCK_MAX_CHARS, NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, callNotesBlock, validateNotes } from '../src/main/help/callNotes'
-import { CallNotesKeeper, NOTES_MAX_PER_HOUR, NOTES_RETRY_AFTER_MS } from '../src/main/help/callNotesKeeper'
+import { CALL_NOTES_BLOCK_MAX_CHARS, EMPTY_NOTES, NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, callNotesBlock, validateNotes } from '../src/main/help/callNotes'
+import { CallNotesKeeper, NOTES_MAX_PER_HOUR, NOTES_MIN_GAP_MS } from '../src/main/help/callNotesKeeper'
 import { buildHelpContext } from '../src/main/help/context'
 import { HelpEngine } from '../src/main/help/engine'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, type HelpError, type HelpModel, type HelpModelRun, type HelpModelResult, type HelpNotesRun, type HelpNotesResult } from '../src/main/help/models'
@@ -50,6 +50,24 @@ class ScriptedNotes implements HelpModel {
     return new Promise((resolve, reject) => {
       if (!this.ignoreAbort) req.signal.addEventListener('abort', () => reject(new Anthropic.APIUserAbortError()))
       this.calls.push({ req, release: (text, stop = 'end_turn') => resolve({ text, usage: USAGE, stop_reason: stop }), fail: reject })
+    })
+  }
+}
+
+/** A real-looking (non-mock) model for the app: HELP runs and notes updates both wait for the test. */
+class ScriptedApp extends ScriptedNotes {
+  runs: Array<{ req: HelpModelRun; ok: () => void; fail: (e: unknown) => void }> = []
+  override run(req: HelpModelRun): Promise<HelpModelResult> {
+    return new Promise((resolve, reject) => {
+      req.signal.addEventListener('abort', () => reject(new Anthropic.APIUserAbortError()))
+      this.runs.push({
+        req,
+        ok: () => {
+          req.onText('MOVE: clarify_current_state\nASK: How does that work today?\nHAPPENING: -\nFOLLOW: -\nSOURCES: -\nNOTE: -\n')
+          resolve({ usage: USAGE, stop_reason: 'end_turn', served_model: 'scripted', fell_back: false })
+        },
+        fail: reject,
+      })
     })
   }
 }
@@ -140,20 +158,46 @@ describe('when call notes update', () => {
     expect(s.states.at(-1)?.status).toBe('updating')
   })
 
-  it(`is capped at ${NOTES_MAX_PER_HOUR} an hour`, async () => {
+  it(`spread out: at most one every ${NOTES_MIN_GAP_MS / 60_000} minutes (${NOTES_MAX_PER_HOUR} an hour); the next line after the gap starts it`, async () => {
     const s = setup()
     s.keeper.resume()
-    for (let i = 0; i < NOTES_MAX_PER_HOUR + 2; i++) {
-      s.buyerMinute(`Round ${i}`)
-      s.model.calls.at(-1)?.release(answer())
-      await vi.advanceTimersByTimeAsync(0)
-    }
-    expect(s.model.calls).toHaveLength(NOTES_MAX_PER_HOUR)
-    expect(s.logs.filter((l) => l.e === 'call_notes_capped')).toHaveLength(1)
+    s.buyerMinute('One')
+    s.model.calls[0].release(answer())
+    await vi.advanceTimersByTimeAsync(0)
+    s.buyerMinute('Two')
+    s.buyerMinute('Three')
+    expect(s.model.calls).toHaveLength(1)
+    expect(s.logs.filter((l) => l.e === 'call_notes_capped')).toHaveLength(1) // once per wait
     expect(s.keeper.stats.capped).toBe(1)
-    s.wait(3_600_000)
-    s.say('buyer', 'Later on.', 2)
-    expect(s.model.calls).toHaveLength(NOTES_MAX_PER_HOUR + 1)
+    s.wait(NOTES_MIN_GAP_MS)
+    s.say('keith', 'Got it.', 2)
+    expect(s.model.calls).toHaveLength(2)
+    expect(s.model.calls[1].req.user).toContain('Three third part')
+  })
+
+  it('keeps updating to the end of an hour-long call where the buyer talks half the time', async () => {
+    const s = setup()
+    s.keeper.resume()
+    const starts: number[] = []
+    const line = async (who: 'buyer' | 'keith', text: string) => {
+      s.say(who, text, 15)
+      // Every answer comes back right away.
+      for (const c of s.model.calls.slice(starts.length)) {
+        starts.push(s.memory.turnsAsOf(Infinity).at(-1)!.end_ms)
+        c.release(answer())
+        await vi.advanceTimersByTimeAsync(0)
+      }
+    }
+    // 15 s from the buyer, 15 s from Keith, for 60 minutes.
+    for (let i = 0; i < 120; i++) {
+      await line('buyer', `Point ${i} about how their team reviews releases today`)
+      await line('keith', 'Okay, and then?')
+    }
+    expect(starts.length).toBeLessThanOrEqual(NOTES_MAX_PER_HOUR)
+    expect(starts.length).toBeGreaterThanOrEqual(NOTES_MAX_PER_HOUR - 2)
+    for (let i = 1; i < starts.length; i++) expect(starts[i] - starts[i - 1]).toBeGreaterThanOrEqual(NOTES_MIN_GAP_MS)
+    // Next steps are mostly agreed near the end: the notes are still updating then.
+    expect(starts.at(-1)!).toBeGreaterThan(50 * 60_000)
   })
 
   it('Pause cancels an update in flight and drops its late answer; nothing runs while paused', async () => {
@@ -168,6 +212,7 @@ describe('when call notes update', () => {
     expect(s.keeper.state()).toMatchObject({ status: 'paused', notes: null })
     expect(s.keeper.stats.cancelled).toBe(1)
     s.buyerMinute('While paused')
+    s.wait(NOTES_MIN_GAP_MS)
     expect(s.model.calls).toHaveLength(1)
     s.keeper.resume()
     expect(s.model.calls).toHaveLength(2)
@@ -194,7 +239,7 @@ describe('when call notes update', () => {
     s.model.calls[0].fail(new Anthropic.AuthenticationError(401, {}, 'invalid x-api-key', new Headers()))
     await vi.advanceTimersByTimeAsync(0)
     expect(s.keeper.state()).toMatchObject({ status: 'blocked', problem: 'Claude rejected the API key. Check it in Setup, step 3.' })
-    s.wait(NOTES_RETRY_AFTER_MS)
+    s.wait(NOTES_MIN_GAP_MS)
     s.buyerMinute('Two')
     expect(s.model.calls).toHaveLength(1)
     // A HELP press that works lifts it.
@@ -232,11 +277,12 @@ describe('what an update sends and keeps', () => {
     expect(first.user).toMatch(/\[L1\] \(0:00\) Dana \(buyer\): Early first part/)
     s.model.calls[0].release(answer({ facts: [{ kind: 'current_tooling', text: 'They use an in-house dashboard', lines: ['L2'] }] }))
     await vi.advanceTimersByTimeAsync(0)
+    s.wait(NOTES_MIN_GAP_MS)
     s.say('keith', 'How often do you look at it?', 5)
     s.buyerMinute('Later')
     const second = s.model.calls[1].req
     expect(second.user).toContain('"text":"They use an in-house dashboard","lines":["L2"]')
-    expect(second.user).toMatch(/\[L4\] \(1:03\) Keith: How often do you look at it\?/)
+    expect(second.user).toMatch(/\[L4\] \(4:03\) Keith: How often do you look at it\?/)
     expect(second.user).toContain('Later first part')
     expect(second.user).not.toContain('Early first part')
     expect(second.user).toMatch(/<call_setup>[\s\S]*account: Northwind[\s\S]*<\/call_setup>/)
@@ -244,13 +290,14 @@ describe('what an update sends and keeps', () => {
     expect(second).toMatchObject({ system: NOTES_SYSTEM_PROMPT, schema: NOTES_SCHEMA, config })
   })
 
-  it('a broken answer keeps the previous notes; the lines stay queued and are retried after a wait', async () => {
+  it('a broken answer keeps the previous notes; the lines stay queued and are retried after the gap', async () => {
     const s = setup()
     s.keeper.resume()
     s.buyerMinute('Early')
     s.model.calls[0].release(answer())
     await vi.advanceTimersByTimeAsync(0)
     const before = s.keeper.state().notes
+    s.wait(NOTES_MIN_GAP_MS)
     s.buyerMinute('Middle')
     s.model.calls[1].release('Sorry, here are the notes: {not json')
     await vi.advanceTimersByTimeAsync(0)
@@ -258,7 +305,7 @@ describe('what an update sends and keeps', () => {
     expect(s.keeper.stats).toMatchObject({ updated: 1, invalid: 1, errors: { not_json: 1 } })
     s.say('buyer', 'One more thing.', 2)
     expect(s.model.calls).toHaveLength(2) // waits before trying again
-    s.wait(NOTES_RETRY_AFTER_MS)
+    s.wait(NOTES_MIN_GAP_MS)
     s.say('buyer', 'And another.', 2)
     expect(s.model.calls).toHaveLength(3)
     expect(s.model.calls[2].req.user).toContain('Middle first part')
@@ -267,7 +314,7 @@ describe('what an update sends and keeps', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(s.keeper.stats.errors).toMatchObject({ bad_facts: 1 })
     expect(s.keeper.state().notes).toEqual(before)
-    s.wait(NOTES_RETRY_AFTER_MS)
+    s.wait(NOTES_MIN_GAP_MS)
     s.say('buyer', 'Right.', 2)
     s.model.calls[3].release(answer(), 'max_tokens')
     await vi.advanceTimersByTimeAsync(0)
@@ -365,7 +412,7 @@ describe('the block HELP reads', () => {
     const ctx = buildHelpContext({ memory: r.memory, kb: null, atMs: r.atMs })
     const block = /<call_notes[\s\S]*?<\/call_notes>/.exec(ctx.text)?.[0] ?? ''
     expect(block).toMatch(/^<call_notes note="running summary of the call up to 10:00; may lag; the transcript wins if they disagree">/)
-    expect(block).toMatch(/Open questions \(asked, not answered yet\): Does it run in their VPC\? \[T1\]/)
+    expect(block).toMatch(/Open questions \(not answered yet\): Does it run in their VPC\? \[T1\]/)
     expect(block).toContain('Next steps: proposed, not agreed: Technical deep-dive next week')
     expect(block).toContain('Facts they stated: tools: Built an in-house dashboard last year')
     expect(block).toContain('Not covered yet: decision process; success criteria')
@@ -383,6 +430,25 @@ describe('the block HELP reads', () => {
     const block = callNotesBlock({ notes: big, as_of_ms: 0 }, 1000, { ref: () => 'T123', clock: () => '0:00' })!
     expect(block.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS)
     expect(block).toMatch(/^<call_notes[^>]*>\nOpen questions[\s\S]*<\/call_notes>$/)
+  })
+
+  it("sections share the room: a long list of questions doesn't push out the facts, wants or next steps", () => {
+    // Items about 12 words long, as the notes prompt asks.
+    const q = (i: number) => ({ text: `Question ${i}: can it score their support bot answers against help articles`, turn_ids: ['b1'] })
+    const f = (i: number) => ({ kind: 'current_tooling' as const, text: `Fact ${i}: they copy every prompt and answer into a warehouse table nightly`, turn_ids: ['b1'] })
+    const opts = { ref: () => 'T123', clock: () => '42:10' }
+    const count = (b: string, re: RegExp) => b.match(re)?.length ?? 0
+    const many = callNotesBlock({ notes: { ...EMPTY_NOTES, open_questions: [0, 1, 2, 3, 4, 5].map(q), facts: [0, 1, 2, 3, 4].map(f) }, as_of_ms: 0 }, 1, opts)!
+    expect(many.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS)
+    expect(count(many, /Fact \d/g)).toBeGreaterThanOrEqual(3)
+    expect(count(many, /Question \d/g)).toBeGreaterThanOrEqual(3)
+    // A full set: every kind of note gets a place, questions and facts first.
+    const full = callNotesBlock({
+      notes: { ...notes, open_questions: [0, 1, 2].map(q), concerns: [{ text: 'Worried about another tool for the platform team to look after', turn_ids: ['b1'] }], facts: [0, 1, 2, 3, 4].map(f) },
+      as_of_ms: 0,
+    }, 1, opts)!
+    expect(full.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS)
+    for (const label of ['Open questions (not answered yet)', 'Facts they stated', 'Concerns they raised', 'They want', 'Next steps', 'Not covered yet']) expect(full).toContain(`\n${label}: `)
   })
 
   it('notes built after the press time are not used (nothing from later leaks in)', () => {
@@ -492,23 +558,89 @@ describe('per call: scorecard, deletion and the app', () => {
     s.buyerMinute('One')
     s.model.calls[0].release(answer({ concerns: [{ text: 'Worried about SECRETWORD', lines: ['L1'] }] }))
     await vi.advanceTimersByTimeAsync(0)
-    s.buyerMinute('Two')
+    s.buyerMinute('Two') // too soon after the first: waits for the gap
+    s.wait(NOTES_MIN_GAP_MS)
+    s.say('buyer', 'Right.', 2)
     s.model.calls[1].release('nope')
     await vi.advanceTimersByTimeAsync(0)
-    s.wait(NOTES_RETRY_AFTER_MS)
+    s.wait(NOTES_MIN_GAP_MS)
     s.buyerMinute('Three')
     s.model.calls[2].fail(new Anthropic.InternalServerError(529, {}, 'Overloaded', new Headers()))
     await vi.advanceTimersByTimeAsync(0)
-    s.wait(NOTES_RETRY_AFTER_MS)
+    s.wait(NOTES_MIN_GAP_MS)
     s.buyerMinute('Four')
     s.keeper.stop()
     const card = buildScorecard(s.db, 'sess-1', 600_000)
     expect(card.call_notes).toEqual({
-      started: 4, updated: 1, invalid: 1, failed: 1, cancelled: 1, capped: 0, cost_usd: 0.008,
+      started: 4, updated: 1, invalid: 1, failed: 1, cancelled: 1, capped: 1, cost_usd: 0.008,
       tokens: { input: 2400, output: 600, cache_read: 1800 }, errors: { not_json: 1, overloaded: 1 },
     })
     expect(card.total_cost_usd).toBe(0.008)
     expect(JSON.stringify(card)).not.toMatch(/SECRETWORD|One first/)
+  })
+
+  it('in the app: HELP wins, Pause cancels, a HELP key error stops the notes, a deleted call empties the panel, quitting saves the counts', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cn-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    help.setSettings({ prefetch: false }) // no background HELP candidates in this test
+    const model = new ScriptedApp()
+    help.createModel = () => model
+    const panel: Array<CallNotesState | null> = []
+    help.onNotes = (st) => panel.push(st)
+    let t = 0
+    let n = 0
+    const ev = (e: SessionEvent, call = 'call-1') => help.onSessionEvent(e, call, () => t)
+    const state = (st: 'checking' | 'live' | 'paused' | 'stopping' | 'stopped', call = 'call-1') => ev({ type: 'state', state: st, sessionId: call } as SessionEvent, call)
+    /** One finished line from the buyer, `secs` long (session time only: the wall clock stays put). */
+    const buyer = (secs: number, call = 'call-1') => {
+      const start = t
+      t += secs * 1000
+      const turn: Turn = {
+        turn_id: `t${++n}`, session_id: call, stream: 'system_remote', speaker_cluster: 'e1:s0', speaker_identity_id: null, speaker_role: 'unknown',
+        start_ms: start, end_ms: t, text: `Line ${n} about how they review releases`, final: true, source_word_ids: [], gap_before: null,
+      }
+      ev({ type: 'turn', event: { type: 'turn_final', turn } }, call)
+    }
+    state('checking')
+    state('live')
+    await vi.advanceTimersByTimeAsync(0)
+
+    // HELP always wins: a minute of buyer talk while a pressed HELP is being answered starts no update.
+    expect(help.press().ok).toBe(true)
+    for (let i = 0; i < 3; i++) buyer(21)
+    expect(model.calls).toHaveLength(0)
+    model.runs[0].ok()
+    await vi.advanceTimersByTimeAsync(0)
+    buyer(2)
+    expect(model.calls).toHaveLength(1)
+
+    // Pause cancels the update in flight.
+    state('paused')
+    expect(model.calls[0].req.signal.aborted).toBe(true)
+    expect(help.callNotes()?.status).toBe('paused')
+    state('live')
+
+    // HELP's own key error stops the notes too.
+    expect(help.press().ok).toBe(true)
+    model.runs[1].fail(new Anthropic.AuthenticationError(401, {}, 'invalid x-api-key', new Headers()))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(help.callNotes()).toMatchObject({ status: 'blocked', problem: 'Claude rejected the API key. Check it in Setup, step 3.' })
+
+    // Stop, then delete the call: its notes leave the screen.
+    state('stopping')
+    state('stopped')
+    help.forgetCall('call-1')
+    expect(panel.at(-1)).toBeNull()
+
+    // Quitting mid-update: the update is cancelled and counted before the scorecard is written.
+    state('checking', 'call-2')
+    state('live', 'call-2')
+    for (let i = 0; i < 4; i++) buyer(21, 'call-2')
+    expect(model.calls).toHaveLength(2)
+    help.shutdown()
+    expect(model.calls[1].req.signal.aborted).toBe(true)
+    const card = JSON.parse(fs.readFileSync(path.join(dir, 'reports', 'help-scorecard-call-2.json'), 'utf8'))
+    expect(card.call_notes).toMatchObject({ started: 1, cancelled: 1 })
   })
 
   it('deleting a call deletes its notes', () => {

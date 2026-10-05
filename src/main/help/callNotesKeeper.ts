@@ -5,7 +5,9 @@
  * - One request at a time, only while live, after enough NEW finished speech from the other side.
  * - Never starts while a HELP request Keith pressed is being answered: HELP always wins. (One already
  *   running is left to finish: it's a separate request, and stopping it would waste what it cost.)
- * - Capped per rolling hour; after a failed or unusable answer it waits a minute before trying again.
+ * - Spread out: at most one start every NOTES_MIN_GAP_MS (20 an hour), so a talkative call keeps
+ *   updating to the end instead of using up the hour early. Every start counts, so a failing model
+ *   or connection is retried at that pace too.
  * - Pause and Stop cancel an update in flight and drop its late answer; the notes stay on screen.
  * - A key, credit or model-access error stops updates until a request (HELP or notes) succeeds again,
  *   like HELP's own background work.
@@ -24,10 +26,13 @@ import { describeError, type HelpError, type HelpModel } from './models'
 /** About a minute of new talk from the other side, by time or by words (either is enough). */
 export const NOTES_MIN_REMOTE_SPEECH_MS = 60_000
 export const NOTES_MIN_REMOTE_WORDS = 150
-/** Updates per rolling hour, so a long call can't run up cost. */
+/** Updates per hour at most, so a long call can't run up cost. */
 export const NOTES_MAX_PER_HOUR = 20
-/** After a failed or unusable answer, wait this long before trying again. */
-export const NOTES_RETRY_AFTER_MS = 60_000
+/**
+ * Spread evenly: at most one start every 3 minutes. A rolling-hour limit ran out by minute 40 on a
+ * call where the buyer talks half the time, and next steps are mostly agreed near the end.
+ */
+export const NOTES_MIN_GAP_MS = 3_600_000 / NOTES_MAX_PER_HOUR
 export const NOTES_TIMEOUT_MS = 30_000
 /**
  * A ceiling, not spend: full notes run to ~1,700 output tokens, and Opus's thinking counts too. A cut-off
@@ -36,7 +41,6 @@ export const NOTES_TIMEOUT_MS = 30_000
 export const NOTES_MAX_TOKENS = 4000
 /** New lines per update, by size (oldest first); a backlog catches up over the next updates. */
 export const NOTES_MAX_DELTA_CHARS = 12_000
-const HOUR_MS = 3_600_000
 
 /** Per-call counts for the scorecard (numbers and codes only). */
 export interface CallNotesStats {
@@ -50,7 +54,7 @@ export interface CallNotesStats {
   failed: number
   /** Stopped by Pause or Stop. */
   cancelled: number
-  /** Times the hourly cap held an update back. */
+  /** Times an update was due but waited for the spacing (once per wait). */
   capped: number
   cost_usd: number
   input_tokens: number
@@ -92,8 +96,8 @@ export class CallNotesKeeper {
   /** Turn id <-> the short line id the model sees ("L7"), stable for the call. */
   private lineOf = new Map<string, string>()
   private turnOf = new Map<string, string>()
-  private starts: number[] = []
-  private retryAfter = 0
+  /** Wall clock of the last start (any outcome counts toward the spacing). */
+  private lastStart: number | null = null
   private capHeld = false
   private blocked: HelpError | null = null
   readonly stats: CallNotesStats = {
@@ -201,23 +205,22 @@ export class CallNotesKeeper {
     // HELP always wins: the next finished line checks again.
     if (this.d.helpBusy()) return
     const now = this.now()
-    if (now < this.retryAfter) return
     const turns = this.pendingTurns()
     const remote = turns.filter((t) => t.stream === 'system_remote')
     const speechMs = remote.reduce((a, t) => a + Math.max(0, t.end_ms - t.start_ms), 0)
     const words = remote.reduce((a, t) => a + t.text.split(/\s+/).filter(Boolean).length, 0)
     if (speechMs < NOTES_MIN_REMOTE_SPEECH_MS && words < NOTES_MIN_REMOTE_WORDS) return
-    this.starts = this.starts.filter((t) => now - t < HOUR_MS)
-    if (this.starts.length >= NOTES_MAX_PER_HOUR) {
+    // Spread out: the next finished line after the gap starts it.
+    if (this.lastStart !== null && now - this.lastStart < NOTES_MIN_GAP_MS) {
       if (!this.capHeld) {
         this.capHeld = true
         this.stats.capped++
-        this.d.log('call_notes_capped', { per_hour: NOTES_MAX_PER_HOUR })
+        this.d.log('call_notes_capped', { per_hour: NOTES_MAX_PER_HOUR, wait_ms: Math.round(NOTES_MIN_GAP_MS - (now - this.lastStart)) })
       }
       return
     }
     this.capHeld = false
-    this.starts.push(now)
+    this.lastStart = now
     void this.update(turns, { speechMs, words })
   }
 
@@ -286,11 +289,8 @@ export class CallNotesKeeper {
       this.stats.cache_creation_input_tokens += usage.cache_creation_input_tokens
     }
     this.stats[status]++
-    if (code) {
-      this.stats.errors[code] = (this.stats.errors[code] ?? 0) + 1
-      // The lines stay queued; don't burn the hourly cap on a model or connection that keeps failing.
-      this.retryAfter = this.now() + NOTES_RETRY_AFTER_MS
-    }
+    // The lines stay queued: the next update (after the spacing) tries them again.
+    if (code) this.stats.errors[code] = (this.stats.errors[code] ?? 0) + 1
     this.persist()
     const n = this.snap?.notes
     this.d.log('call_notes_done', {

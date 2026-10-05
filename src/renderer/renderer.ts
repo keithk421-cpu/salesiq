@@ -900,7 +900,6 @@ function notesStatusText(s: CallNotesState): string {
   const age = sec === null ? '' : sec < 10 ? 'updated just now' : sec < 90 ? `updated ${sec} s ago` : `updated ${Math.round(sec / 60)} min ago`
   const withAge = (x: string) => (age ? `${age} · ${x}` : x)
   switch (s.status) {
-    case 'off': return 'off (turn on in Setup, step 3)'
     case 'blocked': return `not updating: ${s.problem ?? "Claude can't be used right now"}`
     case 'updating': return withAge('updating…')
     case 'paused': return withAge('paused')
@@ -911,8 +910,9 @@ function notesStatusText(s: CallNotesState): string {
 
 function renderNotes(): void {
   const s = notesState
-  $('notesPanel').hidden = !s
-  if (!s) return
+  // Switched off in Setup: nothing to show on the call screen.
+  $('notesPanel').hidden = !s || s.status === 'off'
+  if (!s || s.status === 'off') return
   $('notesBadge').hidden = !s.mock
   $('notesStatus').textContent = `· ${notesStatusText(s)}`
   const n = s.notes
@@ -936,7 +936,7 @@ function renderNotes(): void {
         n.not_covered.length ? `<div class="nt-line"><span class="nt-h">Not covered yet</span> ${n.not_covered.map((k) => esc(NOT_COVERED[k] ?? k)).join(' · ')}</div>` : '',
       ].join('')
     : ''
-  $('notesBody').innerHTML = html || `<div class="muted small">${s.status === 'off' ? 'Call notes are off. Turn them on in Setup, step 3.' : 'Nothing noted yet.'}</div>`
+  $('notesBody').innerHTML = html || '<div class="muted small">Nothing noted yet.</div>'
 }
 
 api.onCallNotes((raw) => {
