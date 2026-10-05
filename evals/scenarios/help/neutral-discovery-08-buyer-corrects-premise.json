@@ -69,8 +69,8 @@
     "Re-asks whether the dashboards are staying"
   ],
   "forbid_regex": [
-    "(?<!\\b(not|no|isn'?t|aren'?t|never) (a )?)\\breplac(e|es|ed|ing|ement)\\b",
-    "\\b(migrat(e|ion)|consolidat(e|ion)|move off|rip out|sunset)\\b",
+    "(?<!(\\b(not|no|never|rather than|instead of)|n'?t)\\b[^.?!,;]{0,12})\\breplac(e|es|ed|ing|ement)\\b",
+    "\\b(migrat\\w*|consolidat\\w*|move off|rip out|sunset)\\b",
     "\\b(outgrown|limitations|falls? short)\\b",
     "\\b(are|will) (you keep(ing)?|the dashboards stay(ing)?)\\b"
   ],

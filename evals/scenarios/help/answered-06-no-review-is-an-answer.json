@@ -76,8 +76,10 @@
   "forbid_regex": [
     "\\b(is|does) (anyone|anybody|someone|somebody) (review|check|look at|sample|read)",
     "\\bdo you (review|check|sample|evaluate|look at) (the |any )?(answers|outputs|responses|quotes)\\b",
+    "\\b(has|have) (anyone|anybody|someone|somebody) (ever )?(looked|reviewed|checked|sampled|read)\\b",
+    "\\bdo you have (someone|anyone|anybody|somebody) (who )?(reviews?|checks?|samples?|looks?|reads?)\\b",
     "\\b(risky|risk|dangerous|blind spot|flying blind|scary|worr(y|ied|ying)|exposed)\\b",
-    "(?<!\\b(would|do|did|will) )\\byou (should|need to|ought to|really want to)\\b"
+    "(^|[.!?] )(honestly,? |really,? )?you (should|need to|ought to|really want to)\\b"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

@@ -60,7 +60,7 @@
     "Assumes there is no owner, or that ownership is a problem"
   ],
   "forbid_regex": [
-    "\\bhow do you (test|check|evaluate|validate|decide)\\b",
+    "\\bhow do you (test|check|evaluate|validate)\\b|\\bhow do you decide (a|if|whether|when|what|it'?s|the|that|to|on)\\b",
     "\\bwhat'?s (your|the) (testing|release|eval(uation)?|qa) process\\b",
     "\\b(manual|slow|tedious|time-consuming|labou?r-intensive)\\b",
     "\\b(nobody|no one) (owns|decides)\\b",

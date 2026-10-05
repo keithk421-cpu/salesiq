@@ -79,8 +79,10 @@
   "forbid_regex": [
     "\\b\\d+[- ]?(day|week|month)s?\\b",
     "\\b(one|two|three|four|six|thirty|sixty|ninety)[- ](day|week|month)s?\\b",
+    "\\b(lasts?|runs?|takes?|is|for|about|around|typically|usually|normally) (a )?(couple|few) (of )?(days|weeks|months)\\b",
     "\\b(free of charge|at no cost|no charge|for free|free (pilot|poc|trial))\\b",
-    "\\b(typically|usually|normally) (runs?|lasts?|takes?)\\b",
+    "\\b(it'?s|it is|is|are) free\\b(?! (of|to|on|next|this|at)\\b)",
+    "\\b(typically|usually|normally|generally) (runs?|lasts?|takes?|is|a|an|about|around)\\b",
     "\\bour (standard|typical|usual) (pilot|poc|proof)",
     "\\bsuccess plan\\b",
     "\\b(yes|yeah)[,.]? (it|we|you) can (run|use|connect)\\b"

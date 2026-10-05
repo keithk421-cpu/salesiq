@@ -67,8 +67,8 @@
     "Treats the request as an objection or a sign of doubt"
   ],
   "forbid_regex": [
-    "\\b(we|arize) (have|work with|'ve got) (lots of|many|several|a few|plenty of|dozens of|some|a number of)\\b",
-    "\\b(customers?|clients?|banks?|companies) (like|such as) (?!yours?\\b)",
+    "\\b(we|arize)( have| has|'ve got| work with| works with) (lots of|many|several|a few|plenty of|dozens of|some|a number of) (\\w+ ){0,2}(customers?|clients?|banks?|companies|teams)\\b",
+    "\\b(customers?|clients?|banks?|companies) (like|such as) (?!(yours?|that|this|you)\\b)",
     "\\bcase stud(y|ies)\\b",
     "\\bi('ll| will| can) (set (you )?up|introduce you|line up|get you on a call|connect you)\\b",
     "\\b(happy|glad) to (set up|arrange|line up) (a )?(reference|call)",

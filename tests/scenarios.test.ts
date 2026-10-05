@@ -60,8 +60,12 @@ describe('HELP scenario set', () => {
       expect(r.hiddenLineIndexes).toEqual([]) // the decision point is after everything was available
       expect(ctx.text).toContain('<last_30_seconds>')
       const kinds = new Map([...ctx.sources.entries()].map(([k, v]) => [k, v.kind]))
+      // Where the best move is to answer from knowledge, a good line states approved knowledge and
+      // would cite it, so the example cites the approved K# ids in context. Elsewhere it cites nothing.
+      const answersFromKnowledge = s.best_moves.some((m) => m === 'technical_answer' || m === 'handle_competitor')
+      const cites = answersFromKnowledge ? [...ctx.sources.entries()].filter(([, v]) => v.kind === 'knowledge').map(([k]) => k) : []
       for (const q of s.acceptable_questions ?? []) {
-        const card = { move: s.best_moves[0] as never, primary_kind: 'ask' as const, primary: q, happening: null, follow_up: null, source_ids: [], note: null }
+        const card = { move: s.best_moves[0] as never, primary_kind: 'ask' as const, primary: q, happening: null, follow_up: null, source_ids: cites, note: null }
         const f = level1(s, card, [], ctx.text, kinds).filter((x) => !x.startsWith('technical answer without'))
         expect(f, `false Level 1 failure on a good line: "${q}"`).toEqual([])
       }

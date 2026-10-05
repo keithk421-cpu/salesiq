@@ -77,12 +77,13 @@
   ],
   "forbid_regex": [
     "\\bwho (else )?(is|would be|will be|'s)? ?(involved|deciding|making the (call|decision)|signing off)\\b",
-    "\\bwho (makes|signs|decides|approves)\\b",
+    "\\bwho (else )?(makes|would make|signs|approves|decides|would decide|gets a say)\\b(?!\\s+(what|whether|how|when|which|if)\\b)",
     "\\bwhat'?s (your|the) (timeline|timeframe|time frame)\\b",
     "\\bby when\\b",
     "\\bwhen (do|would|will) you (want to |need to |plan to )?(decide|pick|choose|make a (decision|call))\\b",
     "\\bdecision process\\b",
-    "\\b(manual|tedious|doesn'?t scale|not enough|small sample|only a hundred)\\b"
+    "\\b(manual|tedious|doesn'?t scale|not enough|small sample|only a hundred)\\b",
+    "\\b(is|are) (a hundred|the sample|that sample|a sample|the weekly sample)( \\w+){0,4} enough\\b"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

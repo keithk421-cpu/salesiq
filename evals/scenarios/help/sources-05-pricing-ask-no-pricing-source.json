@@ -64,15 +64,17 @@
   ],
   "forbid_regex": [
     "[$€£]\\s?\\d",
-    "\\b\\d[\\d,.]*\\s?(k|m|thousand|million|grand)\\b",
-    "\\b(hundreds?|thousands?|millions?)( of)?( dollars| a year| per year| annually)\\b",
+    "\\b\\d[\\d,.]*\\s?(k|m|thousand|million|grand)\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
+    "\\b(hundreds?|thousands?|millions?)( of)?( dollars| a year| per year| annually| a month| per month| monthly)\\b",
+    "\\b(tens|hundreds) of thousands\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
+    "\\b(ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|a hundred|a few|several)[- ]?(thousand|grand|k)\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
     "\\b(low|mid|high)[- ](hundreds|thousands|five|six|seven)\\b",
     "\\b(five|six|seven)[- ]figures?\\b",
     "\\b(priced|charged|billed|costs?) (by|per|on a per)\\b",
     "\\bper[- ](seat|user|member)\\b",
     "\\b(discount|cheap|affordable|inexpensive|low[- ]cost|within (your )?budget)\\b",
-    "\\b(starts?|starting) at\\b",
-    "\\b(range|ballpark) (is|would be|of)\\b"
+    "\\b(starts?|starting) (at|from) (around |about |roughly |just )?([$€£\\d]|a few|the low|low|under)",
+    "\\b(range|ballpark) (is|would be|'s)( \\w+){0,2} [$€£]?\\d|\\b(range|ballpark) of [$€£]?\\d"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

@@ -46,6 +46,9 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
                                                  // case-insensitive (no inline "(?i)": it does not compile in JS)
   "silence_preferred": false,                    // HELP is manual, so usually false
   "acceptable_questions": ["optional examples of good next questions"],
+                                                 // each must pass Level 1 (tests/scenarios.test.ts); when best_moves
+                                                 // include technical_answer or handle_competitor the example cites the
+                                                 // approved K# ids in context, otherwise it cites none
   "keith_notes": ""
 }
 ```

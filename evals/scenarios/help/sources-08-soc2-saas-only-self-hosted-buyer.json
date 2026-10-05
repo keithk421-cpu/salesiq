@@ -87,10 +87,10 @@
   "forbid_regex": [
     "\\bType (II|2)\\b",
     "\\bunder (an )?NDA\\b",
-    "(?<!\\b(whether|if|what) )\\b(soc ?2|report|it) (covers|applies to|includes) (your|that|self|the self)",
-    "^(yes|yeah)\\b",
+    "(?<!\\b(whether|if|what) (the |our |your |this |that )?)\\b(soc ?2|report|it) (covers|applies to|includes) (your|that|self|the self)",
+    "^(yes|yeah)[,.!]? (we (do|have)|it (does|is|covers|applies)|our (report|soc)|the report|that'?s covered)",
     "\\b(we'?re|we are|arize is) soc ?2\\b",
-    "\\b(doesn'?t|does not|won'?t|will not) (cover|apply)\\b",
+    "(?<!\\b(does|will) or |\\b(whether|if) (it|that|the report|our report|our soc ?2|soc ?2) )\\b(doesn'?t|does not|won'?t|will not) (cover|apply)\\b",
     "\\b(no|don'?t have a) soc ?2\\b",
     "\\b(are|will|would) you (be )?(self-?host|run(ning)? it (yourselves|in your))"
   ],

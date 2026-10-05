@@ -35,24 +35,42 @@ export interface ScenarioResult {
 }
 
 const PAIN_WORDS = /\b(pain|painful|frustrat\w*|struggl\w*|headache\w*|broken|bottleneck\w*|nightmare|problem\w*|issue\w*|challenge\w*)\b/gi
+/** Everyday phrases that use a pain word without claiming pain; removed before PAIN_WORDS is matched. */
+const NOT_PAIN = /\bno (?:problem|issue)s?\b|\b(?:that'?s|that is|it'?s|it is) not an? (?:problem|issue)\b|\bbroken (?:down|out|up|into)\b|\bissu(?:ed|ing)\b/gi
+
 /**
  * Wording that states what Arize can do. It must be tied to a cited approved source (a K# id).
- * Question forms ("do we have", "what we offer", "whether Arize supports") and time talk
- * ("we have ten minutes", "we have to wrap") are not claims.
+ * "We have" / "we've got" only count with a product object ("we have an OpenTelemetry-based
+ * tracer"), so "we have a call next week" or "we have two options" are not claims.
  */
-const CAPABILITY_CLAIM = new RegExp(
-  String.raw`(?<!\b(?:do|does|did|what|whether|if|which)\s)\b(?:` +
-    [
-      String.raw`we (?:support|offer|provide|can support|can handle)`,
-      String.raw`we have(?!\s+(?:to|time|about|around|until|left|a few|a couple|a minute|a moment|\d|five|ten|fifteen|twenty|thirty)\b)`,
-      String.raw`we've got`,
-      String.raw`arize (?:supports|has|offers|provides|includes|can)`,
-      String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
-      String.raw`(?:it|the platform|the product) (?:supports|includes)`,
-    ].join('|') +
-    String.raw`)\b`,
-  'i',
-)
+const CAPABILITY_CLAIM_SOURCE =
+  String.raw`\b(?:` +
+  [
+    String.raw`we (?:do |can |also |already |fully |natively )?(?:support|offer|provide)`,
+    String.raw`we(?: have|'ve got) (?:a |an |the )?(?:[\w-]+ ){0,2}?(?:integrations?|connectors?|support|features?|sdks?|exports?|apis?|plugins?|tracers?|tracing|instrumentation|capabilit(?:y|ies)|dashboards?|modules?|sso|saml|scim|rbac|otlp|soc ?2|certifications?)`,
+    String.raw`arize (?:also |already |fully |natively )?(?:supports|has|offers|provides|includes|covers|handles|works with|integrates with|can(?!'?t| ?not\b))`,
+    String.raw`(?:our|arize'?s|arize’s) (?:[\w-]+ ){0,2}?(?:platform|product|tracing|tracer|sdk|evals?|monitoring|instrumentation|integration|tool)s? (?:supports|includes|covers|handles|works with|integrates with|has)`,
+    String.raw`(?:it|the platform|the product|phoenix) (?:also |already |fully |natively )?(?:supports|includes)`,
+    String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
+  ].join('|') +
+  String.raw`)\b`
+/** A question or a subordinate lead right before the claim ("can we provide", "if that is supported", "which languages are supported"). */
+const CLAIM_LEAD = /\b(?:do|does|did|can|could|should|would|will|shall|if|what|which|once|when|until|before|after|suggest|propose|maybe|perhaps)\s+(?:[\w-]+\s+)?$/i
+/** A hedge earlier in the same sentence: the line is checking, not claiming ("let me confirm we support that"). */
+const CLAIM_HEDGE = /\b(?:confirm|check|verify|whether|not sure|unsure|not certain|find out|look into|double-check|ask)\b/i
+
+/** First unhedged Arize capability claim in the text, or null. */
+export function findCapabilityClaim(text: string): string | null {
+  for (const m of text.matchAll(new RegExp(CAPABILITY_CLAIM_SOURCE, 'gi'))) {
+    const before = text.slice(0, m.index)
+    const sentence = before.slice(Math.max(...['.', '!', '?', ';'].map((c) => before.lastIndexOf(c))) + 1)
+    if (CLAIM_LEAD.test(sentence) || CLAIM_HEDGE.test(sentence)) continue
+    // "Which languages are supported in your stack?" is about the buyer's side.
+    if (/^(?:is|are)\b/i.test(m[0]) && /^\s+(?:in|on|by|across|within)\s+(?:your|their)\b/i.test(text.slice(m.index + m[0].length))) continue
+    return m[0]
+  }
+  return null
+}
 
 export function loadScenarios(dir: string): Scenario[] {
   if (!fs.existsSync(dir)) return []
@@ -85,14 +103,14 @@ export function level1(s: Scenario, card: HelpCardContent | null, issues: string
     f.push('technical answer without an approved knowledge source')
   }
   // Any category: pain, frustration or problems the transcript never voiced are invented.
+  // Idioms such as "no problem" or "broken down by team" are not pain.
   const transcript = s.transcript.map((l) => l.text).join(' ').toLowerCase()
-  const invented = (visible.match(PAIN_WORDS) ?? []).filter((w) => !transcript.includes(w.toLowerCase()))
+  const invented = (visible.replace(NOT_PAIN, ' ').match(PAIN_WORDS) ?? []).filter((w) => !transcript.includes(w.toLowerCase()))
   if (invented.length) f.push(`assumed pain not voiced by the buyer: ${[...new Set(invented.map((w) => w.toLowerCase()))].join(', ')}`)
   // Approved knowledge merely being in context is not enough: the claim must cite it.
-  const claim = CAPABILITY_CLAIM.exec(visible)
-  if (claim && !citesKnowledge) {
-    f.push(`states an Arize capability ("${claim[0]}") without citing an approved knowledge source`)
-  }
+  // Each field is checked on its own so a hedge in one field never excuses a claim in another.
+  const claim = citesKnowledge ? null : [card.primary, card.happening ?? '', card.follow_up ?? ''].map(findCapabilityClaim).find((c) => c !== null) ?? null
+  if (claim) f.push(`states an Arize capability ("${claim}") without citing an approved knowledge source`)
   return f
 }
 
@@ -271,6 +289,8 @@ export interface BaselineScenario {
   level1_failures: string[]
   /** Median across repeats; null when nothing usable arrived. */
   first_usable_ms: number | null
+  /** Median full-card time across repeats; null when no request completed (absent in older baselines). */
+  complete_ms?: number | null
 }
 
 export interface Baseline {
@@ -294,6 +314,7 @@ export function toBaseline(r: BenchmarkReport, mock = false): Baseline {
       for (const x of runs) counts.set(x.card?.move ?? null, (counts.get(x.card?.move ?? null) ?? 0) + 1)
       const move = [...counts.entries()].reduce((best, e) => (e[1] > best[1] ? e : best))[0]
       const fu = runs.map((x) => x.first_usable_ms).filter((v): v is number => v !== null)
+      const cm = runs.map((x) => x.complete_ms).filter((v): v is number => v !== null)
       scenarios[id] = {
         approved: runs[0].approved,
         move,
@@ -301,6 +322,7 @@ export function toBaseline(r: BenchmarkReport, mock = false): Baseline {
         level1_pass: runs.every((x) => x.level1.pass),
         level1_failures: [...new Set(runs.flatMap((x) => x.level1.failures))],
         first_usable_ms: percentile(fu, 50),
+        complete_ms: percentile(cm, 50),
       }
     }
     models[summary.model] = { summary, scenarios }
@@ -310,7 +332,7 @@ export function toBaseline(r: BenchmarkReport, mock = false): Baseline {
 
 export interface BaselineRegression {
   model: string
-  kind: 'level1' | 'move_agreement' | 'move' | 'latency'
+  kind: 'level1' | 'move_agreement' | 'latency'
   scenario_id: string | null
   detail: string
 }
@@ -322,11 +344,13 @@ export interface BaselineComparison {
 }
 
 /**
- * Compare a run against a saved baseline. Regressions: a scenario that passed Level 1 before and
- * fails now; move agreement (approved and drafts, over the scenarios both runs share) going down,
- * with the scenarios whose move went from right to wrong; first-usable or full-card p95 up by more
- * than `latencyTolerance` (default 20%; live runs only). Models or scenarios present on one side only
- * are noted, not flagged.
+ * Compare a run against a saved baseline. Everything is computed over the scenarios both runs
+ * share, so a growing set never reads as a regression. Regressions: a scenario that passed Level 1
+ * before and fails now; move agreement (approved and drafts separately) going down, listing the
+ * scenarios whose move went from right to wrong (a flip that another scenario's fix cancels out is
+ * not a drop); first-usable or full-card p95 (across the shared scenarios' per-scenario medians) up
+ * by more than `latencyTolerance` (default 20%; live runs only). Models or scenarios present on one
+ * side only are noted, not flagged.
  */
 export function compareBaseline(before: Baseline, after: Baseline, latencyTolerance = 0.2): BaselineComparison {
   const regressions: BaselineRegression[] = []
@@ -354,24 +378,29 @@ export function compareBaseline(before: Baseline, after: Baseline, latencyTolera
       if (a.level1_pass && !b.level1_pass) {
         regressions.push({ model, kind: 'level1', scenario_id: id, detail: `passed Level 1 before, fails now: ${b.level1_failures.join('; ') || 'no detail'}` })
       }
-      if (a.move_ok === true && b.move_ok !== true) {
-        regressions.push({ model, kind: 'move', scenario_id: id, detail: `move ${a.move ?? '-'} (agreed) -> ${b.move ?? 'none'} (not agreed)${b.approved ? '' : ' [draft]'}` })
-      }
     }
-    // Agreement on the shared scenarios only, grouped by today's approval, so a growing set never reads as a drop.
+    // Agreement grouped by today's approval. Only a drop in the rate is a regression; the scenarios
+    // that flipped from right to wrong are listed in it.
     for (const approved of [true, false]) {
       const ids = common.filter((id) => now.scenarios[id].approved === approved)
       if (!ids.length) continue
       const rate = (m: Record<string, BaselineScenario>) => ids.filter((id) => m[id].move_ok === true).length / ids.length
       const [x, y] = [rate(was.scenarios), rate(now.scenarios)]
       if (y < x) {
-        regressions.push({ model, kind: 'move_agreement', scenario_id: null, detail: `${approved ? 'approved' : 'draft'} move agreement ${Math.round(x * 100)}% -> ${Math.round(y * 100)}% on ${ids.length} shared scenario(s)` })
+        const flipped = ids
+          .filter((id) => was.scenarios[id].move_ok === true && now.scenarios[id].move_ok !== true)
+          .map((id) => `${id} (${was.scenarios[id].move ?? '-'} -> ${now.scenarios[id].move ?? 'none'})`)
+        regressions.push({ model, kind: 'move_agreement', scenario_id: null, detail: `${approved ? 'approved' : 'draft'} move agreement ${Math.round(x * 100)}% -> ${Math.round(y * 100)}% on ${ids.length} shared scenario(s); right -> wrong: ${flipped.join(', ')}` })
       }
     }
-    for (const key of compareLatency ? (['first_usable_p95_ms', 'complete_p95_ms'] as const) : []) {
-      const [x, y] = [was.summary[key], now.summary[key]]
+    // p95 across the shared scenarios' per-scenario medians, so added or dropped scenarios do not move it.
+    const p95 = (m: Record<string, BaselineScenario>, key: 'first_usable_ms' | 'complete_ms') =>
+      percentile(common.map((id) => m[id][key] ?? null).filter((v): v is number => v !== null), 95)
+    for (const key of compareLatency ? (['first_usable_ms', 'complete_ms'] as const) : []) {
+      const [x, y] = [p95(was.scenarios, key), p95(now.scenarios, key)]
       if (x !== null && y !== null && x > 0 && y > x * (1 + latencyTolerance)) {
-        regressions.push({ model, kind: 'latency', scenario_id: null, detail: `${key.replace(/_ms$/, '').replace(/_/g, ' ')} ${x} ms -> ${y} ms (+${Math.round((y / x - 1) * 100)}%, limit +${Math.round(latencyTolerance * 100)}%)` })
+        const label = key === 'first_usable_ms' ? 'first usable' : 'full card'
+        regressions.push({ model, kind: 'latency', scenario_id: null, detail: `${label} p95 over ${common.length} shared scenario(s) ${x} ms -> ${y} ms (+${Math.round((y / x - 1) * 100)}%, limit +${Math.round(latencyTolerance * 100)}%)` })
       }
     }
   }

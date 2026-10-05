@@ -6,6 +6,8 @@
  *   npm run eval:help -- --session <userData>/sessions/<id>/transcript.jsonl --at 754   (a real call, as of 12:34)
  *   npm run eval:help -- --save-baseline evals/reports/baseline.json  (per scenario: move, Level 1, first usable; summaries)
  *   npm run eval:help -- --compare evals/reports/baseline.json        (prints regressions; exit code 1 if any)
+ *     The compare file is read before the run (a bad path fails before any paid request). With both
+ *     flags on the same file, the run is compared with the old baseline first, then replaces it.
  * Reports go to evals/reports/ (git-ignored).
  */
 import fs from 'node:fs'
@@ -38,6 +40,18 @@ if (!mock && !key) {
   console.error('Set SALES_COPILOT_ANTHROPIC_KEY, or run with --mock (offline, labelled MOCK). Live runs are normally done from the app: Diagnostics -> Run HELP speed test.')
   process.exit(2)
 }
+// Read the baseline to compare against now: a wrong path or bad JSON fails before a (possibly paid) run.
+const compareWith = arg('compare')
+let before: Baseline | null = null
+if (compareWith) {
+  try {
+    before = JSON.parse(fs.readFileSync(compareWith, 'utf8')) as Baseline
+    if (!before.models) throw new Error('not a baseline file (no "models")')
+  } catch (err) {
+    console.error(`Cannot read the baseline to compare with (${compareWith}): ${(err as Error).message}`)
+    process.exit(2)
+  }
+}
 const which = (arg('models') ?? 'sonnet,opus').split(',')
 const configs = [DEFAULT_HELP_CONFIG, OPUS_HELP_CONFIG].filter((c) => which.some((w) => c.model.includes(w)))
 const scenarios = loadScenarios(arg('scenarios') ?? 'evals/scenarios/help')
@@ -55,16 +69,15 @@ fs.writeFileSync(`${file}.md`, md)
 console.log(`\n\n${md}\nSaved ${file}.json`)
 
 const baseline = toBaseline(report, mock)
+// Compare first, then save, so "--compare x --save-baseline x" compares with the old x before replacing it.
+if (compareWith && before) {
+  const cmp = compareBaseline(before, baseline)
+  console.log(`\nCompared with ${compareWith} (${before.created_at}):\n${comparisonText(cmp)}`)
+  if (cmp.regressions.length) process.exitCode = 1
+}
 const saveTo = arg('save-baseline')
 if (saveTo) {
   fs.mkdirSync(path.dirname(saveTo), { recursive: true })
   fs.writeFileSync(saveTo, JSON.stringify(baseline, null, 2))
   console.log(`Saved baseline ${saveTo}`)
-}
-const compareWith = arg('compare')
-if (compareWith) {
-  const before = JSON.parse(fs.readFileSync(compareWith, 'utf8')) as Baseline
-  const cmp = compareBaseline(before, baseline)
-  console.log(`\nCompared with ${compareWith} (${before.created_at}):\n${comparisonText(cmp)}`)
-  if (cmp.regressions.length) process.exitCode = 1
 }

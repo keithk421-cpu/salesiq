@@ -64,6 +64,10 @@
   ],
   "forbid_regex": [
     "\\b(great|perfect|awesome)[,!.]? (let'?s|we'?ll|i'?ll) (lock|get|set|book|schedule|kick)",
+    "\\blet'?s (lock|book|schedule|kick|pencil)\\b",
+    "\\blet'?s (plan|set up|get|line up|run|scope|start) (the|a|your) pilot\\b",
+    "(?<!\\b(if|whether)\\b[^.?!;]{0,40})\\b(for|during|in) the pilot\\b",
+    "(?<!\\b(if|whether)\\b[^.?!;]{0,40})\\b(want|need|expect|like) the pilot to\\b",
     "\\block(ed|ing)? (it |that |this |the pilot )?in\\b",
     "\\b(order form|sow|statement of work|pilot agreement|paperwork)\\b",
     "\\bsince (you'?re|we'?re) (doing|running|going ahead with|moving ahead with) (a|the) pilot",

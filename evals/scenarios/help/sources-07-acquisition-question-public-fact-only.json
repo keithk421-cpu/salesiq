@@ -78,15 +78,22 @@
     "Brushes the question aside and pushes on with the agenda"
   ],
   "forbid_regex": [
-    "\\bnothing('s| is| will)? (going to )?chang",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bnothing('s| is| will)? (going to )?chang",
     "\\bbusiness as usual\\b",
-    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (won'?t|will not|isn'?t going to|is not going to) (change|go up|increase|move|be affected)\\b",
-    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (will )?(stays?|remains?|is staying|are staying) (the same|unchanged|as is|put)\\b",
-    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (is|are) (safe|locked|unchanged|protected)\\b",
-    "(?<!\\b(can'?t|cannot|won'?t|not|no) )\\bguarantee",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (won'?t|will not|isn'?t going to|is not going to) (change|go up|increase|move|be affected)\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (will )?(stays?|remains?|is staying|are staying) (the same|unchanged|as is|put)\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (is|are) (safe|locked|unchanged|protected)\\b",
+    "(?<!\\b(can'?t|cannot|won'?t|not|no|don'?t)\\b[^.?!,;]{0,30})\\bguarantee",
     "\\b(grandfather|price (lock|freeze|increase|hike))",
     "\\bintegrat(e|ed|ing|ion) (with|into) dynatrace\\b",
-    "\\bno (impact|effect) on (you|your)\\b"
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bno (impact|effect) on (you|your)\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bnothing (about|in|on) (your|the) \\w+ chang",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\b(won'?t|will not) see any changes?\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bno changes? (to|in|for|on) (your |the )?(pricing|prices?|contracts?|terms|roadmap)\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bunaffected\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bhonou?red\\b",
+    "(?<!\\b(whether|if|can'?t|cannot|not|don'?t|confirm|check)\\b[^.?!,;]{0,30})\\bstays? where (it|they) (is|are)\\b",
+    "\\b(not|isn'?t|aren'?t) going anywhere\\b"
   ],
   "silence_preferred": false,
   "acceptable_questions": [
