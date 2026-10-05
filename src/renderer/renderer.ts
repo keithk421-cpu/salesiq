@@ -44,7 +44,7 @@ const labels = new Map<string, SpeakerLabel>()
 let card: HelpCardEvent | null = null
 let cardShownAt = 0
 type ReadyState = { readiness: string; message: string }
-let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string; ready?: ReadyState } | null = null
+let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string; ready?: ReadyState; playbook?: PlaybookInfo } | null = null
 let hideHotkey: string | null = null
 let lastCallDeleted = false
 
@@ -201,6 +201,7 @@ function setButtons(): void {
   $('resumeBtn').hidden = s !== 'paused'
   $('stopBtn').hidden = !['checking', 'live', 'paused'].includes(s)
   $('deleteCallBtn').hidden = s !== 'stopped' || lastCallDeleted
+  $('reviewCallBtn').hidden = s !== 'stopped' || lastCallDeleted
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
   $<HTMLButtonElement>('helpBtn').disabled = s !== 'live'
@@ -344,6 +345,18 @@ function addActivity(level: string, message: string): void {
   while (box.children.length > 60) box.lastChild?.remove()
 }
 
+// After a pause or a reconnect, the speech service numbers speakers afresh: labels Keith set
+// earlier don't carry over. Say so once per new connection, only if he had labelled someone.
+let relabelPromptedEpoch = 0
+function promptRelabel(cluster: string | null): void {
+  const epoch = Number(/^e(\d+):/.exec(cluster ?? '')?.[1] ?? 0)
+  if (!epoch || epoch <= relabelPromptedEpoch || labels.size === 0) return
+  const labelled = Math.max(...[...labels.keys()].map((c) => Number(/^e(\d+):/.exec(c)?.[1] ?? 0)))
+  if (epoch <= labelled) return
+  relabelPromptedEpoch = epoch
+  showBanner('info', 'Speaker numbers restarted after the pause or reconnect. Tap the remote speaker\'s name to label them again (optional).')
+}
+
 // ------------------------------------------------------------------ events
 let lastRender = 0
 api.onSession((raw) => {
@@ -352,6 +365,7 @@ api.onSession((raw) => {
     case 'state':
       if (ev.state === 'checking') {
         lastCallDeleted = false
+        relabelPromptedEpoch = 0
         turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0; elapsedOffset = 0; liveSince = null
         for (const k of Object.keys(interims)) delete interims[k]
         for (const k of Object.keys(delays)) delete delays[k]
@@ -400,6 +414,7 @@ api.onSession((raw) => {
       break
     case 'turn':
       turns.set(ev.event.turn.turn_id, ev.event.turn)
+      promptRelabel(ev.event.turn.speaker_cluster)
       if (Date.now() - lastRender > 150 || ev.event.type === 'turn_final') { lastRender = Date.now(); renderTranscript() }
       break
     case 'interim':
@@ -498,7 +513,11 @@ $('smYes').addEventListener('click', async () => {
   await refreshConfig()
   setButtons()
 })
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('startModal').hidden) $('startModal').hidden = true })
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return
+  $('startModal').hidden = true
+  $('reviewModal').hidden = true
+})
 $('pauseBtn').addEventListener('click', async () => { const r = await api.pause(); if (!r.ok) showBanner('error', r.reason) })
 $('resumeBtn').addEventListener('click', async () => { const r = await api.resume(); if (!r.ok) showBanner('error', r.reason) })
 $('stopBtn').addEventListener('click', () => void api.stop())
@@ -514,6 +533,40 @@ $('switchBtn').addEventListener('click', async () => {
 $('snapBefore').addEventListener('click', async () => { const r = await api.snapshot('before'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('snapAfter').addEventListener('click', async () => { const r = await api.snapshot('after'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('openFolder').addEventListener('click', () => void api.openFolder())
+// ---- after the call: rate every card, tick the lines used, add notes ----
+type CallCard = { id: string; at_session_ms: number | null; status: string; primary_kind: 'ask' | 'say' | null; primary: string | null; follow_up: string | null; rating: string | null; used: boolean; note: string | null }
+const RATE_LABEL: Record<string, string> = { useful: 'Useful', should_have_stayed_quiet: "Should've stayed quiet", bad: 'Bad' }
+$('reviewCallBtn').addEventListener('click', async () => {
+  const cards = (await api.helpCallCards()) as CallCard[]
+  $('rvList').innerHTML = cards.length
+    ? cards.map((c) => `<div class="rv-card" data-id="${esc(c.id)}">
+        <div class="rv-line"><span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span> ${esc(c.primary ?? '')}</div>
+        <div class="muted small">${c.at_session_ms !== null ? `at ${fmtMs(c.at_session_ms)}` : ''}${c.follow_up ? ` · Then: ${esc(c.follow_up)}` : ''}</div>
+        <div class="row">
+          ${Object.entries(RATE_LABEL).map(([k, v]) => `<button class="fb${c.rating === k ? ' chosen' : ''}" data-rate="${k}">${v}</button>`).join('')}
+          <label class="inline check"><input type="checkbox" data-used ${c.used ? 'checked' : ''}/> I used this line</label>
+        </div>
+        <input class="input rv-note" placeholder="Note (optional): what would have been better?" maxlength="500" value="${esc(c.note ?? '')}" />
+      </div>`).join('')
+    : '<p class="muted">No HELP cards on this call.</p>'
+  $('reviewModal').hidden = false
+})
+$('rvList').addEventListener('click', async (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-rate]')
+  const id = b?.closest<HTMLElement>('.rv-card')?.dataset.id
+  if (!b || !id) return
+  b.parentElement!.querySelectorAll('button[data-rate]').forEach((x) => x.classList.toggle('chosen', x === b))
+  await api.helpFeedback({ card_id: id, type: b.dataset.rate })
+})
+$('rvList').addEventListener('change', async (e) => {
+  const el = e.target as HTMLInputElement
+  const id = el.closest<HTMLElement>('.rv-card')?.dataset.id
+  if (!id) return
+  if (el.matches('[data-used]')) await api.helpFeedback({ card_id: id, type: el.checked ? 'used' : 'unused' })
+  else if (el.matches('.rv-note')) await api.helpFeedback({ card_id: id, type: 'note', note: el.value })
+})
+$('rvDone').addEventListener('click', () => { $('reviewModal').hidden = true })
+
 // ---- saved calls: delete this call, retention ----
 function clearCallView(): void {
   turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0
@@ -790,6 +843,7 @@ async function refreshHelpInfo(): Promise<void> {
   $('hotkeyHint').textContent = (helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button') +
     (hideHotkey ? ` · hide/show: ${hideHotkey}` : '')
   renderReady(helpInfo.ready)
+  renderPlaybook(helpInfo.playbook ?? null)
   $('helpBtn').title = helpInfo.hotkeyRegistered ? 'HELP (Ctrl+Alt+H)' : 'HELP'
 }
 
@@ -799,8 +853,10 @@ async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
   $('kbList').innerHTML = list.length
     ? list.map((d) => {
         const stale = d.review_by && new Date(d.review_by) < today
+        const daysLeft = d.review_by && !stale ? Math.ceil((new Date(d.review_by).getTime() - today.getTime()) / 86_400_000) : null
         return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
-          ${stale ? '<span class="tag tag-warn">Stale</span>' : ''}
+          ${stale ? '<span class="tag tag-warn" title="Past its review date: HELP mentions it exists but states nothing from it">Stale</span>' : ''}
+          ${daysLeft !== null && daysLeft <= 14 ? `<span class="tag tag-warn" title="After its review date HELP stops stating facts from it. Ask for a refresh before then.">Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}</span>` : ''}
           ${d.needs_reapproval ? '<span class="tag tag-warn" title="This file changed after you approved it. HELP will not use it until you approve the new content.">Changed: approve again</span>' : ''}
           <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label>
           <button class="btn btn-ghost btn-sm" data-remove="${esc(d.doc_id)}" title="Take this file out of use (moved to the _removed folder, not deleted)">Remove</button></div>`
@@ -842,6 +898,31 @@ $('kbOpen').addEventListener('click', async () => {
 })
 $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.knowledgeReindex()))
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
+
+// ---- playbook status: which one HELP uses, a broken edit, a newer built-in version ----
+type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean }
+function renderPlaybook(pb: PlaybookInfo | null): void {
+  const el = $('pbStatus')
+  if (!pb) {
+    el.textContent = ''
+    return
+  }
+  const check = ' <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
+  if (pb.problem) {
+    el.innerHTML = `<span class="err-text">Your edited playbook has a mistake: ${esc(pb.problem)}. HELP uses the built-in one (${esc(pb.built_in_version)}) until it's fixed.</span>${check}`
+  } else if (pb.newer_built_in) {
+    el.innerHTML = `A different built-in playbook is available (${esc(pb.built_in_version)}); HELP is using your edited copy (${esc(pb.version)}). ` +
+      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Use the new one (keeps a backup of yours)</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>'
+  } else {
+    el.innerHTML = `${pb.using === 'yours' ? 'HELP uses your edited playbook' : 'HELP uses the built-in playbook'} (${esc(pb.version)}). Edits apply from the next call.${check}`
+  }
+}
+$('pbStatus').addEventListener('click', async (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pb]')
+  if (!b) return
+  const action = b.dataset.pb
+  renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+})
 $('aiKeySave').addEventListener('click', async () => {
   const r = await api.helpSetKey($<HTMLInputElement>('aiKeyInput').value)
   $<HTMLInputElement>('aiKeyInput').value = ''

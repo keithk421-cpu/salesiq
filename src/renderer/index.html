@@ -127,6 +127,7 @@
         <button id="kbReindex" class="btn btn-ghost btn-sm">Re-scan folder</button>
         <button id="pbOpen" class="btn btn-ghost btn-sm">Edit sales playbook</button>
       </div>
+      <div id="pbStatus" class="muted small"></div>
       <div id="kbMsg" class="muted small" hidden></div>
       <div id="kbList" class="kb-list"></div>
       <div id="kbPath" class="muted small"></div>
@@ -167,6 +168,7 @@
         <button id="pauseBtn" class="btn btn-secondary btn-lg" hidden>Pause</button>
         <button id="resumeBtn" class="btn btn-primary btn-lg" hidden>Resume</button>
         <button id="stopBtn" class="btn btn-danger-ghost btn-lg" hidden>Stop</button>
+        <button id="reviewCallBtn" class="btn btn-secondary btn-sm" hidden title="Rate each HELP card from this call and tick the lines you used">Review this call's cards</button>
         <button id="deleteCallBtn" class="btn btn-ghost btn-sm" hidden title="Removes this call's transcript, HELP cards and notes from this PC">Delete this call</button>
       </div>
     </div>
@@ -322,6 +324,15 @@
         <button id="smYes" class="btn btn-primary">Yes, start</button>
         <button id="smNo" class="btn btn-ghost">Not recording today</button>
       </div>
+    </div>
+  </div>
+
+  <div id="reviewModal" class="modal-back" hidden>
+    <div class="modal card wide" role="dialog" aria-modal="true" aria-labelledby="rvTitle">
+      <h2 id="rvTitle">This call's HELP cards</h2>
+      <p class="muted small">Rate each one, tick the lines you actually said, and add a note if it helps. It all stays on this PC; the scorecard only counts them.</p>
+      <div id="rvList" class="rv-list"></div>
+      <div class="row"><button id="rvDone" class="btn btn-primary">Done</button></div>
     </div>
   </div>
 

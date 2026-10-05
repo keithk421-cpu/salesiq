@@ -382,6 +382,7 @@ function registerIpc(): void {
   ipcMain.handle('help:checkReady', () => help?.checkReady() ?? null)
   ipcMain.handle('help:press', () => help?.press() ?? { ok: false, reason: 'HELP unavailable' })
   ipcMain.handle('help:feedback', (_e, raw: unknown) => help?.feedback(raw) ?? { ok: false })
+  ipcMain.handle('help:callCards', () => help?.callCards() ?? [])
   ipcMain.handle('help:setSettings', (_e, raw: unknown) => help?.setSettings((raw ?? {}) as Record<string, never>))
   ipcMain.handle('help:setSetup', (_e, raw: unknown) => help?.setSetup(raw))
   ipcMain.handle('help:setLabel', (_e, raw: unknown) => help?.setLabel(raw) ?? { ok: false })
@@ -430,6 +431,9 @@ function registerIpc(): void {
     return help.removeKnowledge(docId)
   })
   ipcMain.handle('playbook:open', () => (help ? shell.openPath(help.playbookPath()) : ''))
+  ipcMain.handle('playbook:info', () => help?.reloadPlaybook() ?? null)
+  ipcMain.handle('playbook:useBuiltIn', () => help?.useBuiltInPlaybook() ?? null)
+  ipcMain.handle('playbook:keepMine', () => help?.keepMyPlaybook() ?? null)
   ipcMain.handle('help:benchmark', async (_e, raw: unknown) =>
     help ? help.runBenchmark(raw, (p) => send('benchmark-progress', p)) : { ok: false, reason: 'HELP unavailable' })
   ipcMain.handle('help:openReport', (_e, file: unknown) =>

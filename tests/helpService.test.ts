@@ -71,3 +71,55 @@ describe('HELP scorecard', () => {
     help.shutdown()
   })
 })
+
+describe('playbook choice', () => {
+  const built = JSON.parse(fs.readFileSync(path.join(ROOT, 'config', 'playbook.json'), 'utf8')) as { version: string }
+
+  it("uses Keith's edited copy, reports a broken edit plainly, and offers a different built-in version", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    expect(help.playbookInfo).toMatchObject({ using: 'built_in', version: built.version, problem: null, newer_built_in: false })
+    // "Edit sales playbook" makes his copy; same version, nothing to decide.
+    const mine = help.playbookPath()
+    expect(help.reloadPlaybook()).toMatchObject({ using: 'yours', newer_built_in: false })
+    // A typo: HELP falls back to the built-in one and says why.
+    fs.writeFileSync(mine, '{ "version": "mine-1", ')
+    expect(help.reloadPlaybook()).toMatchObject({ using: 'built_in', problem: expect.stringMatching(/isn't valid JSON/) })
+    fs.writeFileSync(mine, JSON.stringify({ ...built, version: 'mine-1', principles: 'be nice' }))
+    expect(help.reloadPlaybook().problem).toBe('"principles" must be a list of sentences')
+    // His copy is from an older build: offer the shipped one; "Keep mine" stops asking for this version.
+    fs.writeFileSync(mine, JSON.stringify({ ...built, version: 'older-draft' }))
+    expect(help.reloadPlaybook()).toMatchObject({ using: 'yours', version: 'older-draft', newer_built_in: true })
+    expect(help.keepMyPlaybook()).toMatchObject({ using: 'yours', newer_built_in: false })
+    // "Use the new one" keeps a dated backup of his copy.
+    expect(help.useBuiltInPlaybook(new Date('2026-10-05T12:00:00Z'))).toMatchObject({ using: 'built_in', version: built.version })
+    expect(fs.existsSync(path.join(dir, 'playbook-yours-2026-10-05-12-00-00.json'))).toBe(true)
+    help.shutdown()
+  })
+})
+
+describe('after-call review', () => {
+  it("lists the call's cards with Keith's latest rating, whether he used the line, and his note", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rv-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    help.onSessionEvent({ type: 'state', state: 'checking', sessionId: 's-9' }, 's-9', () => 0)
+    const ins = help.db.sql.prepare(
+      "INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, card_json, timing_json, prefetch) VALUES (?, 's-9', 'help_requested', 't', ?, 'complete', '{}', ?, '{}', 0)",
+    )
+    ins.run('c2', 90_000, JSON.stringify({ primary_kind: 'say', primary: 'Second line', follow_up: null }))
+    ins.run('c1', 30_000, JSON.stringify({ primary_kind: 'ask', primary: 'First line?', follow_up: 'Then this' }))
+    // A background candidate never shown has no card and is not listed.
+    help.db.sql.prepare("INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, prefetch) VALUES ('p1', 's-9', 'help_requested', 't', 60000, 'complete', '{}', 1)").run()
+    for (const fb of [
+      { card_id: 'c1', type: 'bad' }, { card_id: 'c1', type: 'useful' }, { card_id: 'c1', type: 'used' }, { card_id: 'c1', type: 'note', note: 'Good, but slower please' },
+      { card_id: 'c2', type: 'used' }, { card_id: 'c2', type: 'unused' }, { card_id: 'c2', type: 'bad', bad_reason: 'too_generic' },
+    ]) expect(help.feedback(fb).ok).toBe(true)
+    expect(help.feedback({ card_id: 'c1', type: 'something_else' }).ok).toBe(false)
+    expect(help.callCards()).toEqual([
+      { id: 'c1', at_session_ms: 30_000, status: 'complete', primary_kind: 'ask', primary: 'First line?', follow_up: 'Then this', rating: 'useful', bad_reason: null, used: true, note: 'Good, but slower please' },
+      { id: 'c2', at_session_ms: 90_000, status: 'complete', primary_kind: 'say', primary: 'Second line', follow_up: null, rating: 'bad', bad_reason: 'too_generic', used: false, note: null },
+    ])
+    expect(buildScorecard(help.db, 's-9', 60_000).feedback).toEqual({ useful: 1, should_have_stayed_quiet: 0, bad: 1, bad_reasons: { too_generic: 1 }, used: 1, notes: 1 })
+    help.shutdown()
+  })
+})

@@ -5,15 +5,15 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { CallSetup, CallType, Deployment, FeedbackType, BadReason, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
-import { buildScorecard } from './help/scorecard'
-import { loadPlaybook, type Playbook } from './help/prompt'
+import { buildScorecard, readFeedback } from './help/scorecard'
+import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
@@ -26,6 +26,17 @@ export interface HelpSettings {
 }
 
 const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true }
+
+/** Which playbook HELP is using, and whether Keith needs to decide anything about it. */
+export interface PlaybookInfo {
+  using: 'yours' | 'built_in'
+  version: string
+  built_in_version: string
+  /** Keith's edited copy can't be used (shown in Setup; HELP uses the built-in one meanwhile). */
+  problem: string | null
+  /** A different built-in version shipped since Keith's copy was made, and he hasn't chosen yet. */
+  newer_built_in: boolean
+}
 
 export interface HelpReadyState {
   readiness: HelpReadiness
@@ -79,6 +90,7 @@ export class HelpService {
   readonly kb: KnowledgeBase
   readonly knowledgeDir: string
   private playbook: Playbook
+  playbookInfo!: PlaybookInfo
   private settings: HelpSettings
   private setup: CallSetup
   memory: CallMemory | null = null
@@ -113,15 +125,48 @@ export class HelpService {
     }
   }
 
-  /** User-edited playbook in userData wins over the shipped draft. */
+  /**
+   * Keith's edited playbook (userData) wins over the shipped one while it's valid. A broken edit is
+   * reported in Setup and the shipped one is used meanwhile; a newer shipped version is offered.
+   */
   private loadPlaybook(): Playbook {
+    const builtIn = loadPlaybook(path.join(this.appPath, 'config', 'playbook.json'))
     const user = path.join(this.storage.root, 'playbook.json')
-    try {
-      if (fs.existsSync(user)) return loadPlaybook(user)
-    } catch (err) {
-      this.log('playbook_invalid', { message: (err as Error).message })
+    const choice = this.storage.readJson<{ kept_over?: string }>('playbook-choice.json', {})
+    this.playbookInfo = { using: 'built_in', version: builtIn.version, built_in_version: builtIn.version, problem: null, newer_built_in: false }
+    if (!fs.existsSync(user)) return builtIn
+    const r = readPlaybook(user)
+    if (!r.playbook) {
+      this.log('playbook_invalid')
+      this.playbookInfo.problem = r.problem
+      return builtIn
     }
-    return loadPlaybook(path.join(this.appPath, 'config', 'playbook.json'))
+    this.playbookInfo = {
+      using: 'yours', version: r.playbook.version, built_in_version: builtIn.version, problem: null,
+      newer_built_in: r.playbook.version !== builtIn.version && choice.kept_over !== builtIn.version,
+    }
+    return r.playbook
+  }
+
+  /** Re-read the playbook (edits apply from the next call; this shows problems right away). */
+  reloadPlaybook(): PlaybookInfo {
+    this.playbook = this.loadPlaybook()
+    return this.playbookInfo
+  }
+
+  /** Switch to the shipped playbook; Keith's copy is kept as a dated backup next to it. */
+  useBuiltInPlaybook(now = new Date()): PlaybookInfo {
+    const user = path.join(this.storage.root, 'playbook.json')
+    if (fs.existsSync(user)) fs.renameSync(user, path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`))
+    this.log('playbook_choice', { choice: 'built_in' })
+    return this.reloadPlaybook()
+  }
+
+  /** Keep Keith's copy and stop offering this shipped version. */
+  keepMyPlaybook(): PlaybookInfo {
+    this.storage.writeJson('playbook-choice.json', { kept_over: this.playbookInfo.built_in_version })
+    this.log('playbook_choice', { choice: 'yours' })
+    return this.reloadPlaybook()
   }
 
   playbookPath(): string {
@@ -148,7 +193,7 @@ export class HelpService {
     return {
       hasKey: this.hasKey(), settings: this.settings, setup: this.setup, hotkey: 'Ctrl+Alt+H', hotkeyRegistered: this.hotkeyRegistered,
       modelLabel: model.label(this.modelConfig()), mock: model.mock, playbookVersion: this.playbook.version, knowledgeDir: this.knowledgeDir,
-      ready: this.ready,
+      ready: this.ready, playbook: this.playbookInfo,
     }
   }
 
@@ -282,6 +327,8 @@ export class HelpService {
 
   private startCall(sessionId: string, nowSessionMs: () => number): void {
     this.engine?.dispose()
+    // Playbook edits made since the last call apply now, without restarting the app.
+    this.playbook = this.loadPlaybook()
     this.sessionNow = nowSessionMs
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
@@ -332,7 +379,7 @@ export class HelpService {
 
   feedback(raw: unknown): { ok: boolean } {
     const r = (raw ?? {}) as Record<string, unknown>
-    const types: FeedbackType[] = ['useful', 'should_have_stayed_quiet', 'bad']
+    const types: FeedbackType[] = ['useful', 'should_have_stayed_quiet', 'bad', 'used', 'unused', 'note']
     const reasons: BadReason[] = ['wrong_move', 'assumed_too_much', 'already_known', 'too_generic', 'too_late', 'bad_wording', 'unsupported', 'other']
     if (typeof r.card_id !== 'string' || !types.includes(r.type as FeedbackType)) return { ok: false }
     const eng = this.engine
@@ -345,6 +392,30 @@ export class HelpService {
     else this.db.sql.prepare('INSERT INTO feedback (card_id, origin, type, bad_reason, note, ts) VALUES (?, ?, ?, ?, ?, ?)')
       .run(ev.card_id, ev.origin, ev.type, ev.bad_reason, ev.optional_note, new Date().toISOString())
     return { ok: true }
+  }
+
+  /** The last call's cards with Keith's feedback so far, for the after-call review (stays on this PC). */
+  callCards(): CallCard[] {
+    const id = this.memory?.sessionId
+    if (!id) return []
+    const rows = this.db.sql.prepare(
+      'SELECT id, at_session_ms, status, card_json FROM help_requests WHERE session_id = ? AND card_json IS NOT NULL ORDER BY at_session_ms',
+    ).all(id) as Array<{ id: string; at_session_ms: number | null; status: string; card_json: string }>
+    const fb = readFeedback(this.db, rows.map((r) => r.id))
+    return rows.map((r) => {
+      let c: Partial<HelpCardContent> = {}
+      try {
+        c = JSON.parse(r.card_json) as Partial<HelpCardContent>
+      } catch {
+        /* unreadable card: shown without its line */
+      }
+      const f = fb.get(r.id)
+      return {
+        id: r.id, at_session_ms: r.at_session_ms, status: r.status, primary_kind: c.primary_kind ?? null, primary: c.primary ?? null,
+        follow_up: c.follow_up ?? null, rating: f?.rating ?? null, bad_reason: (f && f.rating === 'bad' ? ([...f.reasons].at(-1) ?? null) : null) as BadReason | null,
+        used: f?.used ?? false, note: f?.note ?? null,
+      }
+    })
   }
 
   /**

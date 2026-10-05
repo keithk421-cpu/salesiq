@@ -177,7 +177,23 @@ export interface HelpCardEvent {
 
 // ---------------- feedback ----------------
 
-export type FeedbackType = 'useful' | 'should_have_stayed_quiet' | 'bad'
+/** A rating (the last one per card counts), whether Keith used the line (last of used/unused counts), or a note. */
+export type FeedbackType = 'useful' | 'should_have_stayed_quiet' | 'bad' | 'used' | 'unused' | 'note'
+export const RATINGS = ['useful', 'should_have_stayed_quiet', 'bad'] as const
+
+/** One card from a finished call, for the after-call review (local only). */
+export interface CallCard {
+  id: string
+  at_session_ms: number | null
+  status: string
+  primary_kind: 'ask' | 'say' | null
+  primary: string | null
+  follow_up: string | null
+  rating: (typeof RATINGS)[number] | null
+  bad_reason: BadReason | null
+  used: boolean
+  note: string | null
+}
 export type BadReason = 'wrong_move' | 'assumed_too_much' | 'already_known' | 'too_generic' | 'too_late' | 'bad_wording' | 'unsupported' | 'other'
 
 export interface FeedbackEvent {

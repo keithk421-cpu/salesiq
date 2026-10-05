@@ -18,14 +18,14 @@ Sales Copilot is a Windows desktop app Keith runs during Zoom sales calls. It ca
 - **Nothing is sent while paused or stopped**, except the optional speed test (Diagnostics), which sends only the app's built-in practice scenarios and the playbook. Locking the PC or putting it to sleep pauses a live call automatically. If nothing is heard from the other side for 10 minutes, the app asks "Still on a call?" and stops a minute later if nobody answers.
 
 **Stored on the PC** (in the app's data folder):
-- Call transcripts (text), speaker labels, the call setup for each call (including the account name), the HELP requests and suggestions Keith actually saw, and his feedback taps, in a local database and per-call transcript files. Background requests he never saw keep only timings, cost, which sources were used and what kind of check failed, not the text (older databases are cleaned when the app opens).
+- Call transcripts (text), speaker labels, the call setup for each call (including the account name), the HELP requests and suggestions Keith actually saw, and his feedback (ratings, which lines he used, short notes), in a local database and per-call transcript files. Background requests he never saw keep only timings, cost, which sources were used and what kind of check failed, not the text (older databases are cleaned when the app opens).
 - Copies of the knowledge files Keith added, and their text indexed for search.
 - API keys, encrypted with Windows DPAPI (tied to Keith's Windows account).
 - Logs and diagnostics: timings, counts, error codes, device names, short fingerprints of knowledge file names, and some local file paths (which include the Windows user name). Never transcript or card text: automated tests check the call's diagnostics log and the HELP log, including words still being transcribed.
 - Per-call HELP scorecards and speed-test reports: numbers only (counts, timings, cost, feedback taps); speed-test reports also hold the model's answers to the built-in practice scenarios.
 - **No audio is ever saved.**
 - "Save support files" copies only the logs, per-call diagnostics and counters, scorecards, speed-test reports and the non-secret settings into a new folder; never the database, transcripts, call setup, keys or knowledge files.
-- Automatic deletion after a set number of days is planned (proposed default: 30 days).
+- Saved calls are deleted automatically after 30 days (Keith can choose 7, 14, 30 or 90 days, or keep them until he deletes them). The first time any call is past the limit, the app lists those calls and asks before deleting; after that it deletes them on its own. Deleting a call removes its transcript, speaker labels, HELP requests and cards, feedback and notes, and compacts the database. Keith can also delete the call he just finished, or all saved calls, at any time. Numbers-only scorecards are kept.
 
 **On screen:** the app window is hidden from screen sharing, recordings and screenshots by default (Windows 10 version 2004 and later). Keith can turn this off in Diagnostics to take a screenshot.
 

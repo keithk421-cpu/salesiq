@@ -2,6 +2,7 @@
  * Per-call HELP scorecard: numbers only (counts, timings, cost, feedback taps), never transcript,
  * request or card text. Written to reports/ at Stop, so "Save support files" can include it.
  */
+import { RATINGS } from '../../shared/help'
 import type { Db } from '../db'
 
 export interface HelpScorecard {
@@ -23,7 +24,7 @@ export interface HelpScorecard {
   prefetch: { started: number; used: number; unused: number; unused_cost_usd: number }
   cost_usd: number
   tokens: { input: number; output: number; cache_read: number }
-  feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number> }
+  feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
 }
 
@@ -56,7 +57,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     shown: 0, complete: 0, failed: 0, timeout: 0, cancelled: 0, superseded: 0, from_prefetch: 0,
     first_usable_ms: { median: null, p95: null }, cards_with_checks: 0,
     prefetch: { started: 0, used: 0, unused: 0, unused_cost_usd: 0 }, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 },
-    feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {} }, errors: {},
+    feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {}, used: 0, notes: 0 }, errors: {},
   }
   const firstUsable: number[] = []
   const shownIds: string[] = []
@@ -89,19 +90,33 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
   card.cost_usd = Math.round(card.cost_usd * 10000) / 10000
   card.prefetch.unused_cost_usd = Math.round(card.prefetch.unused_cost_usd * 10000) / 10000
   if (shownIds.length) {
-    // One verdict per card: the last tap wins (Keith can change his mind; "Bad" then a reason is one card).
-    const fb = db.sql.prepare('SELECT card_id, type, bad_reason FROM feedback WHERE card_id IN (SELECT value FROM json_each(?)) ORDER BY id').all(JSON.stringify(shownIds)) as Array<{ card_id: string; type: string; bad_reason: string | null }>
-    const last = new Map<string, { type: string; reasons: Set<string> }>()
-    for (const f of fb) {
-      const prev = last.get(f.card_id)
-      const reasons = prev && prev.type === f.type ? prev.reasons : new Set<string>()
-      if (f.bad_reason) reasons.add(f.bad_reason)
-      last.set(f.card_id, { type: f.type, reasons })
-    }
-    for (const { type, reasons } of last.values()) {
-      if (type === 'useful' || type === 'should_have_stayed_quiet' || type === 'bad') card.feedback[type]++
-      if (type === 'bad') for (const r of reasons) card.feedback.bad_reasons[r] = (card.feedback.bad_reasons[r] ?? 0) + 1
+    const fb = readFeedback(db, shownIds)
+    for (const f of fb.values()) {
+      if (f.rating) card.feedback[f.rating]++
+      if (f.rating === 'bad') for (const r of f.reasons) card.feedback.bad_reasons[r] = (card.feedback.bad_reasons[r] ?? 0) + 1
+      if (f.used) card.feedback.used++
+      if (f.note) card.feedback.notes++
     }
   }
   return card
+}
+
+/**
+ * Keith's feedback per card, folded: the last rating counts (Keith can change his mind; "Bad" then a
+ * reason is one verdict), the last used/unused counts, the last note counts.
+ */
+export function readFeedback(db: Db, cardIds: string[]): Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null }> {
+  const rows = db.sql.prepare('SELECT card_id, type, bad_reason, note FROM feedback WHERE card_id IN (SELECT value FROM json_each(?)) ORDER BY id').all(JSON.stringify(cardIds)) as Array<{ card_id: string; type: string; bad_reason: string | null; note: string | null }>
+  const out = new Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null }>()
+  for (const r of rows) {
+    const f = out.get(r.card_id) ?? { rating: null, reasons: new Set<string>(), used: false, note: null }
+    if ((RATINGS as readonly string[]).includes(r.type)) {
+      if (f.rating !== r.type) f.reasons = new Set()
+      f.rating = r.type as (typeof RATINGS)[number]
+      if (r.bad_reason) f.reasons.add(r.bad_reason)
+    } else if (r.type === 'used' || r.type === 'unused') f.used = r.type === 'used'
+    else if (r.type === 'note') f.note = r.note
+    out.set(r.card_id, f)
+  }
+  return out
 }

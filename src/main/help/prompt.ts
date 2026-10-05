@@ -20,6 +20,33 @@ export function loadPlaybook(file: string): Playbook {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as Playbook
 }
 
+/** What's wrong with a playbook, in plain words, or null if HELP can use it. */
+export function playbookProblem(raw: unknown): string | null {
+  const p = raw as Partial<Record<keyof Playbook, unknown>> | null
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return "it isn't a playbook"
+  if (typeof p.version !== 'string' || !p.version.trim()) return '"version" is missing'
+  if (!Array.isArray(p.principles) || !p.principles.length || !p.principles.every((x) => typeof x === 'string')) return '"principles" must be a list of sentences'
+  for (const k of ['moves', 'call_types'] as const) {
+    const v = p[k]
+    if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.keys(v).length || !Object.values(v).every((x) => typeof x === 'string')) return `"${k}" must be a list of "name": "description" pairs`
+  }
+  const L = p.card_limits as Record<string, unknown> | undefined
+  if (!L || !['primary_max_words', 'happening_max_words', 'follow_up_max_words'].every((k) => typeof L[k] === 'number' && (L[k] as number) > 0)) return '"card_limits" needs three word counts above zero'
+  return null
+}
+
+/** Read an edited playbook without throwing: the playbook, or the reason it can't be used. */
+export function readPlaybook(file: string): { playbook: Playbook | null; problem: string | null } {
+  let raw: unknown
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8'))
+  } catch (err) {
+    return { playbook: null, problem: `it isn't valid JSON (${(err as Error).message})` }
+  }
+  const problem = playbookProblem(raw)
+  return problem ? { playbook: null, problem } : { playbook: raw as Playbook, problem: null }
+}
+
 export function buildSystemPrompt(pb: Playbook): string {
   const moves = Object.entries(pb.moves).map(([k, v]) => `- ${k}: ${v}`).join('\n')
   const types = Object.entries(pb.call_types).map(([k, v]) => `- ${k}: ${v}`).join('\n')
