@@ -140,7 +140,7 @@ export interface ApprovedPassage {
   heading: string
   /** Every chunk of the section ("k:<doc>#<n>"): a card citing any of them used this section. */
   chunk_ids: string[]
-  /** The first sentence or two (about 200 characters), shown straight away. */
+  /** The first sentence or two (about 200 characters), shown straight away; "Possible reason" lines are left out. */
   snippet: string
   /** The whole section, shown when Keith opens the box. */
   text: string

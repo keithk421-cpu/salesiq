@@ -6,6 +6,7 @@ import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
+import { passageLabel } from '../shared/passageLabel'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -769,7 +770,6 @@ function renderCard(): void {
 
 /** The request whose approved note is on the card (its "Whole note" folds shut when a new press replaces it). */
 let passageFor: string | null = null
-const SCOPE_NOTE: Record<string, string> = { saas: ' (SaaS only)', self_hosted: ' (self-hosted only)' }
 
 /** The approved passage found at the press: compact, under the line; marked once the finished card cites it. */
 function renderPassage(ev: HelpCardEvent): void {
@@ -780,8 +780,7 @@ function renderPassage(ev: HelpCardEvent): void {
     passageFor = ev.request_id
     $<HTMLDetailsElement>('hcpMore').open = false
   }
-  const scope = p.applies_to.length && !p.applies_to.includes('all') ? p.applies_to.map((a) => SCOPE_NOTE[a] ?? ` (${a.replace(/_/g, ' ')} only)`).join('') : ''
-  const label = `Approved note${scope} · ${p.title}${p.heading && p.heading !== p.title ? ` › ${p.heading}` : ''}`
+  const label = passageLabel(p)
   $('hcpLabel').textContent = label
   $('hcpLabel').title = label
   $('hcpUsed').hidden = !(p.used_by_card && ev.status === 'complete')

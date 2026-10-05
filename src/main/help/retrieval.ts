@@ -12,6 +12,8 @@
  *
  * The model's knowledge comes from two searches, the question alone and the whole last 30 s, merged
  * by each chunk's best rank (each search scaled to its own best hit, so both best hits count as 1.0).
+ * When the question spans several of their turns, what they said last is searched on its own too, so
+ * the approved note found for it (passage.ts) is always among the sections the model gets.
  * Hits well below the best are dropped so fewer distractors reach the model; at most `limit` are kept.
  */
 import type { Deployment, KnowledgeChunk } from '../../shared/help'
@@ -31,13 +33,14 @@ export const KNOWLEDGE_KEEP_SHARE = 0.5
 export const ACK_MAX_WORDS = 8
 
 /**
- * The other side's latest words (see the header; '' if they said nothing in the last 30 s), and the
- * part they said last that carries content: their newest turn that asks something ("?") with real
- * words in it, else their newest turn with real words ("So, yeah." has none). A short answer from
- * Keith can join two of their questions ("Do you support SSO?" "Yes, on Enterprise." "And pricing?");
- * the approved passage must be about the last one.
+ * The other side's latest words (see the header; '' if they said nothing in the last 30 s), and two of
+ * their parts with real words in them ("So, yeah." has none): `newest`, the last thing they said, and
+ * `asked`, their newest part that asks something ("?"; '' if none). A short answer from Keith can join
+ * two of their questions ("Do you support SSO?" "Yes, on Enterprise." "And pricing?"), or their
+ * question and a new remark ("Can you mask PII?" "Yes, that's built in." "We'll build it ourselves.");
+ * the approved passage must be about what they said last.
  */
-export function questionParts(memory: CallMemory, atMs: number): { text: string; latest: string } {
+export function questionParts(memory: CallMemory, atMs: number): { text: string; newest: string; asked: string } {
   const turns = memory.turnsAsOf(atMs)
   const theirs: string[] = []
   for (let i = turns.length - 1; i >= 0; i--) {
@@ -54,8 +57,7 @@ export function questionParts(memory: CallMemory, atMs: number): { text: string;
   const parts = [...theirs, still].map((p) => p.trim()).filter(Boolean)
   const newestFirst = [...parts].reverse()
   const words = (p: string) => ftsConcepts(p).length > 0
-  const latest = newestFirst.find((p) => p.includes('?') && words(p)) ?? newestFirst.find(words) ?? ''
-  return { text: parts.join(' '), latest }
+  return { text: parts.join(' '), newest: newestFirst.find(words) ?? '', asked: newestFirst.find((p) => p.includes('?') && words(p)) ?? '' }
 }
 
 /** The other side's latest words (see questionParts). */
@@ -64,13 +66,14 @@ export function latestQuestion(memory: CallMemory, atMs: number): string {
 }
 
 export interface KnowledgePick extends KnowledgeSearch {
-  /** The question-alone search (null when there was no question), for the approved passage. */
+  /** The question-alone search (null when there was no question). */
   questionSearch: RankedSearch | null
 }
 
 /**
- * Ranked lists (best first, the question's own list first) merged by each chunk's best rank scaled to
- * its list's best hit; hits below KNOWLEDGE_KEEP_SHARE are dropped; at most `limit` are kept.
+ * Ranked lists (best first, the question's own list first; an earlier list wins a tie) merged by each
+ * chunk's best rank scaled to its list's best hit; hits below KNOWLEDGE_KEEP_SHARE are dropped; at most
+ * `limit` are kept (with up to `limit` lists, each list's best hit is kept).
  */
 export function mergeRanked(lists: Array<RankedChunk[] | null>, limit: number): KnowledgeChunk[] {
   const best = new Map<string, { chunk: RankedChunk; share: number; order: number }>()
@@ -91,14 +94,18 @@ export function mergeRanked(lists: Array<RankedChunk[] | null>, limit: number): 
     .map(({ chunk: { rank: _rank, matched: _m, in_heading: _h, ...c } }) => c)
 }
 
-/** Merge the question-alone and last-30-s searches (see the header). */
-export function retrieveKnowledge(kb: KnowledgeBase, opts: { question: string; hotText: string; limit: number; today?: Date; deployment: Deployment }): KnowledgePick {
+/** Merge the question-alone, what-they-said-last and last-30-s searches (see the header). */
+export function retrieveKnowledge(kb: KnowledgeBase, opts: { question: string; newest?: string; hotText: string; limit: number; today?: Date; deployment: Deployment }): KnowledgePick {
   const today = opts.today ?? new Date()
-  const questionSearch = opts.question.trim() ? kb.searchRanked(opts.question, today, opts.deployment) : null
+  const question = opts.question.trim()
+  const newest = opts.newest?.trim() ?? ''
+  const questionSearch = question ? kb.searchRanked(question, today, opts.deployment) : null
+  const newestSearch = newest && newest !== question ? kb.searchRanked(newest, today, opts.deployment) : null
   const hotSearch = kb.searchRanked(opts.hotText, today, opts.deployment)
-  const usable = mergeRanked([questionSearch?.ranked ?? null, hotSearch.ranked], opts.limit)
-  const staleTitles = [...new Set([...(questionSearch?.staleTitles ?? []), ...hotSearch.staleTitles])]
+  const searches = [questionSearch, newestSearch, hotSearch]
+  const usable = mergeRanked(searches.map((x) => x?.ranked ?? null), opts.limit)
+  const staleTitles = [...new Set(searches.flatMap((x) => x?.staleTitles ?? []))]
   const scopedOut = new Map<string, string[]>()
-  for (const d of [...(questionSearch?.scopedOut ?? []), ...hotSearch.scopedOut]) scopedOut.set(d.title, d.applies_to)
+  for (const d of searches.flatMap((x) => x?.scopedOut ?? [])) scopedOut.set(d.title, d.applies_to)
   return { usable, staleTitles, scopedOut: [...scopedOut].map(([title, applies_to]) => ({ title, applies_to })), questionSearch }
 }

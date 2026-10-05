@@ -8,13 +8,20 @@
  *   - the best section overall must be current and in scope for the call's deployment (if the best
  *     match is stale or for the other deployment, the next one would only be a stand-in: none is shown);
  *   - its heading must name at least two of the question's concepts, or one rare concept that is a
- *     named term: an alias from aliases.json or one of the document's own tags (a lone ordinary word
- *     such as "different" or "take" says little about the topic); a concept that many sections
- *     mention (e.g. "Arize", "use") never counts;
- *   - its heading must name something from what they asked last (retrieval.ts, questionParts), so
- *     an earlier question that Keith already answered in a few words can't bring back its note;
+ *     named term: an alias from aliases.json, or, when they asked something ("?"), one of the
+ *     document's own tags (a lone ordinary word such as "different" or "take" says little about the
+ *     topic, and tags are free-form search hints that can be words a buyer also uses about their own
+ *     setup: "We're mostly on AWS." is not a question about running in AWS); a concept that many
+ *     sections mention (e.g. "Arize", "use") never counts;
+ *   - its heading must name something from what they said last (retrieval.ts, questionParts). That
+ *     is searched on its own first; only when it has no strong match is the whole question searched,
+ *     about the last thing they asked (their question, then a remark: "Do you have a SOC 2 report?"
+ *     "Good question." "Sure, no rush."). So an earlier question that Keith already answered in a few
+ *     words can't bring back its note once they've moved on to something with its own note;
  *   - it must be clearly ahead of the best match from any other section.
- * Unapproved documents are never searched at all.
+ * Unapproved documents are never searched at all. The box shows the section's first sentence or two,
+ * leaving out "Possible reason" lines (objection notes: hypotheses about buyers in general, not facts
+ * and not something to say); the whole note keeps them.
  */
 import type { ApprovedPassage, Deployment } from '../../shared/help'
 import { ftsConcepts } from '../db'
@@ -38,8 +45,13 @@ const SNIPPET_STRETCH = 1.25
 
 /** What strongMatch() decides on, per search (all numbers, so each threshold can be tested on both sides). */
 export interface MatchFacts {
-  /** One entry per concept of the question that the top section mentions (`fromLatest`: in what they asked last). */
-  concepts: Array<{ sections: number; inHeading: boolean; named: boolean; fromLatest: boolean }>
+  /**
+   * One entry per concept of the question that the top section mentions (`alias`: a term from
+   * aliases.json; `tag`: one of the top document's tags; `fromLatest`: in what they said last).
+   */
+  concepts: Array<{ sections: number; inHeading: boolean; alias: boolean; tag: boolean; fromLatest: boolean }>
+  /** What they said last asks something ("?"). */
+  asked: boolean
   /** Sections in the approved, in-scope documents searched. */
   sections: number
   topRank: number
@@ -51,7 +63,9 @@ export function strongMatch(f: MatchFacts): boolean {
   const common = (c: MatchFacts['concepts'][number]) => c.sections > PASSAGE_RARE_MAX_SECTIONS && c.sections > f.sections * PASSAGE_COMMON_SHARE
   const inHeading = f.concepts.filter((c) => c.inHeading && !common(c))
   const two = inHeading.length >= 2
-  const oneRare = inHeading.some((c) => c.named && c.sections <= PASSAGE_RARE_MAX_SECTIONS)
+  // A tag is a named term only in a question (see the header).
+  const named = (c: MatchFacts['concepts'][number]) => c.alias || (c.tag && f.asked)
+  const oneRare = inHeading.some((c) => named(c) && c.sections <= PASSAGE_RARE_MAX_SECTIONS)
   const aboutLatest = inHeading.some((c) => c.fromLatest)
   const ahead = f.runnerUpRank === null || f.runnerUpRank <= f.topRank * PASSAGE_MARGIN
   return (two || oneRare) && aboutLatest && ahead
@@ -59,10 +73,29 @@ export function strongMatch(f: MatchFacts): boolean {
 
 /** Abbreviations whose full stop doesn't end a sentence. */
 const ABBREV = /(?:\be\.g|\bi\.e|\bvs|\betc|\bInc|\bapprox)\.$/i
+/** A line that starts like this is a hypothesis about buyers in general (the objection-note format), not something to say. */
+const HYPOTHESIS = /^[\s>*_-]*possible reasons?\b/i
 
-/** The first sentence, plus the second when both fit in about PASSAGE_SNIPPET_CHARS; a long first sentence is cut at a word. */
+/** The text without its "Possible reason" lines (and their wrapped lines, which go on in lower case). */
+function withoutHypotheses(text: string): string {
+  const kept: string[] = []
+  let skipping = false
+  for (const line of text.split('\n')) {
+    if (HYPOTHESIS.test(line)) skipping = true
+    else if (!(skipping && /^\s*\p{Ll}/u.test(line))) {
+      skipping = false
+      kept.push(line)
+    }
+  }
+  return kept.join('\n').trim()
+}
+
+/**
+ * The first sentence, plus the second when both fit in about PASSAGE_SNIPPET_CHARS; a long first
+ * sentence is cut at a word. "Possible reason" lines are left out ('' if that is all there is).
+ */
 export function passageSnippet(text: string, max = PASSAGE_SNIPPET_CHARS): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
+  const flat = withoutHypotheses(text).replace(/\s+/g, ' ').trim()
   const sentences: string[] = []
   let from = 0
   // A sentence ends at . ! or ? (after any closing quote or bracket) followed by a space and a capital, digit or quote.
@@ -85,19 +118,20 @@ export function passageSnippet(text: string, max = PASSAGE_SNIPPET_CHARS): strin
 /**
  * The passage for the top section of a search over every approved document (searchRanked with
  * everyApproved), or null unless it is usable for this deployment and a strong match (see the header).
- * `latest` is what they asked last (questionParts); without it the whole searched text counts.
+ * `latest` is what they said last, or the last thing they asked (questionParts).
  */
-export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deployment: Deployment, latest?: string): ApprovedPassage | null {
+export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deployment: Deployment, latest: string): ApprovedPassage | null {
   const top = s?.ranked[0]
   if (!s || !top || top.stale || !inScope(top.meta, deployment)) return null
   const runnerUp = s.ranked.find((c) => c.doc_id !== top.doc_id || c.heading !== top.heading)
-  const named = new Set([...kb.aliasMap.keys(), ...top.meta.tags.map((t) => t.toLowerCase())])
-  const asked = latest === undefined ? null : new Set(ftsConcepts(latest, kb.aliasMap).flat())
+  const tags = new Set(top.meta.tags.map((t) => t.toLowerCase()))
+  const said = new Set(ftsConcepts(latest, kb.aliasMap).flat())
   const facts: MatchFacts = {
     concepts: top.matched.map((i) => ({
-      sections: s.concepts[i].sections, inHeading: top.in_heading.includes(i), named: s.concepts[i].terms.some((t) => named.has(t)),
-      fromLatest: !asked || s.concepts[i].terms.some((t) => asked.has(t)),
+      sections: s.concepts[i].sections, inHeading: top.in_heading.includes(i), alias: s.concepts[i].terms.some((t) => kb.aliasMap.has(t)),
+      tag: s.concepts[i].terms.some((t) => tags.has(t)), fromLatest: s.concepts[i].terms.some((t) => said.has(t)),
     })),
+    asked: latest.includes('?'),
     sections: s.sections,
     topRank: top.rank,
     runnerUpRank: runnerUp?.rank ?? null,
@@ -105,12 +139,15 @@ export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deploymen
   if (!strongMatch(facts)) return null
   const chunks = kb.sectionChunks(top.doc_id, top.heading)
   const text = chunks.length ? chunks.map((c) => c.text).join('\n\n') : top.text
+  const snippet = passageSnippet(text)
+  // Nothing but hypotheses: nothing Keith could say from it.
+  if (!snippet) return null
   return {
     doc_id: top.doc_id,
     title: top.meta.title,
     heading: top.heading,
     chunk_ids: chunks.length ? chunks.map((c) => c.chunk_id) : [top.chunk_id],
-    snippet: passageSnippet(text),
+    snippet,
     text,
     source_ref: top.source_ref || `Source: ${top.meta.source}`,
     applies_to: top.meta.applies_to,
@@ -120,9 +157,16 @@ export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deploymen
 
 /** At a HELP press: the approved passage for what the other side just said, or null (no question, no knowledge, or no strong match). */
 export function findApprovedPassage(opts: { kb: KnowledgeBase | null; memory: CallMemory; atMs: number; today?: Date }): ApprovedPassage | null {
-  if (!opts.kb) return null
+  const kb = opts.kb
+  if (!kb) return null
   const q = questionParts(opts.memory, opts.atMs)
   if (!q.text) return null
   const deployment = opts.memory.setup.deployment ?? 'unknown'
-  return passageFrom(opts.kb, opts.kb.searchRanked(q.text, opts.today ?? new Date(), deployment, { everyApproved: true }), deployment, q.latest)
+  const today = opts.today ?? new Date()
+  const find = (search: string, about: string) => passageFrom(kb, kb.searchRanked(search, today, deployment, { everyApproved: true }), deployment, about)
+  // What they said last, on its own; else the whole question, about the last thing they asked (see the header).
+  const last = q.newest ? find(q.newest, q.newest) : null
+  // Nothing more to try when they asked nothing, or what they said last was all they said.
+  if (last || !q.asked || q.text === q.newest) return last
+  return find(q.text, q.asked)
 }

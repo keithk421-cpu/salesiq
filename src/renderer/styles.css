@@ -281,7 +281,7 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 /* Approved passage: shown at the press, compact and secondary to the Ask/Say line. */
 .hc-passage { margin-top: 8px; padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--ok); background: var(--ok-soft); font-size: 13px; }
 .hcp-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.hcp-label { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hcp-label { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .hcp-head .tag { flex: none; font-size: 10px; padding: 2px 7px; }
 .hcp-snippet { margin-top: 2px; color: var(--text); line-height: 1.4; }
 .hcp-more summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 2px; }

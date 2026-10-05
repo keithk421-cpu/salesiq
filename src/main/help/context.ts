@@ -11,7 +11,7 @@ import type { Stream } from '../../shared/contracts'
 import type { HelpContextRefs, KnowledgeChunk, MemoryTurn } from '../../shared/help'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
-import { latestQuestion, retrieveKnowledge } from './retrieval'
+import { questionParts, retrieveKnowledge } from './retrieval'
 
 export const HOT_WINDOW_MS = 30_000
 export const THREAD_WINDOW_MS = 180_000
@@ -112,8 +112,14 @@ export function buildHelpContext(opts: {
   let scopedOut: Array<{ title: string; applies_to: string[] }> = []
   const clock = opts.clock ?? (() => performance.now())
   const k0 = clock()
-  // The other side's latest words searched on their own, merged with the whole last 30 s (retrieval.ts).
-  if (kb) ({ usable, staleTitles, scopedOut } = retrieveKnowledge(kb, { question: latestQuestion(memory, atMs), hotText, limit: KNOWLEDGE_MAX, today: opts.now, deployment }))
+  // The other side's latest words (and what they said last) searched on their own, merged with the whole last 30 s (retrieval.ts).
+  if (kb) {
+    const q = questionParts(memory, atMs)
+    const pick = retrieveKnowledge(kb, { question: q.text, newest: q.newest, hotText, limit: KNOWLEDGE_MAX, today: opts.now, deployment })
+    usable = pick.usable
+    staleTitles = pick.staleTitles
+    scopedOut = pick.scopedOut
+  }
   const knowledgeMs = Math.max(0, Math.round(clock() - k0))
   const kShort: string[] = []
   usable.forEach((c, i) => {

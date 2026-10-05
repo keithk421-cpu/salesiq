@@ -14,6 +14,7 @@ import {
 import { loadPlaybook } from '../src/main/help/prompt'
 import type { Scenario } from '../src/main/help/replay'
 import { ACK_MAX_WORDS, KNOWLEDGE_KEEP_SHARE, QUESTION_WINDOW_MS, latestQuestion, mergeRanked, questionParts } from '../src/main/help/retrieval'
+import { passageLabel } from '../src/shared/passageLabel'
 
 const ALIASES = fileURLToPath(new URL('../config/aliases.json', import.meta.url))
 const playbook = loadPlaybook(fileURLToPath(new URL('../config/playbook.json', import.meta.url)))
@@ -155,25 +156,30 @@ describe('the question: the other side\'s latest words', () => {
     expect(latestQuestion(m, 10_001 + QUESTION_WINDOW_MS)).toBe('')
   })
 
-  it('what they asked last: their newest turn with a question mark and real words, else their newest with real words', () => {
+  it('what they said last (their newest part with real words) and what they asked last (their newest with a question mark)', () => {
     const m = new CallMemory('q')
     m.upsertTurn(turn('a', 'system_remote', 1_000, 4_000, 'Do you support Okta SSO?'), true)
     m.upsertTurn(turn('b', 'local_mic', 5_000, 7_000, 'Yes, on the Enterprise plan.'), true)
     m.upsertTurn(turn('c', 'system_remote', 8_000, 10_000, 'Great. And what about pricing?'), true)
-    expect(questionParts(m, 12_000)).toEqual({ text: 'Do you support Okta SSO? Great. And what about pricing?', latest: 'Great. And what about pricing?' })
-    // A remark after the question doesn't replace it; a filler has no words worth searching.
+    expect(questionParts(m, 12_000)).toEqual({
+      text: 'Do you support Okta SSO? Great. And what about pricing?', newest: 'Great. And what about pricing?', asked: 'Great. And what about pricing?',
+    })
+    // A remark after the question is what they said last; the question is still what they asked last.
     m.upsertTurn(turn('d', 'system_remote', 10_500, 11_500, 'Sure, take your time.'), true)
-    expect(questionParts(m, 13_000).latest).toBe('Great. And what about pricing?')
+    expect(questionParts(m, 13_000)).toMatchObject({ newest: 'Sure, take your time.', asked: 'Great. And what about pricing?' })
+    // A filler has no words worth searching; no question mark, nothing asked.
     const n = new CallMemory('q')
     n.upsertTurn(turn('a', 'system_remote', 1_000, 4_000, 'We already use Datadog.'), true)
     n.upsertTurn(turn('b', 'system_remote', 5_000, 6_000, 'So, yeah.'), true)
-    expect(questionParts(n, 8_000).latest).toBe('We already use Datadog.')
+    expect(questionParts(n, 8_000)).toMatchObject({ newest: 'We already use Datadog.', asked: '' })
   })
 
   it('words still being transcribed count: a buyer mid-question at the press exists only as provisional text', () => {
     const m = new CallMemory('q')
     m.setInterim('system_remote', 'and do you support single sign-on', 20_000)
     expect(latestQuestion(m, 21_000)).toBe('and do you support single sign-on')
+    // It is what they said last; with no question mark yet, nothing is asked (a document's tag alone won't bring a note).
+    expect(questionParts(m, 21_000)).toMatchObject({ newest: 'and do you support single sign-on', asked: '' })
     // After a finished turn of theirs, the provisional words are the rest of it.
     m.upsertTurn(turn('a', 'system_remote', 10_000, 15_000, 'One more thing on security.'), true)
     expect(latestQuestion(m, 21_000)).toBe('One more thing on security. and do you support single sign-on')
@@ -240,8 +246,9 @@ describe("the model's knowledge: question alone + last 30 s, merged", () => {
 // ---------------------------------------------------------------- strong match (each threshold, both sides)
 
 describe('approved passage: strong-match rules', () => {
-  const facts = (over: Partial<MatchFacts> = {}): MatchFacts => ({ concepts: [], sections: 40, topRank: 1, runnerUpRank: null, ...over })
-  const c = (sections: number, inHeading = true, named = false, fromLatest = true) => ({ sections, inHeading, named, fromLatest })
+  const facts = (over: Partial<MatchFacts> = {}): MatchFacts => ({ concepts: [], asked: false, sections: 40, topRank: 1, runnerUpRank: null, ...over })
+  /** `alias`: a named term from aliases.json; `tag`: one of the document's tags. */
+  const c = (sections: number, inHeading = true, alias = false, fromLatest = true, tag = false) => ({ sections, inHeading, alias, tag, fromLatest })
 
   it('two of the question\'s concepts in the heading match; one ordinary word does not', () => {
     expect(strongMatch(facts({ concepts: [c(2), c(5)] }))).toBe(true)
@@ -266,7 +273,16 @@ describe('approved passage: strong-match rules', () => {
     expect(strongMatch(facts({ concepts: [c(1, false, true)] }))).toBe(false)
   })
 
-  it('the heading must name something from what they asked last', () => {
+  it("a document's tag counts as a named term only when they asked something; an alias counts either way", () => {
+    const tagOnly = [c(1, true, false, true, true)]
+    expect(strongMatch(facts({ asked: true, concepts: tagOnly }))).toBe(true)
+    expect(strongMatch(facts({ asked: false, concepts: tagOnly }))).toBe(false)
+    expect(strongMatch(facts({ asked: false, concepts: [c(1, true, true)] }))).toBe(true)
+    // Two concepts in the heading don't need a named term at all.
+    expect(strongMatch(facts({ asked: false, concepts: [c(1, true, false, true, true), c(2)] }))).toBe(true)
+  })
+
+  it('the heading must name something from what they said last', () => {
     expect(strongMatch(facts({ concepts: [c(1, true, true, false), c(2, true, false, true)] }))).toBe(true)
     expect(strongMatch(facts({ concepts: [c(1, true, true, false), c(2, true, false, false)] }))).toBe(false)
     // In the text only is not enough.
@@ -295,6 +311,46 @@ describe('approved passage: what it shows', () => {
     // "e.g." and "2.0" don't end a sentence.
     expect(passageSnippet('Supports SAML 2.0 with providers, e.g. Okta or Entra. Users are created at login. Admins can require it.'))
       .toBe('Supports SAML 2.0 with providers, e.g. Okta or Entra. Users are created at login.')
+  })
+
+  it('leaves out "Possible reason" lines (hypotheses about buyers in general): the box starts with the neutral question', () => {
+    const objection = [
+      'Possible reason (a hypothesis to test, not what this buyer said): their team may already have a tool they like and',
+      'not want a second one.',
+      'A neutral question: "What do you use today, and what would you change about it?"',
+      'If it fits, a supported line: "Many teams keep their current tool and add this one for evals."',
+    ].join('\n')
+    const snip = passageSnippet(objection)
+    expect(snip.startsWith('A neutral question: "What do you use today, and what would you change about it?"')).toBe(true)
+    expect(snip).not.toMatch(/Possible reason|second one/)
+    // Wherever it is, and in its plural form.
+    expect(passageSnippet('A neutral question: "Where does it hurt?"\nPossible reasons: budget timing.')).toBe('A neutral question: "Where does it hurt?"')
+    // Nothing but hypotheses: nothing to show.
+    expect(passageSnippet('Possible reason (a hypothesis to test): the timing may be wrong.')).toBe('')
+  })
+
+  it('an objection note shows its neutral question in the box and keeps the hypothesis in the whole note; a note of only hypotheses is not shown', () => {
+    const kb = new KnowledgeBase(new Db(':memory:'), ALIASES)
+    const body = [
+      '## Objection: we already use Grafana',
+      'Possible reason (a hypothesis to test, not what this buyer said): their dashboards may already cover what they need.',
+      'A neutral question: "What do you look at in Grafana today for your AI features?"',
+      'If it fits, a supported line: "Grafana shows the system; this shows what the model said and why."',
+      '',
+      'Source: Objection notes (fixture)',
+      '',
+      '## Objection: the timing is wrong for us',
+      'Possible reason (a hypothesis to test, not what this buyer said): another project may come first.',
+      '',
+      'Source: Objection notes (fixture)',
+    ].join('\n')
+    kb.addDoc(docMetaFrom('/k/obj2.md', { title: 'Objection handling', applies_to: 'all' }, body), body)
+    kb.approve('obj2', true)
+    const p = passageFor('We already use Grafana.', 'unknown', kb)!
+    expect(p.heading).toBe('Objection: we already use Grafana')
+    expect(p.snippet.startsWith('A neutral question:')).toBe(true)
+    expect(p.text).toMatch(/^Possible reason \(a hypothesis to test/)
+    expect(passageFor('The timing is wrong for us.', 'unknown', kb)).toBeNull()
   })
 
   it("shows the best approved section for what they just asked, with its title, heading, whole text and Source line", () => {
@@ -329,6 +385,49 @@ describe('approved passage: what it shows', () => {
     expect(findApprovedPassage({ kb, memory: m, atMs: 20_000 })?.heading).toBe('Single sign-on with Okta and Entra ID (SAML)')
   })
 
+  it("what they said last comes first: a remark with its own note replaces a question Keith answered, and the model gets that note too", () => {
+    const kb = pack()
+    const m = new CallMemory('newest')
+    const say = (id: string, stream: 'local_mic' | 'system_remote', start: number, text: string) =>
+      m.upsertTurn({ id, stream, cluster: stream === 'local_mic' ? null : 'e1:s0', start_ms: start, end_ms: start + 2_000, text, available_ms: start + 3_000 }, true)
+    say('a', 'system_remote', 10_000, 'Do you support single sign-on with Okta?')
+    say('b', 'local_mic', 13_000, 'Yes, we do.')
+    say('c', 'system_remote', 16_000, 'Good. We already use Datadog.')
+    const p = findApprovedPassage({ kb, memory: m, atMs: 20_000, today: new Date('2026-10-05') })
+    expect(p?.heading).toBe('Objection: we already use Datadog')
+    const ctx = buildHelpContext({ memory: m, kb, atMs: 20_000, now: new Date('2026-10-05') })
+    expect(p!.chunk_ids.some((id) => ctx.refs.knowledge_chunk_ids.includes(id))).toBe(true)
+    // Also when their earlier question had many words for other sections.
+    say('a', 'system_remote', 10_000, 'Do you support single sign-on with Okta and Entra ID over SAML, and can admins require it, and is the SOC 2 Type II report shared under NDA, and can hosted accounts choose an EU data region?')
+    const p2 = findApprovedPassage({ kb, memory: m, atMs: 20_000, today: new Date('2026-10-05') })
+    expect(p2?.heading).toBe('Objection: we already use Datadog')
+    const ctx2 = buildHelpContext({ memory: m, kb, atMs: 20_000, now: new Date('2026-10-05') })
+    expect(p2!.chunk_ids.some((id) => ctx2.refs.knowledge_chunk_ids.includes(id))).toBe(true)
+    expect(ctx2.refs.knowledge_chunk_ids.length).toBeLessThanOrEqual(3)
+  })
+
+  it("a document's own tag names the topic only in a question: a statement about their own setup brings no note", () => {
+    // An ordinary word as a tag (not in aliases.json), and the only word of the heading they say.
+    const kb = pack()
+    const body = '## Managed hosting: who runs upgrades\nOn managed hosting, the vendor runs upgrades and backups.\n\nSource: Hosting page (fixture)'
+    kb.addDoc(docMetaFrom('/k/hosting.md', { title: 'Hosting', applies_to: 'all', tags: 'managed' }, body), body)
+    kb.approve('hosting', true)
+    expect(passageFor('We prefer managed services for everything.', 'unknown', kb)).toBeNull()
+    expect(passageFor('Is it managed?', 'unknown', kb)?.heading).toBe('Managed hosting: who runs upgrades')
+  })
+
+  it('without a question mark, a newer remark is never paired with their earlier line by a shared word', () => {
+    const kb = pack()
+    const m = new CallMemory('statement')
+    const say = (id: string, stream: 'local_mic' | 'system_remote', start: number, text: string) =>
+      m.upsertTurn({ id, stream, cluster: stream === 'local_mic' ? null : 'e1:s0', start_ms: start, end_ms: start + 2_000, text, available_ms: start + 3_000 }, true)
+    say('a', 'system_remote', 10_000, 'We would want an EU data region.')
+    expect(findApprovedPassage({ kb, memory: m, atMs: 13_000 })?.heading).toBe('Data regions: US and EU')
+    say('b', 'local_mic', 13_000, 'Okay.')
+    say('c', 'system_remote', 16_000, 'Also our data team is small.')
+    expect(findApprovedPassage({ kb, memory: m, atMs: 20_000 })).toBeNull()
+  })
+
   it('never from an unapproved document', () => {
     expect(passageFor('Do you support single sign-on with Okta?', 'unknown', pack({ approveSec: false }))?.doc_id).not.toBe('sec')
   })
@@ -341,6 +440,15 @@ describe('approved passage: what it shows', () => {
     // Self-hosted material is shown for a self-hosted buyer.
     expect(passageFor('Does it work air-gapped?', 'self_hosted')?.heading).toBe('Air-gapped installs')
     expect(passageFor('Does it work air-gapped?', 'saas')).toBeNull()
+  })
+
+  it('its label names the section before the file, so a narrow window still shows what the note is about', () => {
+    expect(passageLabel({ title: 'Security answers', heading: 'Single sign-on with Okta and Entra ID (SAML)', applies_to: ['saas'] }))
+      .toBe('Approved note (SaaS only) · Single sign-on with Okta and Entra ID (SAML) · Security answers')
+    expect(passageLabel({ title: 'Objection handling', heading: 'Objection: we already use Datadog', applies_to: ['all'] }))
+      .toBe('Approved note · Objection: we already use Datadog · Objection handling')
+    // A section without its own heading: the file title alone.
+    expect(passageLabel({ title: 'Self-hosted', heading: '', applies_to: ['self_hosted'] })).toBe('Approved note (self-hosted only) · Self-hosted')
   })
 
   it('a long section is shown whole, its parts in order (part 10 comes after part 2)', () => {
@@ -423,6 +531,9 @@ describe('approved passage on the HELP card', () => {
     expect(s.events).toHaveLength(1)
     expect(s.events[0]).toMatchObject({ request_id: id, status: 'pending' })
     expect(s.events[0].passage).toMatchObject({ heading: 'Single sign-on with Okta and Entra ID (SAML)', used_by_card: false })
+    // On screen before it is written down: the request saved at the press already says when the note was shown.
+    const saved = s.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(id) as { timing_json: string }
+    expect(JSON.parse(saved.timing_json)).toMatchObject({ passage_ms: 0 })
     m.calls[0].release()
     await vi.advanceTimersByTimeAsync(0)
     expect(s.events.length).toBeGreaterThan(2)
