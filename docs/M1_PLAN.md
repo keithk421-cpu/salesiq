@@ -40,6 +40,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - A buyer's claim about Arize or a competitor is labelled as a speaker statement, not verified fact. "Possible reason" notes in objection material are hypotheses about buyers in general; HAPPENING describes only what was said on the call.
 - Source authority depends on the claim: product docs for product behavior, the current plan source for entitlements, Security/Legal-approved answers for promises, permission for customer references, current competitor docs for competitor features. When equally relevant sources disagree, the claim is held for its owner.
 - With no docs, HELP still gives questions and follow-ups.
+- Scale note: each search reads every document's approval state (one small query per document). Fine for a few dozen files; add a cache before growing the pack to hundreds.
 
 ## Model and latency design
 - **Default: Claude Sonnet 5.5**, thinking off (`between_tools`), effort `low`. **Opus 5.5** is selectable (adaptive thinking, effort `low`; Opus can't turn thinking off). The production default is chosen by the benchmark, not by general rankings.
