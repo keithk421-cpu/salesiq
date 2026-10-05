@@ -493,6 +493,7 @@ Playbook ${r.playbook_version} · ${r.scenarios} scenarios (${r.approved_scenari
 ${r.note}
 
 Targets: usable guidance ~1-2 s, p95 <= 3 s. "Usable" = a complete, validated Ask/Say line that passes Level 1.
+Times are from the press, including finding the approved note and building the context (a few ms), as on a call.
 
 | Model | First usable p50 | First usable p95 | Full card p50 | Full card p95 | Usable <=2 s | Usable <=3 s | Timeouts | Failures | Level 1 pass | Move agree (approved) | Move agree (drafts) | Cost / press |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|

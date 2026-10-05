@@ -15,6 +15,7 @@
  * Hits well below the best are dropped so fewer distractors reach the model; at most `limit` are kept.
  */
 import type { Deployment, KnowledgeChunk } from '../../shared/help'
+import { ftsConcepts } from '../db'
 import type { KnowledgeBase, KnowledgeSearch, RankedChunk, RankedSearch } from '../knowledge'
 import type { CallMemory } from './callMemory'
 
@@ -29,8 +30,14 @@ export const KNOWLEDGE_KEEP_SHARE = 0.5
 /** A line of Keith's this short, without a question mark, is an acknowledgment ("Fair question.", "Okay, got it.") and doesn't end the question. */
 export const ACK_MAX_WORDS = 8
 
-/** The other side's latest words (see the header), or '' if they said nothing in the last 30 s. */
-export function latestQuestion(memory: CallMemory, atMs: number): string {
+/**
+ * The other side's latest words (see the header; '' if they said nothing in the last 30 s), and the
+ * part they said last that carries content: their newest turn that asks something ("?") with real
+ * words in it, else their newest turn with real words ("So, yeah." has none). A short answer from
+ * Keith can join two of their questions ("Do you support SSO?" "Yes, on Enterprise." "And pricing?");
+ * the approved passage must be about the last one.
+ */
+export function questionParts(memory: CallMemory, atMs: number): { text: string; latest: string } {
   const turns = memory.turnsAsOf(atMs)
   const theirs: string[] = []
   for (let i = turns.length - 1; i >= 0; i--) {
@@ -44,7 +51,16 @@ export function latestQuestion(memory: CallMemory, atMs: number): string {
     if (theirs.length && !ack) break
   }
   const still = memory.interimsAsOf(atMs).find((i) => i.stream === 'system_remote')?.text ?? ''
-  return [...theirs, still].join(' ').trim()
+  const parts = [...theirs, still].map((p) => p.trim()).filter(Boolean)
+  const newestFirst = [...parts].reverse()
+  const words = (p: string) => ftsConcepts(p).length > 0
+  const latest = newestFirst.find((p) => p.includes('?') && words(p)) ?? newestFirst.find(words) ?? ''
+  return { text: parts.join(' '), latest }
+}
+
+/** The other side's latest words (see questionParts). */
+export function latestQuestion(memory: CallMemory, atMs: number): string {
+  return questionParts(memory, atMs).text
 }
 
 export interface KnowledgePick extends KnowledgeSearch {

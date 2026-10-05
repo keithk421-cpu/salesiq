@@ -13,7 +13,7 @@ import {
 } from '../src/main/help/passage'
 import { loadPlaybook } from '../src/main/help/prompt'
 import type { Scenario } from '../src/main/help/replay'
-import { ACK_MAX_WORDS, KNOWLEDGE_KEEP_SHARE, QUESTION_WINDOW_MS, latestQuestion, mergeRanked } from '../src/main/help/retrieval'
+import { ACK_MAX_WORDS, KNOWLEDGE_KEEP_SHARE, QUESTION_WINDOW_MS, latestQuestion, mergeRanked, questionParts } from '../src/main/help/retrieval'
 
 const ALIASES = fileURLToPath(new URL('../config/aliases.json', import.meta.url))
 const playbook = loadPlaybook(fileURLToPath(new URL('../config/playbook.json', import.meta.url)))
@@ -155,6 +155,21 @@ describe('the question: the other side\'s latest words', () => {
     expect(latestQuestion(m, 10_001 + QUESTION_WINDOW_MS)).toBe('')
   })
 
+  it('what they asked last: their newest turn with a question mark and real words, else their newest with real words', () => {
+    const m = new CallMemory('q')
+    m.upsertTurn(turn('a', 'system_remote', 1_000, 4_000, 'Do you support Okta SSO?'), true)
+    m.upsertTurn(turn('b', 'local_mic', 5_000, 7_000, 'Yes, on the Enterprise plan.'), true)
+    m.upsertTurn(turn('c', 'system_remote', 8_000, 10_000, 'Great. And what about pricing?'), true)
+    expect(questionParts(m, 12_000)).toEqual({ text: 'Do you support Okta SSO? Great. And what about pricing?', latest: 'Great. And what about pricing?' })
+    // A remark after the question doesn't replace it; a filler has no words worth searching.
+    m.upsertTurn(turn('d', 'system_remote', 10_500, 11_500, 'Sure, take your time.'), true)
+    expect(questionParts(m, 13_000).latest).toBe('Great. And what about pricing?')
+    const n = new CallMemory('q')
+    n.upsertTurn(turn('a', 'system_remote', 1_000, 4_000, 'We already use Datadog.'), true)
+    n.upsertTurn(turn('b', 'system_remote', 5_000, 6_000, 'So, yeah.'), true)
+    expect(questionParts(n, 8_000).latest).toBe('We already use Datadog.')
+  })
+
   it('words still being transcribed count: a buyer mid-question at the press exists only as provisional text', () => {
     const m = new CallMemory('q')
     m.setInterim('system_remote', 'and do you support single sign-on', 20_000)
@@ -226,7 +241,7 @@ describe("the model's knowledge: question alone + last 30 s, merged", () => {
 
 describe('approved passage: strong-match rules', () => {
   const facts = (over: Partial<MatchFacts> = {}): MatchFacts => ({ concepts: [], sections: 40, topRank: 1, runnerUpRank: null, ...over })
-  const c = (sections: number, inHeading = true, named = false) => ({ sections, inHeading, named })
+  const c = (sections: number, inHeading = true, named = false, fromLatest = true) => ({ sections, inHeading, named, fromLatest })
 
   it('two of the question\'s concepts in the heading match; one ordinary word does not', () => {
     expect(strongMatch(facts({ concepts: [c(2), c(5)] }))).toBe(true)
@@ -249,6 +264,13 @@ describe('approved passage: strong-match rules', () => {
     expect(strongMatch(facts({ concepts: [c(PASSAGE_RARE_MAX_SECTIONS + 1, true, true)] }))).toBe(false)
     expect(strongMatch(facts({ concepts: [c(1, true, false)] }))).toBe(false)
     expect(strongMatch(facts({ concepts: [c(1, false, true)] }))).toBe(false)
+  })
+
+  it('the heading must name something from what they asked last', () => {
+    expect(strongMatch(facts({ concepts: [c(1, true, true, false), c(2, true, false, true)] }))).toBe(true)
+    expect(strongMatch(facts({ concepts: [c(1, true, true, false), c(2, true, false, false)] }))).toBe(false)
+    // In the text only is not enough.
+    expect(strongMatch(facts({ concepts: [c(1, true, true, false), c(2, false, false, true)] }))).toBe(false)
   })
 
   it('must be clearly ahead of the best match from any other section', () => {
@@ -290,6 +312,21 @@ describe('approved passage: what it shows', () => {
   it('a lone ordinary word in a heading is not enough ("different" for a competitor the pack never mentions)', () => {
     expect(passageFor('How is this different from Braintrust?')).toBeNull()
     expect(passageFor('Thanks, that is really helpful.')).toBeNull()
+  })
+
+  it("not for an earlier question Keith already answered in a few words", () => {
+    const kb = pack()
+    const m = new CallMemory('two')
+    const say = (id: string, stream: 'local_mic' | 'system_remote', start: number, text: string) =>
+      m.upsertTurn({ id, stream, cluster: stream === 'local_mic' ? null : 'e1:s0', start_ms: start, end_ms: start + 2_000, text, available_ms: start + 3_000 }, true)
+    say('a', 'system_remote', 10_000, 'Do you support Okta SSO?')
+    say('b', 'local_mic', 13_000, 'Yes, on the Enterprise plan.')
+    say('c', 'system_remote', 16_000, 'Great. And what about pricing?')
+    expect(findApprovedPassage({ kb, memory: m, atMs: 20_000 })).toBeNull()
+    // Their question followed by a remark still gets its note.
+    say('b', 'local_mic', 13_000, 'Good question.')
+    say('c', 'system_remote', 16_000, 'Sure, no rush.')
+    expect(findApprovedPassage({ kb, memory: m, atMs: 20_000 })?.heading).toBe('Single sign-on with Okta and Entra ID (SAML)')
   })
 
   it('never from an unapproved document', () => {

@@ -11,13 +11,16 @@
  *     named term: an alias from aliases.json or one of the document's own tags (a lone ordinary word
  *     such as "different" or "take" says little about the topic); a concept that many sections
  *     mention (e.g. "Arize", "use") never counts;
+ *   - its heading must name something from what they asked last (retrieval.ts, questionParts), so
+ *     an earlier question that Keith already answered in a few words can't bring back its note;
  *   - it must be clearly ahead of the best match from any other section.
  * Unapproved documents are never searched at all.
  */
 import type { ApprovedPassage, Deployment } from '../../shared/help'
+import { ftsConcepts } from '../db'
 import { inScope, type KnowledgeBase, type RankedSearch } from '../knowledge'
 import type { CallMemory } from './callMemory'
-import { latestQuestion } from './retrieval'
+import { questionParts } from './retrieval'
 
 /**
  * A concept mentioned by more than this share of the searchable sections is too common to count, unless
@@ -35,8 +38,8 @@ const SNIPPET_STRETCH = 1.25
 
 /** What strongMatch() decides on, per search (all numbers, so each threshold can be tested on both sides). */
 export interface MatchFacts {
-  /** One entry per concept of the question that the top section mentions. */
-  concepts: Array<{ sections: number; inHeading: boolean; named: boolean }>
+  /** One entry per concept of the question that the top section mentions (`fromLatest`: in what they asked last). */
+  concepts: Array<{ sections: number; inHeading: boolean; named: boolean; fromLatest: boolean }>
   /** Sections in the approved, in-scope documents searched. */
   sections: number
   topRank: number
@@ -49,8 +52,9 @@ export function strongMatch(f: MatchFacts): boolean {
   const inHeading = f.concepts.filter((c) => c.inHeading && !common(c))
   const two = inHeading.length >= 2
   const oneRare = inHeading.some((c) => c.named && c.sections <= PASSAGE_RARE_MAX_SECTIONS)
+  const aboutLatest = inHeading.some((c) => c.fromLatest)
   const ahead = f.runnerUpRank === null || f.runnerUpRank <= f.topRank * PASSAGE_MARGIN
-  return (two || oneRare) && ahead
+  return (two || oneRare) && aboutLatest && ahead
 }
 
 /** Abbreviations whose full stop doesn't end a sentence. */
@@ -81,14 +85,19 @@ export function passageSnippet(text: string, max = PASSAGE_SNIPPET_CHARS): strin
 /**
  * The passage for the top section of a search over every approved document (searchRanked with
  * everyApproved), or null unless it is usable for this deployment and a strong match (see the header).
+ * `latest` is what they asked last (questionParts); without it the whole searched text counts.
  */
-export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deployment: Deployment): ApprovedPassage | null {
+export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deployment: Deployment, latest?: string): ApprovedPassage | null {
   const top = s?.ranked[0]
   if (!s || !top || top.stale || !inScope(top.meta, deployment)) return null
   const runnerUp = s.ranked.find((c) => c.doc_id !== top.doc_id || c.heading !== top.heading)
   const named = new Set([...kb.aliasMap.keys(), ...top.meta.tags.map((t) => t.toLowerCase())])
+  const asked = latest === undefined ? null : new Set(ftsConcepts(latest, kb.aliasMap).flat())
   const facts: MatchFacts = {
-    concepts: top.matched.map((i) => ({ sections: s.concepts[i].sections, inHeading: top.in_heading.includes(i), named: s.concepts[i].terms.some((t) => named.has(t)) })),
+    concepts: top.matched.map((i) => ({
+      sections: s.concepts[i].sections, inHeading: top.in_heading.includes(i), named: s.concepts[i].terms.some((t) => named.has(t)),
+      fromLatest: !asked || s.concepts[i].terms.some((t) => asked.has(t)),
+    })),
     sections: s.sections,
     topRank: top.rank,
     runnerUpRank: runnerUp?.rank ?? null,
@@ -112,8 +121,8 @@ export function passageFrom(kb: KnowledgeBase, s: RankedSearch | null, deploymen
 /** At a HELP press: the approved passage for what the other side just said, or null (no question, no knowledge, or no strong match). */
 export function findApprovedPassage(opts: { kb: KnowledgeBase | null; memory: CallMemory; atMs: number; today?: Date }): ApprovedPassage | null {
   if (!opts.kb) return null
-  const question = latestQuestion(opts.memory, opts.atMs)
-  if (!question) return null
+  const q = questionParts(opts.memory, opts.atMs)
+  if (!q.text) return null
   const deployment = opts.memory.setup.deployment ?? 'unknown'
-  return passageFrom(opts.kb, opts.kb.searchRanked(question, opts.today ?? new Date(), deployment, { everyApproved: true }), deployment)
+  return passageFrom(opts.kb, opts.kb.searchRanked(q.text, opts.today ?? new Date(), deployment, { everyApproved: true }), deployment, q.latest)
 }
