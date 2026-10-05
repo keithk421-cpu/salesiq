@@ -108,6 +108,12 @@ export class HelpEngine {
     return this.d.model.label(this.d.config)
   }
 
+  /** A request Keith pressed for is still being answered (background call notes wait for it). */
+  get pressInFlight(): boolean {
+    const r = this.current
+    return !!r && (r.status === 'pending' || r.status === 'streaming')
+  }
+
   /** Keith pressed HELP (hotkey or button). Returns the request id. */
   press(origin: HelpOrigin = 'help_requested'): string {
     this.cancelled = false

@@ -4,6 +4,7 @@
  */
 import { RATINGS } from '../../shared/help'
 import type { Db } from '../db'
+import type { CallNotesStats } from './callNotesKeeper'
 
 export interface HelpScorecard {
   kind: 'help_scorecard'
@@ -26,6 +27,9 @@ export interface HelpScorecard {
   tokens: { input: number; output: number; cache_read: number }
   feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
+  /** Background call notes (counts and codes only). cost_usd above is HELP's; total_cost_usd adds the notes. */
+  call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }
+  total_cost_usd: number
 }
 
 interface Row {
@@ -58,6 +62,8 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     first_usable_ms: { median: null, p95: null }, cards_with_checks: 0,
     prefetch: { started: 0, used: 0, unused: 0, unused_cost_usd: 0 }, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 },
     feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {}, used: 0, notes: 0 }, errors: {},
+    call_notes: { started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, capped: 0, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 }, errors: {} },
+    total_cost_usd: 0,
   }
   const firstUsable: number[] = []
   const shownIds: string[] = []
@@ -98,6 +104,17 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
       if (f.note) card.feedback.notes++
     }
   }
+  // Call notes keep one row per call with running counts (never read the notes text here).
+  const notesRow = db.sql.prepare('SELECT stats_json FROM call_notes WHERE session_id = ?').get(sessionId) as { stats_json: string } | undefined
+  const ns = parse<CallNotesStats>(notesRow?.stats_json ?? null)
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
+  card.call_notes = {
+    started: num(ns.started), updated: num(ns.updated), invalid: num(ns.invalid), failed: num(ns.failed), cancelled: num(ns.cancelled), capped: num(ns.capped),
+    cost_usd: Math.round(num(ns.cost_usd) * 10000) / 10000,
+    tokens: { input: num(ns.input_tokens), output: num(ns.output_tokens), cache_read: num(ns.cache_read_input_tokens) },
+    errors: Object.fromEntries(Object.entries(ns.errors ?? {}).filter(([k, v]) => /^[a-z_]{1,40}$/.test(k) && typeof v === 'number')),
+  }
+  card.total_cost_usd = Math.round((card.cost_usd + card.call_notes.cost_usd) * 10000) / 10000
   return card
 }
 

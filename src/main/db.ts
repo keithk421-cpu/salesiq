@@ -46,6 +46,9 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
   text, title, heading, chunk_id UNINDEXED, doc_id UNINDEXED, tokenize = 'porter unicode61'
 );
+CREATE TABLE IF NOT EXISTS call_notes (
+  session_id TEXT PRIMARY KEY, notes_json TEXT, as_of_ms INTEGER, updated_at TEXT, stats_json TEXT NOT NULL
+);
 `
 
 export class Db {

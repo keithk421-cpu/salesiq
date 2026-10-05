@@ -86,6 +86,14 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 - Click a remote speaker's name in the transcript to tag them as Buyer or Teammate/SA. Optional; HELP works without it.
 - Tap **Useful**, **Should've stayed quiet** or **Bad** on cards. Each tap records feedback, nothing more.
 
+### Call notes
+- Above the transcript, the **Call notes** panel keeps a short running summary of the call: what you're talking about, their questions that haven't been answered yet, what they want, concerns they raised, facts they shared (their tools, team, timeline, budget, who decides, what good looks like), next steps (**Proposed** until they say yes, then **Agreed**), and what hasn't come up yet (timeline, decision process, current tools, success criteria).
+- It's built only from what was said and updates by itself after every minute or so of the other side talking ("updated 40 s ago"). It can lag a minute or two: if it ever disagrees with the transcript, trust the transcript. Hover over a line to see when it was said.
+- HELP reads the notes too, so late in a long call it still knows what they said at the start (like their stack or who decides).
+- It never gets in HELP's way: it waits while HELP is answering. It stops while paused. After **Stop** the notes stay on screen for your review; the next **Start** clears them.
+- Click **Call notes** to fold the panel away. To switch it off: **Setup → step 3 → Keep running call notes**. It costs a little extra: at most 20 small updates an hour, roughly 10 cents an hour at most. The scorecard counts them and their cost (never the notes themselves).
+- In Practice mode (no Claude key) the notes are placeholders marked **MOCK**. If the panel says "not updating" because of the key or credit, fix that in Setup, step 3; it starts again after the next HELP press that works.
+
 ## After a call
 - **Review this call's cards** (under Start) lists every HELP card from the call: rate each one, tick **I used this line** for the ones you actually said, and add a note if something would have been better. 2 minutes; it's the most useful feedback for improving HELP. Your taps are counted in that call's scorecard (your note text stays on your PC).
 - **Save a moment to practice on:** in that same list, click **Save as practice moment** under any card. It keeps the call exactly as it was when you pressed HELP for that card: what had been said up to then, who was who, the call setup and the knowledge HELP used. The button then says **Saved as a practice moment** (and still does when you reopen the review); each card is saved once. Your rating, **I used this line** tick and note go in with it, and if you change them afterwards the saved moment is updated too ("Practice moment updated with your rating"). Your moments stay on your PC (**Diagnostics → My practice moments → Open folder** shows them).

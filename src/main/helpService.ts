@@ -7,10 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
+import type { CallNotesState } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
+import { CallNotesKeeper } from './help/callNotesKeeper'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
@@ -25,9 +27,11 @@ export const HELP_HOTKEY = 'Control+Alt+H'
 export interface HelpSettings {
   model: 'claude-sonnet-5-5' | 'claude-opus-5-5'
   prefetch: boolean
+  /** Keep running call notes during live calls (HELP reads them too). */
+  call_notes: boolean
 }
 
-const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true }
+const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true, call_notes: true }
 
 /** Which playbook HELP is using, and whether Keith needs to decide anything about it. */
 export interface PlaybookInfo {
@@ -100,6 +104,9 @@ export class HelpService {
   private setup: CallSetup
   memory: CallMemory | null = null
   engine: HelpEngine | null = null
+  /** Running call notes for the current (or just finished) call. */
+  notes: CallNotesKeeper | null = null
+  onNotes: ((s: CallNotesState | null) => void) | null = null
   private sessionState = 'idle'
   private sessionNow: () => number = () => 0
   /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
@@ -254,6 +261,8 @@ export class HelpService {
 
   /** Every finished request updates the light, so it never disagrees with what HELP presses see. */
   private onRequestResult(e: HelpError | null): void {
+    // Call notes follow HELP's blocked rule: a key/credit/model error stops them, any success restarts them.
+    this.notes?.onHelpResult(e)
     const readiness = e ? readinessFor(e) : 'ready'
     if (!readiness) return
     this.readySeq++
@@ -265,6 +274,7 @@ export class HelpService {
   setSettings(s: Partial<HelpSettings>): HelpSettings {
     if (s.model === 'claude-sonnet-5-5' || s.model === 'claude-opus-5-5') this.settings.model = s.model
     if (typeof s.prefetch === 'boolean') this.settings.prefetch = s.prefetch
+    if (typeof s.call_notes === 'boolean') this.settings.call_notes = s.call_notes
     this.storage.writeJson('help-settings.json', this.settings)
     return this.settings
   }
@@ -342,6 +352,10 @@ export class HelpService {
       }
       if (ev.state === 'paused') this.engine?.cancelAll('pause')
       if (ev.state === 'stopping' || ev.state === 'stopped' || ev.state === 'idle') this.engine?.cancelAll('stop')
+      // Call notes update only while live; Pause and Stop cancel one in flight (before Stop's scorecard).
+      if (ev.state === 'live') this.notes?.resume()
+      if (ev.state === 'paused') this.notes?.pause()
+      if (ev.state === 'stopping' || ev.state === 'stopped' || ev.state === 'idle') this.notes?.stop()
       if (ev.state === 'stopped') this.endCall()
       return
     }
@@ -353,6 +367,7 @@ export class HelpService {
         const t = ev.event.turn
         m.upsertTurn({ id: t.turn_id, stream: t.stream, cluster: t.speaker_cluster, start_ms: t.start_ms, end_ms: t.end_ms, text: t.text, available_ms: now }, ev.event.type === 'turn_final')
         this.engine?.onFinalWords(t.stream)
+        if (ev.event.type === 'turn_final') this.notes?.onFinalTurn(t.turn_id)
         break
       }
       case 'interim':
@@ -387,7 +402,29 @@ export class HelpService {
       onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
     })
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
+    this.startNotes(model)
     void this.checkReady()
+  }
+
+  /** Running call notes for this call: same model and settings as HELP, never while a pressed HELP is answered. */
+  private startNotes(model: HelpModel): void {
+    const memory = this.memory
+    if (!memory) return
+    this.notes?.dispose()
+    this.notes = new CallNotesKeeper({
+      memory, model, config: this.modelConfig(), db: this.db, sessionNowMs: () => this.sessionNow(),
+      helpBusy: () => this.engine?.pressInFlight ?? false, emit: (s) => this.onNotes?.(s), log: this.log,
+      enabled: this.settings.call_notes,
+      // Practice mode (no key) stays "Practice mode" whatever the MOCK notes do.
+      onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
+    })
+    this.log('call_notes_ready', { enabled: this.settings.call_notes, mock: model.mock })
+    this.onNotes?.(this.notes.state())
+  }
+
+  /** The notes panel: the current or just-finished call's notes (null before the first call). */
+  callNotes(): CallNotesState | null {
+    return this.notes?.state() ?? null
   }
 
   /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
@@ -396,6 +433,10 @@ export class HelpService {
     if (this.memory?.sessionId !== sessionId) return
     this.engine?.dispose()
     this.engine = null
+    this.notes?.dispose()
+    this.notes = null
+    // Its notes went with it: the panel empties.
+    this.onNotes?.(null)
     this.memory = null
   }
 
@@ -597,6 +638,8 @@ export class HelpService {
 
   /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
+    // An update in flight is cancelled and the notes' counts saved before the scorecard is written.
+    this.notes?.stop()
     if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
       try {
         this.endCall()

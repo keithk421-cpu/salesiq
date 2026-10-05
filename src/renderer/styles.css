@@ -290,3 +290,17 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 .rv-line { font-weight: 600; }
 .rv-card .row { margin-top: 0; }
 .rv-card .fb.chosen { border-color: var(--accent); color: var(--accent); }
+
+/* Call notes panel */
+.notes-panel { padding: 12px 18px; }
+.notes-panel summary { cursor: pointer; font-weight: 620; }
+.notes-panel[open] summary { margin-bottom: 8px; }
+.notes-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px 20px; font-size: 13px; }
+.notes-body .nt-line { grid-column: 1 / -1; }
+.nt-h { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-right: 6px; }
+.nt-sec ul { margin: 2px 0 0; padding-left: 16px; }
+.nt-sec li { margin: 1px 0; }
+.nt-k { font-size: 11px; font-weight: 650; color: var(--accent); }
+.nt-k.proposed { color: var(--warn); }
+.nt-k.agreed { color: var(--ok); }
+.notes-hint { margin: 8px 0 0; }

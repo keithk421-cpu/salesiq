@@ -5,6 +5,7 @@ import type { DeviceScanEvent, ProbeStats } from '../main/deviceTest'
 import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import type { CallNoteItem, CallNotesState } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
 
 declare global {
@@ -887,6 +888,80 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('labelPo
 document.addEventListener('click', (e) => {
   const pop = $('labelPop')
   if (!pop.hidden && !pop.contains(e.target as Node) && !(e.target as HTMLElement).closest('.who.clickable')) pop.hidden = true
+})
+
+// ---- call notes panel: a running summary of the call, kept after Stop for the review ----
+let notesState: CallNotesState | null = null
+const NOTE_KIND: Record<string, string> = { timeline: 'Timeline', decision_process: 'Decision', current_tooling: 'Tools', success_criteria: 'Success', team: 'Team', budget: 'Budget', other: '' }
+const NOT_COVERED: Record<string, string> = { timeline: 'timeline', decision_process: 'decision process', current_tooling: 'current tools', success_criteria: 'success criteria' }
+
+function notesStatusText(s: CallNotesState): string {
+  const sec = s.updated_at === null ? null : Math.max(0, Math.round((Date.now() - s.updated_at) / 1000))
+  const age = sec === null ? '' : sec < 10 ? 'updated just now' : sec < 90 ? `updated ${sec} s ago` : `updated ${Math.round(sec / 60)} min ago`
+  const withAge = (x: string) => (age ? `${age} · ${x}` : x)
+  switch (s.status) {
+    case 'off': return 'off (turn on in Setup, step 3)'
+    case 'blocked': return `not updating: ${s.problem ?? "Claude can't be used right now"}`
+    case 'updating': return withAge('updating…')
+    case 'paused': return withAge('paused')
+    case 'stopped': return withAge('call ended')
+    default: return age || 'starts after about a minute of the other side talking'
+  }
+}
+
+function renderNotes(): void {
+  const s = notesState
+  $('notesPanel').hidden = !s
+  if (!s) return
+  $('notesBadge').hidden = !s.mock
+  $('notesStatus').textContent = `· ${notesStatusText(s)}`
+  const n = s.notes
+  // Hover shows when it was said (from this call's transcript on screen).
+  const said = (it: CallNoteItem) => {
+    const t = turns.get(it.turn_ids[0] ?? '')
+    return t ? ` title="Said at ${fmtMs(t.start_ms)}"` : ''
+  }
+  const list = (title: string, rows: Array<{ it: CallNoteItem; tag?: string; cls?: string }>) =>
+    rows.length
+      ? `<div class="nt-sec"><div class="nt-h">${title}</div><ul>${rows.map((r) => `<li${said(r.it)}>${r.tag ? `<span class="nt-k ${r.cls ?? ''}">${r.tag}</span> ` : ''}${esc(r.it.text)}</li>`).join('')}</ul></div>`
+      : ''
+  const html = n
+    ? [
+        n.topic ? `<div class="nt-line"${said(n.topic)}><span class="nt-h">Talking about</span> ${esc(n.topic.text)}</div>` : '',
+        list('Their questions, not answered yet', n.open_questions.map((it) => ({ it }))),
+        list('They want', n.buyer_wants.map((it) => ({ it }))),
+        list('Concerns they raised', n.concerns.map((it) => ({ it }))),
+        list('Facts they shared', n.facts.map((it) => ({ it, tag: NOTE_KIND[it.kind] || undefined }))),
+        list('Next steps', n.next_steps.map((it) => ({ it, tag: it.status === 'agreed' ? 'Agreed' : 'Proposed', cls: it.status }))),
+        n.not_covered.length ? `<div class="nt-line"><span class="nt-h">Not covered yet</span> ${n.not_covered.map((k) => esc(NOT_COVERED[k] ?? k)).join(' · ')}</div>` : '',
+      ].join('')
+    : ''
+  $('notesBody').innerHTML = html || `<div class="muted small">${s.status === 'off' ? 'Call notes are off. Turn them on in Setup, step 3.' : 'Nothing noted yet.'}</div>`
+}
+
+api.onCallNotes((raw) => {
+  notesState = raw as CallNotesState | null
+  renderNotes()
+})
+// A new call starts with an empty panel (the last call's notes stay up until then).
+api.onSession((raw) => {
+  const ev = raw as SessionEvent
+  if (ev.type === 'state' && ev.state === 'checking') {
+    notesState = null
+    renderNotes()
+  }
+})
+setInterval(() => { if (notesState) $('notesStatus').textContent = `· ${notesStatusText(notesState)}` }, 5000)
+void (api.helpCallNotes() as Promise<CallNotesState | null>).then((s) => {
+  notesState = s
+  renderNotes()
+})
+void (api.helpInfo() as Promise<{ settings?: { call_notes?: boolean } } | null>).then((i) => {
+  $<HTMLInputElement>('aiNotes').checked = i?.settings?.call_notes !== false
+})
+$('aiNotes').addEventListener('change', async () => {
+  const s = (await api.helpSetSettings({ call_notes: $<HTMLInputElement>('aiNotes').checked })) as { call_notes?: boolean } | undefined
+  if (s) $<HTMLInputElement>('aiNotes').checked = s.call_notes !== false
 })
 
 // ---- setup: Claude key, model, prefetch, knowledge ----

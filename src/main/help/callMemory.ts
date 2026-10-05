@@ -5,7 +5,7 @@
  * (later transcript, post-call corrections) can leak into a HELP request.
  */
 import type { Stream } from '../../shared/contracts'
-import type { CallSetup, MemoryGap, MemoryTurn, SpeakerLabel } from '../../shared/help'
+import type { CallNotes, CallSetup, MemoryGap, MemoryTurn, SpeakerLabel } from '../../shared/help'
 import { Db, ftsQuery } from '../db'
 
 export const DEFAULT_SETUP: CallSetup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown' }
@@ -23,6 +23,8 @@ export class CallMemory {
   private gaps = new Map<string, MemoryGap>()
   /** Latest measured speech-service delay per stream (ms). */
   readonly lagMs = new Map<Stream, number>()
+  /** Running call notes (live calls, set by the notes keeper) and the session time they cover up to. */
+  callNotes: { notes: CallNotes; as_of_ms: number } | null = null
 
   constructor(readonly sessionId: string, private readonly db: Db | null = null, private readonly aliases: Map<string, string[]> = new Map()) {}
 
