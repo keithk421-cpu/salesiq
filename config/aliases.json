@@ -20,7 +20,7 @@
     ["hipaa"],
     ["gdpr"],
     ["pii", "personal data", "sensitive data"],
-    ["pricing", "price", "cost", "budget", "license", "licensing"],
+    ["pricing", "price", "cost", "budget"],
     ["poc", "proof of concept", "pilot", "trial"],
     ["air-gapped", "airgapped", "air gap", "air-gap"],
     ["baa", "business associate agreement"],

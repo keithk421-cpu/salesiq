@@ -7,7 +7,7 @@ Takes about 20 minutes, plus one 60-minute call later.
 ---
 
 ## 0. Install (one time)
-1. Get the installer from GitHub: repo **salesiq** → **Actions** tab → newest green **M0 build** run → scroll to **Artifacts** → download **SalesCopilot-M0-Windows-Installer** (a zip). Unzip it and double-click `SalesCopilot-M0-Setup-….exe`.
+1. Get the installer from the **Latest build** page: https://github.com/keithk421-cpu/salesiq/releases/tag/latest (bookmark it; it always has the newest installer). Download the `.exe` under **Assets** and double-click it. The page says which build it is; the app shows the same number at the top of **Diagnostics**.
 2. Windows may show a blue **"Windows protected your PC"** box, because the app isn't code-signed yet. Click **More info → Run anyway**.
 3. If Windows asks for microphone access, allow it. (Settings → Privacy & security → Microphone → "Let desktop apps access your microphone" must be **On**.)
 
@@ -53,12 +53,13 @@ What's normal:
 Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit it.
 
 ## 6. Send back
-- Click **Diagnostics → Open data folder**. Zip the `sessions` and `logs` folders and send them over. They hold the transcripts and diagnostics; your Deepgram key is not in them.
+- Click **Diagnostics → Save support files**. It makes a folder with logs, timings and counts only (no conversation text, no keys) and opens it. Zip that folder and send it.
+- **Never send** `copilot.db`, the `sessions` folder or any `transcript.jsonl`: they contain the full conversations.
 - Send your before/after Zoom screenshots.
 - Tell me anything weird, with a screenshot if you can.
 
 ### If something goes wrong
-- **No output lights up when you click Test Speaker:** take a screenshot of the setup screen during the test (each device shows "Nothing playing here", "Silent" or an error) plus Zoom → Settings → Audio, and send both. Also click **Diagnostics → Open data folder** and send `logs/app.jsonl`: it records exactly what Windows delivered for each device.
+- **No output lights up when you click Test Speaker:** take a screenshot of the setup screen during the test (each device shows "Nothing playing here", "Silent" or an error) plus Zoom → Settings → Audio, and send both. Also click **Diagnostics → Save support files** and send that folder: its log records exactly what Windows delivered for each device.
 - **"Start blocked: … not found"**: the headset is off or plugged into a different USB port. Turn it on. If it's on a different port, Windows may have given it a new ID: pick it again in Step 2, test, and save.
 - **"Start blocked: no meeting audio heard"**: click Zoom's Test Speaker during the check, or make sure Zoom is playing to the device you picked.
 - **"no voice heard"**: is the headset muted (Razer mute button)?
@@ -80,4 +81,4 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 - Tap **Useful**, **Should've stayed quiet** or **Bad** on cards. Each tap records feedback, nothing more.
 
 ## Send me after a few calls
-Diagnostics → **Open data folder** → zip `copilot.db`, `logs`, `sessions` and `reports`. These hold your calls, so send them privately.
+Diagnostics → **Save support files** → zip the folder it opens and send it. It has timings, counts, HELP speed reports and the scorecard, and no conversation text. Never send `copilot.db` or the `sessions` folder (they hold the full conversations).

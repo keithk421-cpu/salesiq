@@ -244,6 +244,28 @@ describe('knowledge import', () => {
     expect(new KnowledgeBase(new Db(':memory:'), null).indexFolder(dir)).toHaveLength(0)
   })
 
+  it("the buyer's latest question wins over earlier talk in the same 30 seconds", () => {
+    const db = new Db(':memory:')
+    const kb = new KnowledgeBase(db, null)
+    kb.addDoc(docMetaFrom('/k/sec.md', {}, 'x'), '## How to get our SOC 2 report\n\nRequest it through the Trust Center.\n\nSource: x')
+    kb.addDoc(docMetaFrom('/k/demo.md', {}, 'x'), '## Dashboards and charts\n\nDashboards show latency charts and colors.\n\nSource: x')
+    kb.approve('sec', true)
+    kb.approve('demo', true)
+    const preamble = 'So this dashboard shows latency charts for every project and the colors change when traces slow down, ' +
+      'then we drill into spans, filter by model, compare prompt versions, export results and share views with teammates across workspaces. '
+    const hot = `${preamble.repeat(2)}Okay great. Quick one before I forget: can we get your SOC 2 report?`
+    expect(kb.search(hot, 1).usable[0]?.heading).toBe('How to get our SOC 2 report')
+  })
+
+  it('a word with many synonyms does not outweigh a rarer, decisive one', () => {
+    const kb = new KnowledgeBase(new Db(':memory:'), fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
+    kb.addDoc(docMetaFrom('/k/news.md', {}, 'x'), '## Dynatrace acquired Arize\n\nDynatrace completed its acquisition of Arize.\n\nSource: x')
+    kb.addDoc(docMetaFrom('/k/obj.md', {}, 'x'), '## Objection: too expensive\n\nPrice, cost and budget come up: ask about budget versus value, then cost and price.\n\nSource: x')
+    kb.approve('news', true)
+    kb.approve('obj', true)
+    expect(kb.search('Is Dynatrace going to change our pricing?', 2).usable[0].doc_id).toBe('news')
+  })
+
   it('aliases widen search (FTS5, no embeddings)', () => {
     const db = new Db(':memory:')
     const kb = new KnowledgeBase(db, fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
@@ -339,6 +361,7 @@ describe('line protocol', () => {
     expect(sys).toMatch(/HAPPENING describes only what was actually said on this call/)
     expect(sys).toMatch(/must not presume a problem, a gap, existing work, urgency or a deadline/)
     expect(sys).toMatch(/never means Arize lacks it/)
+    expect(sys).toMatch(/Never promise pricing, discounts, contract terms, roadmap, dates/)
   })
 })
 
@@ -478,6 +501,39 @@ describe('HELP engine', () => {
     s.engine.press()
     expect(m.calls).toHaveLength(2)
     expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(false)
+  })
+
+  it('a short reply still being transcribed ("No, not yet") makes a prefetched card stale', async () => {
+    const m = new ScriptedModel()
+    const s = engineSetup(m, { prefetch: true })
+    s.engine.onFinalWords()
+    await vi.advanceTimersByTimeAsync(800)
+    m.calls[0].release()
+    await vi.advanceTimersByTimeAsync(0)
+    s.advance(1000)
+    s.memory.setInterim('system_remote', 'No, not yet.', 20500)
+    s.engine.press()
+    expect(m.calls).toHaveLength(2)
+    expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(false)
+  })
+
+  it('a background prefetch Keith never saw keeps timings and cost, not the conversation text', async () => {
+    const m = new ScriptedModel()
+    const s = engineSetup(m, { prefetch: true })
+    s.engine.onFinalWords()
+    await vi.advanceTimersByTimeAsync(800)
+    m.calls[0].release()
+    await vi.advanceTimersByTimeAsync(0)
+    const unseen = s.db.sql.prepare('SELECT request_text, output_raw, card_json, usage_json, prefetch FROM help_requests').get() as Record<string, unknown>
+    expect(unseen).toMatchObject({ request_text: null, output_raw: null, card_json: null, prefetch: 1 })
+    expect(unseen.usage_json).not.toBeNull()
+    // Once shown (Keith pressed and it was adopted), it is kept like any pressed request.
+    s.advance(2000)
+    s.engine.press()
+    const shown = s.db.sql.prepare('SELECT request_text, output_raw, card_json FROM help_requests').get() as Record<string, unknown>
+    expect(shown.request_text).toEqual(expect.stringContaining('Give Keith his next line'))
+    expect(shown.output_raw).not.toBeNull()
+    expect(shown.card_json).not.toBeNull()
   })
 
   it('times out cleanly and records it', async () => {

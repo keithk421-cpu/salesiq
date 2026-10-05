@@ -94,7 +94,8 @@ export class HelpEngine {
     this.cancelled = false
     const pressedWall = this.wallNow()
     const key = this.snapshotKey()
-    const liveSpeech = this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().split(/\s+/).length >= 4)
+    // Any words still being transcribed (even a short "No, not yet") mean the moment moved on since a prefetch.
+    const liveSpeech = this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().length > 0)
     if (this.current && this.current.status !== 'complete' && this.current.status !== 'failed' && this.current.status !== 'timeout') {
       this.finish(this.current, 'superseded')
     }
@@ -108,7 +109,8 @@ export class HelpEngine {
       pf.pressedWall = pressedWall
       this.current = pf
       this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status })
-      this.persist(pf)
+      // Shown now, so its request is kept like any pressed request.
+      this.persist(pf, buildUserMessage(pf.ctx.text))
       this.emit(pf)
       return pf.id
     }
@@ -348,15 +350,18 @@ export class HelpEngine {
     const db = this.d.db
     if (!db) return
     const t = this.timing(run)
+    // A background prefetch Keith never saw keeps timings, cost and source ids, not the conversation text.
+    const shown = !run.prefetch || run.pressedWall !== null
     db.sql.prepare(
       `INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, context_refs_json, request_text, output_raw, card_json, timing_json, usage_json, error, prefetch)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET status = excluded.status, origin = excluded.origin, output_raw = excluded.output_raw, card_json = excluded.card_json,
+       ON CONFLICT(id) DO UPDATE SET status = excluded.status, origin = excluded.origin, request_text = COALESCE(excluded.request_text, help_requests.request_text),
+         output_raw = excluded.output_raw, card_json = excluded.card_json,
          timing_json = excluded.timing_json, usage_json = excluded.usage_json, error = excluded.error`,
     ).run(
       run.id, this.d.memory.sessionId, run.origin, new Date().toISOString(), run.ctx.refs.at_session_ms, run.status,
       JSON.stringify({ ...this.d.config, label: this.d.model.label(this.d.config), mock: this.d.model.mock, playbook: this.d.playbook.version }),
-      JSON.stringify(run.ctx.refs), requestText ?? null, run.raw || null, run.card ? JSON.stringify(run.card) : null,
+      JSON.stringify(run.ctx.refs), shown ? (requestText ?? null) : null, shown ? run.raw || null : null, shown && run.card ? JSON.stringify(run.card) : null,
       JSON.stringify({ ...t, issues: run.issues }), run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )
   }

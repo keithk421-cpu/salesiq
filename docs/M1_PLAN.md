@@ -26,7 +26,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - **Call setup**: type, goal, desired outcomes, account. **Participants**: manual labels; unlabeled is normal.
 - **Recent thread**: the few minutes before that, compact.
 - **Earlier in the call**: SQLite FTS5 search of older turns relevant to what's being discussed.
-- **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Only approved, in-scope documents are searched. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
+- **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Only approved, in-scope documents are searched. Search reads the newest words first (so the buyer's latest question is never cut by the term cap) and ranks by concepts: each spoken word counts once with its synonyms, rarer words count more, heading matches count extra, blended with bm25. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
 - **Transcript status**: gaps and lag, so HELP never pretends it heard something.
 
 ## Knowledge rules
@@ -74,6 +74,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 ## Data handling
 - Everything is in local SQLite (`copilot.db` in userData): calls' turns, labels, HELP requests (mode, request text, context references, output, model and config, timing, usage) and feedback.
 - Diagnostics logs carry ids, timings, statuses and token counts only, never transcript or card text (tested).
+- Background (prefetch) requests that were never shown keep only timings, cost and source ids; their request and output text is not stored. **Save support files** (Diagnostics) copies only logs, per-call diagnostics/counters, speed-test reports and settings without secrets; never `copilot.db` or transcripts. What leaves the PC: docs/DATA_FLOW.md.
 - Keys are stored with DPAPI. Nothing is in Git.
 - Retention purge is not implemented yet (the pilot policy proposes 30 days).
 

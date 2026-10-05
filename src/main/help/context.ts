@@ -155,7 +155,7 @@ export function buildHelpContext(opts: {
   }
   if (usable.length) {
     parts.push(
-      `<approved_knowledge note="the ONLY material you may state as Arize fact">\n${usable
+      `<approved_knowledge note="the ONLY material you may state as Arize fact. These are search matches: use an item only if it directly answers what was asked; if none does, say you'll follow up">\n${usable
         .map((c, i) => {
           const scope = scopeLabel(c.meta.applies_to)
           const ref = c.source_ref.length > SOURCE_REF_MODEL_MAX ? `${c.source_ref.slice(0, SOURCE_REF_MODEL_MAX)}... (full reference in card sources)` : c.source_ref

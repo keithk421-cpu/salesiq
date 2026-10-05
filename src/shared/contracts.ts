@@ -117,3 +117,12 @@ export interface EndpointStatus {
   reason: string
   is_windows_default: boolean
 }
+
+/** Stamped at build time (scripts/build.mjs): which build produced a log, report or scorecard. */
+export interface BuildInfo {
+  version: string
+  /** CI run number, or "local". */
+  build: string
+  sha: string
+  date: string
+}

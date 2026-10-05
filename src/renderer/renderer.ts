@@ -486,6 +486,13 @@ $('switchBtn').addEventListener('click', async () => {
 $('snapBefore').addEventListener('click', async () => { const r = await api.snapshot('before'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('snapAfter').addEventListener('click', async () => { const r = await api.snapshot('after'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('openFolder').addEventListener('click', () => void api.openFolder())
+void (api.buildInfo() as Promise<{ version: string; build: string; sha: string; date: string }>).then((b) => {
+  $('buildTag').textContent = `· build ${b.build} (${b.sha}${b.date ? `, ${b.date}` : ''})`
+})
+$('supportFiles').addEventListener('click', async () => {
+  const r = (await api.supportFiles()) as { ok: boolean; dir: string; files: number }
+  $('snapMsg').textContent = r.ok ? `Saved ${r.files} support file(s) to ${r.dir} (no conversation text). Zip that folder and send it.` : 'Could not save support files.'
+})
 
 setInterval(() => { if (sessionState === 'live' || sessionState === 'paused') setPill() }, 500)
 
@@ -629,7 +636,7 @@ document.addEventListener('click', (e) => {
 async function refreshHelpInfo(): Promise<void> {
   helpInfo = await api.helpInfo()
   if (!helpInfo) {
-    kbMessage("HELP didn't start, so knowledge files can't be added. Send me the app log (Diagnostics → Open data folder → logs).")
+    kbMessage("HELP didn't start, so knowledge files can't be added. Send me Diagnostics → Save support files.")
     return
   }
   $('aiDone').hidden = !helpInfo.hasKey

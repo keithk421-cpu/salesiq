@@ -255,7 +255,7 @@
     </div>
 
     <details class="card diag">
-      <summary>Diagnostics &amp; test report</summary>
+      <summary>Diagnostics &amp; test report <span id="buildTag" class="muted small"></span></summary>
       <table class="status">
         <thead><tr><th>Stream</th><th>Device</th><th>Device state</th><th>Capture</th><th>Speech service</th></tr></thead>
         <tbody id="statusRows"></tbody>
@@ -263,6 +263,7 @@
       <div class="row">
         <button id="snapBefore" class="btn btn-ghost btn-sm">Save device snapshot · BEFORE</button>
         <button id="snapAfter" class="btn btn-ghost btn-sm">Save device snapshot · AFTER</button>
+        <button id="supportFiles" class="btn btn-ghost btn-sm" title="Logs, timings and counts only: no conversation text, no keys">Save support files</button>
         <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
       <p id="snapMsg" class="muted small"></p>

@@ -83,28 +83,54 @@ export class Db {
  */
 export function ftsQuery(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string | null {
   const list = ftsTerms(text, aliases, maxTerms)
-  if (list.length === 0) return null
-  return list.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
+  return list.length ? ftsAny(list) : null
 }
 
-/** The search terms ftsQuery uses: content words of `text` (no stopwords) plus their aliases. */
-export function ftsTerms(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string[] {
-  const terms = new Set<string>()
-  for (const raw of text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? []) {
-    const t = raw.replace(/'s$/, '').replace(/[^\p{L}\p{N}-]/gu, '')
-    if (t.length < 3 || STOPWORDS.has(t)) continue
-    terms.add(t)
-    for (const a of aliases.get(t) ?? []) terms.add(a.toLowerCase())
-  }
-  // Multi-word aliases (e.g. "weights & biases") are matched on the whole lowercased text.
+/**
+ * What was said, as concepts: each spoken content word with its aliases, newest first. The words
+ * actually said fill the cap before any alias, so the cap never drops the buyer's latest question in
+ * favour of earlier talk or synonyms.
+ */
+export function ftsConcepts(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string[][] {
   const lower = text.toLowerCase()
-  for (const [key, group] of aliases) if (key.includes(' ') && lower.includes(key)) for (const a of group) terms.add(a.toLowerCase())
-  return [...terms].slice(0, maxTerms)
+  const said: Array<{ at: number; term: string }> = []
+  for (const m of lower.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu)) {
+    const t = m[0].replace(/'s$/, '').replace(/[^\p{L}\p{N}-]/gu, '')
+    if (t.length < 3 || STOPWORDS.has(t)) continue
+    said.push({ at: m.index ?? 0, term: t })
+  }
+  for (const [key] of aliases) if (key.includes(' ') && lower.includes(key)) said.push({ at: lower.lastIndexOf(key), term: key })
+  said.sort((a, b) => b.at - a.at)
+  const concepts: string[][] = []
+  const used = new Set<string>()
+  for (const { term } of said) {
+    if (used.has(term) || used.size >= maxTerms) continue
+    used.add(term)
+    concepts.push([term])
+  }
+  // Aliases fill whatever room is left, newest concept first.
+  for (const c of concepts) for (const a of aliases.get(c[0]) ?? []) if (used.size < maxTerms && !used.has(a.toLowerCase())) {
+    used.add(a.toLowerCase())
+    c.push(a.toLowerCase())
+  }
+  return concepts
+}
+
+/** The search terms ftsQuery uses: every concept's words, flattened. */
+export function ftsTerms(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string[] {
+  return ftsConcepts(text, aliases, maxTerms).flat()
+}
+
+/** One FTS5 OR-group for a list of terms, each quoted so user text is never FTS syntax. */
+export function ftsAny(terms: string[]): string {
+  return terms.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
 }
 
 const STOPWORDS = new Set(
   ('the and that this with have for you your are was were what when where which who how why not but just like yeah yes ' +
     'okay right really think know mean kind sort thing things there their they them then than its it\'s our out about ' +
     'would could should will can get got going gonna want wanna from into some any all also very much more most been ' +
-    'being had has did does doing done one two make made let lets well sure maybe actually basically probably um uh').split(/\s+/),
+    'being had has did does doing done one two make made let lets well sure maybe actually basically probably um uh ' +
+    // Filler nouns in buyer speech ("an on-prem version"); "versioning" is still searchable.
+    'version versions').split(/\s+/),
 )

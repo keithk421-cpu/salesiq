@@ -7,11 +7,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, safeStorage, shell } from 'electron'
 import WebSocket from 'ws'
-import type { AudioEndpointConfig } from '../shared/contracts'
+import type { AudioEndpointConfig, BuildInfo } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule } from '../shared/nativeApi'
 import type { WsFactory, WsLike } from './deepgram'
 import { DeviceScanner } from './deviceTest'
 import { resolveConfig, shortId, toEndpointRef } from './endpoints'
+import { saveSupportFiles } from './support'
 import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
 import { SessionController, type SessionEvent } from './session'
@@ -29,6 +30,9 @@ let session: SessionController | null = null
 let sessionLog: JsonlWriter | null = null
 let transcriptLog: JsonlWriter | null = null
 let help: HelpService | null = null
+declare const __BUILD_INFO__: BuildInfo
+/** Which build this is (tests and dev runs without the build script get a placeholder). */
+export const BUILD: BuildInfo = typeof __BUILD_INFO__ === 'undefined' ? { version: app?.getVersion?.() ?? '0', build: 'dev', sha: 'dev', date: '' } : __BUILD_INFO__
 
 const wsFactory: WsFactory = (url, headers) => new WebSocket(url, { headers }) as unknown as WsLike
 
@@ -198,6 +202,13 @@ function registerIpc(): void {
   })
 
   ipcMain.handle('app:openFolder', () => shell.openPath(app.getPath('userData')))
+  ipcMain.handle('app:build', () => BUILD)
+  ipcMain.handle('app:supportFiles', () => {
+    const out = saveSupportFiles(storage.root, app.getPath('downloads'))
+    log('support_files_saved', { files: out.files.length })
+    shell.showItemInFolder(path.join(out.dir, 'README.txt'))
+    return { ok: true, dir: out.dir, files: out.files.length }
+  })
 
   // ---- M1 HELP ----
   ipcMain.handle('help:info', () => help?.info() ?? null)
@@ -325,7 +336,7 @@ if (!app.requestSingleInstanceLock()) {
       app.quit()
       return
     }
-    log('app_start', { version: app.getVersion(), demoMode, nativeSource, platform: process.platform })
+    log('app_start', { version: app.getVersion(), build: BUILD.build, sha: BUILD.sha, built: BUILD.date, demoMode, nativeSource, platform: process.platform })
     scanner = new DeviceScanner(native, (e) => send('scan-event', e), log)
     try {
       help = new HelpService(storage, app.getAppPath(), (e) => send('help-event', e), log)

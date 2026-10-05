@@ -23,13 +23,15 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Deployment, KnowledgeCategory, KnowledgeChunk, KnowledgeDocMeta } from '../shared/help'
-import { Db, ftsQuery, ftsTerms } from './db'
+import { Db, ftsAny, ftsConcepts, ftsQuery } from './db'
 
 const CATEGORIES: KnowledgeCategory[] = ['product', 'deployment_security', 'competitive', 'objection_handling', 'other']
 /** The model receives every character of a chunk's text, so the chunker and the prompt share this limit. */
 export const KNOWLEDGE_TEXT_MAX = 700
 /** Ranking boost per query term that matches one of the document's tags (max two counted). */
 const TAG_BOOST = 0.05
+/** Weight of the bm25 match strength next to the concept score (both scaled to 0-1 per search). */
+const BM25_BLEND = 0.25
 const SOURCE_PARA = /^source\s*:/i
 
 export function loadAliases(file: string): Map<string, string[]> {
@@ -258,6 +260,29 @@ export class KnowledgeBase {
     }
   }
 
+  /** Per chunk: sum over the concepts it mentions of ln(1 + N/df), x1.5 when the heading mentions it. */
+  private conceptScorer(concepts: string[][], docIds: string[]): (chunkId: string) => number {
+    const score = new Map<string, number>()
+    if (!docIds.length || !concepts.length) return () => 0
+    const ids = JSON.stringify(docIds)
+    const hits = (match: string): string[] => {
+      try {
+        return (this.db.sql.prepare('SELECT chunk_id FROM knowledge_fts WHERE knowledge_fts MATCH ? AND doc_id IN (SELECT value FROM json_each(?))').all(match, ids) as Array<{ chunk_id: string }>).map((r) => r.chunk_id)
+      } catch {
+        return []
+      }
+    }
+    const n = (this.db.sql.prepare('SELECT COUNT(*) AS n FROM knowledge_chunks WHERE doc_id IN (SELECT value FROM json_each(?))').get(ids) as { n: number }).n
+    for (const c of concepts) {
+      const any = hits(ftsAny(c))
+      if (!any.length) continue
+      const idf = Math.log(1 + n / any.length)
+      const inHeading = new Set(hits(`heading : (${ftsAny(c)})`))
+      for (const id of any) score.set(id, (score.get(id) ?? 0) + idf * (inHeading.has(id) ? 1.5 : 1))
+    }
+    return (chunkId) => score.get(chunkId) ?? 0
+  }
+
   /**
    * Search for chunks relevant to `text`. Only approved documents are searched at all (so unapproved
    * matches can never crowd out an approved answer). Returns approved, current, in-scope chunks
@@ -266,7 +291,8 @@ export class KnowledgeBase {
    */
   search(text: string, limit = 4, today = new Date(), deployment: Deployment = 'unknown'): KnowledgeSearch {
     const none: KnowledgeSearch = { usable: [], staleTitles: [], scopedOut: [] }
-    const terms = ftsTerms(text, this.aliases)
+    const concepts = ftsConcepts(text, this.aliases)
+    const terms = concepts.flat()
     const q = ftsQuery(text, this.aliases)
     if (!q) return none
     const approved = this.listDocs().filter((d) => d.approved)
@@ -287,13 +313,20 @@ export class KnowledgeBase {
       }
     }
     const tagHits = (meta: KnowledgeDocMeta) => Math.min(2, terms.filter((t) => meta.tags.some((tag) => tag.toLowerCase() === t)).length)
-    // bm25 is negative (lower is better), so a boost multiplies it.
-    const rows = query(approved.filter((d) => inScope(d, deployment)).map((d) => d.doc_id), 30)
-      .map((r) => ({ ...r, score: r.score * (1 + TAG_BOOST * tagHits(byId.get(r.doc_id)!)) }))
-      .sort((a, b) => a.score - b.score)
+    const inScopeIds = approved.filter((d) => inScope(d, deployment)).map((d) => d.doc_id)
+    const conceptScore = this.conceptScorer(concepts, inScopeIds)
+    // Rank by what was said: each spoken word counts once with its aliases (so one word with many
+    // synonyms can't outweigh a rarer, decisive one like a company name), rarer words count more,
+    // a match in a section's heading counts extra; tags nudge; bm25 breaks ties.
+    const candidates = query(inScopeIds, 30)
+    const maxConcept = Math.max(1e-9, ...candidates.map((r) => conceptScore(r.chunk_id)))
+    const maxBm25 = Math.max(1e-9, ...candidates.map((r) => -r.score))
+    const rows = candidates
+      .map((r) => ({ ...r, rank: (conceptScore(r.chunk_id) / maxConcept + BM25_BLEND * (-r.score / maxBm25)) * (1 + TAG_BOOST * tagHits(byId.get(r.doc_id)!)) }))
+      .sort((a, b) => b.rank - a.rank || a.score - b.score)
     const usable: KnowledgeChunk[] = []
     const staleTitles = new Set<string>()
-    for (const { score: _score, ...r } of rows) {
+    for (const { score: _score, rank: _rank, ...r } of rows) {
       const meta = byId.get(r.doc_id)!
       if (isStale(meta, today)) {
         staleTitles.add(meta.title)
