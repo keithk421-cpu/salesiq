@@ -17,10 +17,13 @@ import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
 import { IdleWatch } from './idleWatch'
 import { CallLogs, DEFAULT_APP_SETTINGS, HideToggle, RETENTION_CHOICES, StartWait, callActive, loadAppSettings, protectWindow, type AppSettings, type AwayReason } from './appRules'
+import { stripOnTop } from './appRules'
 import { deleteCalls, listSavedCalls, olderThan } from './retention'
 import { PAUSE_DETAIL, SessionController, type SessionEvent, type SessionState } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
+import { screen } from 'electron'
+import { defaultCompactRect, defaultNormalRect, placeFor, type Rect } from './compactWindow'
 
 let win: BrowserWindow | null = null
 let native: NativeAudioModule
@@ -116,6 +119,7 @@ function onSessionEvent(ev: SessionEvent): void {
 
 function onStateChange(state: SessionState): void {
   applyWindowSettings()
+  compactOnTop(state)
   if (state === 'live' || state === 'idle' || state === 'stopped') {
     autoPausedFor = null
     win?.flashFrame(false)
@@ -499,6 +503,9 @@ function registerIpc(): void {
     if (r.ok && r.file) shell.showItemInFolder(r.file)
     return r
   })
+  // ---- M2: WRAP button ("before you hang up") and the compact window ----
+  ipcMain.handle('help:wrap', () => help?.press('wrap_requested') ?? { ok: false, reason: 'WRAP unavailable' })
+  ipcMain.handle('window:compact', (_e, on: unknown) => setCompact(on === true))
 }
 
 function createWindow(): void {
@@ -558,6 +565,72 @@ function registerHotkey(): void {
   log('help_hotkey', { hotkey: HELP_HOTKEY, registered: ok })
 }
 
+// ---- M2: WRAP hotkey and the compact window ----
+const WRAP_HOTKEY = 'Control+Alt+W'
+/** The window is the small strip, on top of Zoom during a call (it starts in normal mode every time the app opens). */
+let compact = false
+
+/** Ctrl+Alt+W: a WRAP card, like Ctrl+Alt+H for HELP. Only if Windows lets us register it; the button always works. */
+function registerWrapHotkey(): void {
+  if (!help) return
+  const ok = tryRegister(WRAP_HOTKEY, () => {
+    const r = help?.press('wrap_requested')
+    showWithoutFocus()
+    if (r && !r.ok) send('help-notice', r.reason)
+    else send('help-focus', null)
+  })
+  help.wrapHotkeyRegistered = ok
+  log('wrap_hotkey', { hotkey: WRAP_HOTKEY, registered: ok })
+}
+
+function workAreas(): Rect[] {
+  return screen.getAllDisplays().map((d) => d.workArea)
+}
+
+/** Remember where the window is in the mode it's in now (its place before any maximize or minimize). */
+function rememberBounds(): void {
+  if (!win || win.isDestroyed()) return
+  const b = win.getNormalBounds()
+  appSettings.window_bounds = { ...appSettings.window_bounds, [compact ? 'compact' : 'normal']: b }
+  saveAppSettings()
+}
+
+/** Compact: the small strip, on top of Zoom. Expand: back where it was. Same window, so hiding from screen sharing is unchanged. */
+function setCompact(on: boolean): { compact: boolean } {
+  if (!win || win.isDestroyed() || on === compact) return { compact }
+  rememberBounds()
+  compact = on
+  if (on) {
+    if (win.isFullScreen()) win.setFullScreen(false)
+    if (win.isMaximized()) win.unmaximize()
+    const place = placeFor(appSettings.window_bounds?.compact, workAreas(), defaultCompactRect(screen.getDisplayMatching(win.getBounds()).workArea))
+    if (place) win.setBounds(place)
+    compactOnTop(session?.state)
+  } else {
+    win.setAlwaysOnTop(false)
+    // No remembered place still on a screen (a monitor unplugged meanwhile): the usual size, centred.
+    const place = placeFor(appSettings.window_bounds?.normal, workAreas(), defaultNormalRect(screen.getDisplayMatching(win.getBounds()).workArea))
+    if (place) win.setBounds(place)
+  }
+  log('window_compact', { compact })
+  return { compact }
+}
+
+/** On top of Zoom only while compact during a call (appRules stripOnTop). */
+function compactOnTop(state: SessionState | null | undefined): void {
+  if (!win || win.isDestroyed()) return
+  if (stripOnTop(compact, state)) win.setAlwaysOnTop(true, 'floating')
+  else if (win.isAlwaysOnTop()) win.setAlwaysOnTop(false)
+}
+
+/** At start: normal mode, where the window was last time (if that's still on a screen); remember it on close. */
+function initCompactWindow(): void {
+  if (!win || win.isDestroyed()) return
+  const place = placeFor(appSettings.window_bounds?.normal, workAreas(), null)
+  if (place) win.setBounds(place)
+  win.on('close', () => rememberBounds())
+}
+
 function shutdownCapture(reason: string): void {
   try {
     scanner?.stop()
@@ -612,7 +685,9 @@ if (!app.requestSingleInstanceLock()) {
     if (help) help.onNotes = (s) => send('call-notes', s)
     registerIpc()
     createWindow()
+    initCompactWindow()
     registerHotkey()
+    registerWrapHotkey()
     void help?.checkReady()
     powerMonitor.on('lock-screen', () => autoPause('lock'))
     powerMonitor.on('suspend', () => autoPause('sleep'))

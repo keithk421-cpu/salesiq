@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import type { HelpOrigin } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import type { CallNotesState } from '../shared/help'
 import { Db } from './db'
@@ -62,6 +63,30 @@ const READY_TEXT: Record<HelpReadiness, string> = {
   checking: 'Checking HELP…',
 }
 
+/**
+ * Earlier built-in playbooks, by the fingerprint of their content (JSON, whitespace ignored). A copy
+ * in the data folder that still matches one was never edited. Add the outgoing version here whenever
+ * config/playbook.json changes.
+ */
+const EARLIER_BUILT_IN_PLAYBOOKS = new Set([
+  // m1-draft-1
+  '242186ec247fd3f77036830782fd5407ece10bdf5cae25c451ed4dd91538135a',
+])
+
+/** The playbook file is exactly an earlier built-in version (Keith opened it but never changed it). */
+export function unchangedBuiltIn(file: string): boolean {
+  try {
+    return EARLIER_BUILT_IN_PLAYBOOKS.has(playbookFingerprint(fs.readFileSync(file, 'utf8')))
+  } catch {
+    return false
+  }
+}
+
+/** sha256 of the playbook's JSON, so re-saving it with other spacing or line endings doesn't count as an edit. */
+export function playbookFingerprint(text: string): string {
+  return createHash('sha256').update(JSON.stringify(JSON.parse(text.replace(/^\uFEFF/, '')))).digest('hex')
+}
+
 const KNOWLEDGE_README = `# Knowledge pack (local, private)
 
 Drop approved Markdown (.md) or text (.txt) files here. HELP searches them during calls.
@@ -112,6 +137,8 @@ export class HelpService {
   /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
   private endedCall: { sessionId: string; callMs: number } | null = null
   hotkeyRegistered = false
+  /** Ctrl+Alt+W (WRAP) registered with Windows. */
+  wrapHotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
   onReadiness: ((r: HelpReadyState) => void) | null = null
 
@@ -158,11 +185,44 @@ export class HelpService {
       this.playbookInfo.problem = r.problem
       return builtIn
     }
+    // A copy Keith never edited (still exactly an earlier built-in) moves to the new built-in by itself.
+    if (r.playbook.version !== builtIn.version && unchangedBuiltIn(user) && this.backUpMyPlaybook(user, 'playbook-earlier')) {
+      this.log('playbook_auto_updated', { from: r.playbook.version, to: builtIn.version })
+      return builtIn
+    }
     this.playbookInfo = {
       using: 'yours', version: r.playbook.version, built_in_version: builtIn.version, problem: null,
       newer_built_in: r.playbook.version !== builtIn.version && choice.kept_over !== builtIn.version,
     }
     return r.playbook
+  }
+
+  /**
+   * Move Keith's copy aside to a dated backup (Windows can refuse a rename while another program has
+   * the file open: then copy and delete). False, and his copy stays in use, if neither works.
+   */
+  private backUpMyPlaybook(user: string, prefix: string, now = new Date()): boolean {
+    const backup = path.join(this.storage.root, `${prefix}-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`)
+    try {
+      fs.renameSync(user, backup)
+      return true
+    } catch (err) {
+      this.log('playbook_rename_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+    }
+    try {
+      fs.copyFileSync(user, backup)
+      fs.unlinkSync(user)
+      return true
+    } catch (err) {
+      this.log('playbook_switch_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      // His copy stays in use, so don't leave a second copy of it lying around.
+      try {
+        if (fs.existsSync(user)) fs.rmSync(backup, { force: true })
+      } catch {
+        /* best effort */
+      }
+      return false
+    }
   }
 
   /** Re-read the playbook (edits apply from the next call; this shows problems right away). */
@@ -174,27 +234,8 @@ export class HelpService {
   /** Switch to the shipped playbook; Keith's copy is kept as a dated backup next to it. */
   useBuiltInPlaybook(now = new Date()): PlaybookInfo {
     const user = path.join(this.storage.root, 'playbook.json')
-    const backup = path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`)
-    if (fs.existsSync(user)) {
-      try {
-        fs.renameSync(user, backup)
-      } catch (err) {
-        // Windows can refuse a rename while another program has the file open: copy, then delete.
-        this.log('playbook_rename_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
-        try {
-          fs.copyFileSync(user, backup)
-          fs.unlinkSync(user)
-        } catch (err2) {
-          this.log('playbook_switch_failed', { code: (err2 as NodeJS.ErrnoException).code ?? 'unknown' })
-          // His copy stays in use, so don't leave a second copy of it lying around.
-          try {
-            if (fs.existsSync(user)) fs.rmSync(backup, { force: true })
-          } catch {
-            /* best effort */
-          }
-          return { ...this.reloadPlaybook(), error: "Couldn't switch: close the playbook file and try again." }
-        }
-      }
+    if (fs.existsSync(user) && !this.backUpMyPlaybook(user, 'playbook-yours', now)) {
+      return { ...this.reloadPlaybook(), error: "Couldn't switch: close the playbook file and try again." }
     }
     this.log('playbook_choice', { choice: 'built_in' })
     return { ...this.reloadPlaybook(), error: null }
@@ -232,6 +273,7 @@ export class HelpService {
       hasKey: this.hasKey(), settings: this.settings, setup: this.setup, hotkey: 'Ctrl+Alt+H', hotkeyRegistered: this.hotkeyRegistered,
       modelLabel: model.label(this.modelConfig()), mock: model.mock, playbookVersion: this.playbook.version, knowledgeDir: this.knowledgeDir,
       ready: this.ready, playbook: this.playbookInfo,
+      wrapHotkeyRegistered: this.wrapHotkeyRegistered,
     }
   }
 
@@ -465,12 +507,12 @@ export class HelpService {
     }
   }
 
-  /** HELP button / hotkey. Never gated by speaker role. */
-  press(): { ok: boolean; reason?: string; request_id?: string } {
+  /** HELP (or WRAP) button / hotkey. Never gated by speaker role. */
+  press(origin: 'help_requested' | 'wrap_requested' = 'help_requested'): { ok: boolean; reason?: string; request_id?: string } {
     if (!this.engine || this.sessionState !== 'live') {
-      return { ok: false, reason: this.sessionState === 'paused' ? 'Paused - resume to use HELP.' : 'Start a call first.' }
+      return { ok: false, reason: this.sessionState === 'paused' ? `Paused - resume to use ${origin === 'wrap_requested' ? 'WRAP' : 'HELP'}.` : 'Start a call first.' }
     }
-    return { ok: true, request_id: this.engine.press('help_requested') }
+    return { ok: true, request_id: this.engine.press(origin) }
   }
 
   feedback(raw: unknown): { ok: boolean } {
@@ -479,8 +521,12 @@ export class HelpService {
     const reasons: BadReason[] = ['wrong_move', 'assumed_too_much', 'already_known', 'too_generic', 'too_late', 'bad_wording', 'unsupported', 'other']
     if (typeof r.card_id !== 'string' || !types.includes(r.type as FeedbackType)) return { ok: false }
     const eng = this.engine
+    const cardId = r.card_id.slice(0, 64)
+    // The card's own origin, so a WRAP card is rated as a WRAP card.
+    const asked = (this.db.sql.prepare('SELECT origin FROM help_requests WHERE id = ?').get(cardId) as { origin?: string } | undefined)?.origin
+    const origin: HelpOrigin = asked === 'wrap_requested' || asked === 'coach_proactive' ? asked : 'help_requested'
     const ev = {
-      card_id: r.card_id.slice(0, 64), origin: 'help_requested' as const, type: r.type as FeedbackType,
+      card_id: cardId, origin, type: r.type as FeedbackType,
       bad_reason: reasons.includes(r.bad_reason as BadReason) ? (r.bad_reason as BadReason) : null,
       optional_note: typeof r.note === 'string' && r.note.trim() ? r.note.slice(0, 500) : null,
     }

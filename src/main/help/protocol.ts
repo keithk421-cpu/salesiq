@@ -11,6 +11,8 @@ export interface CardLimits {
   primary_max_words: number
   happening_max_words: number
   follow_up_max_words: number
+  /** A technical answer stated from approved knowledge may run longer than other ASK/SAY lines. */
+  technical_max_words?: number
 }
 
 const KEYS = ['MOVE', 'ASK', 'SAY', 'HAPPENING', 'FOLLOW', 'SOURCES', 'NOTE'] as const
@@ -161,6 +163,12 @@ export function numbersIn(text: string): Set<string> {
   return out
 }
 
+/** Figures in the card's text that nobody said and no context item holds (ids, clock stamps and tags don't count as said). */
+export function unbackedNumbers(visible: string, contextText: string): string[] {
+  const said = numbersIn(contextText.replace(NOT_FIGURES, ' '))
+  return (visible.match(FIGURE) ?? []).filter((n) => !said.has(figure(n)))
+}
+
 export interface ValidationResult {
   ok: boolean
   card: HelpCardContent | null
@@ -192,16 +200,18 @@ export function validateCard(
   const sources = (partial.source_ids ?? []).filter((id) => opts.knownSourceIds.has(id))
 
   const L = opts.limits
-  const p = capWords(partial.primary, Math.ceil(L.primary_max_words * 1.2))
+  // A technical answer has to carry the facts it states, so it gets the longer limit when the playbook sets one.
+  const primaryMax = partial.move === 'technical_answer' && L.technical_max_words ? L.technical_max_words : L.primary_max_words
+  // Keith has already seen the ASK/SAY line while it streamed and may be reading it aloud, so a line a
+  // little over its limit is kept whole (and noted); only a runaway line is cut.
+  const p = capWords(partial.primary, primaryMax * 2)
+  if (!p.cut && words(p.text) > Math.ceil(primaryMax * 1.2)) issues.push('over card limits')
   const h = partial.happening ? capWords(partial.happening, Math.ceil(L.happening_max_words * 1.2)) : null
   const f = partial.follow_up ? capWords(partial.follow_up, Math.ceil(L.follow_up_max_words * 1.2)) : null
   if (p.cut || h?.cut || f?.cut) issues.push('trimmed to card limits')
 
   const visible = [p.text, h?.text ?? '', f?.text ?? ''].join(' ')
-  const said = numbersIn(opts.contextText.replace(NOT_FIGURES, ' '))
-  for (const n of visible.match(FIGURE) ?? []) {
-    if (!said.has(figure(n))) issues.push(`number not found in context: ${n}`)
-  }
+  for (const n of unbackedNumbers(visible, opts.contextText)) issues.push(`number not found in context: ${n}`)
   return {
     ok: true,
     issues,
@@ -276,16 +286,46 @@ export function findCapabilityClaim(text: string): string | null {
   return null
 }
 
+/** The card's check notes. The same words while the line streams and on the finished card, so the swap doesn't flicker. */
+export const CHECK_NUMBER = "Has a number that isn't in the call or approved knowledge. Check it before saying it."
+export const CHECK_CLAIM = 'Says what Arize can do without an approved source. Check it before saying it.'
+export const CHECK_TECHNICAL = 'Technical answer without an approved source. Check it before saying it.'
+
+/** Each field on its own, so a hedge in one field never excuses a claim in another. */
+function hasCapabilityClaim(card: Partial<HelpCardContent>): boolean {
+  return [card.primary ?? '', card.happening ?? '', card.follow_up ?? ''].some((x) => findCapabilityClaim(x) !== null)
+}
+
+/** A technical answer that states something (not a question, not "let me check"). */
+function statesTechnicalAnswer(card: Partial<HelpCardContent>): boolean {
+  const p = card.primary ?? ''
+  return card.move === 'technical_answer' && card.primary_kind === 'say' && !!p && !p.trim().endsWith('?') && !CLAIM_HEDGE.test(p)
+}
+
 /** Plain-language warnings shown on a finished card: things Keith should check before saying. */
 export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds: Map<string, 'turn' | 'knowledge'>): string[] {
   const out: string[] = []
-  if (issues.some((i) => issueKind(i) === 'number not found in context')) out.push("Has a number that isn't in the call or approved knowledge. Check it before saying it.")
+  if (issues.some((i) => issueKind(i) === 'number not found in context')) out.push(CHECK_NUMBER)
   const citesKnowledge = card.source_ids.some((id) => sourceKinds.get(id) === 'knowledge')
-  // Each field on its own, so a hedge in one field never excuses a claim in another.
-  const claim = [card.primary, card.happening ?? '', card.follow_up ?? ''].some((x) => findCapabilityClaim(x) !== null)
-  // A technical answer that states something (not a question, not "let me check") needs an approved source too.
-  const technical = card.move === 'technical_answer' && card.primary_kind === 'say' && !card.primary.trim().endsWith('?') && !CLAIM_HEDGE.test(card.primary)
-  if (claim && !citesKnowledge) out.push('Says what Arize can do without an approved source. Check it before saying it.')
-  else if (technical && !citesKnowledge) out.push('Technical answer without an approved source. Check it before saying it.')
+  if (hasCapabilityClaim(card) && !citesKnowledge) out.push(CHECK_CLAIM)
+  else if (statesTechnicalAnswer(card) && !citesKnowledge) out.push(CHECK_TECHNICAL)
+  return out
+}
+
+/**
+ * The checks that are already certain while the card is still streaming, from the moment its ASK/SAY
+ * line is complete (Keith may read it before the card finishes): a number nobody said, and, when this
+ * press had no approved knowledge to cite, an Arize capability claim or a technical answer. With
+ * knowledge in the context the finished card may still cite it, so those two wait for the end. The
+ * finished card's checks replace these.
+ */
+export function streamingChecks(partial: Partial<HelpCardContent>, opts: { contextText: string; knowledgeInContext: boolean }): string[] {
+  if (!partial.primary || !partial.move) return []
+  const out: string[] = []
+  const visible = [partial.primary, partial.happening ?? '', partial.follow_up ?? ''].join(' ')
+  if (unbackedNumbers(visible, opts.contextText).length) out.push(CHECK_NUMBER)
+  if (opts.knowledgeInContext) return out
+  if (hasCapabilityClaim(partial)) out.push(CHECK_CLAIM)
+  else if (statesTechnicalAnswer(partial)) out.push(CHECK_TECHNICAL)
   return out
 }

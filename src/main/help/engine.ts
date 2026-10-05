@@ -24,7 +24,8 @@ import { buildHelpContext, type BuiltContext } from './context'
 import { describeError, type HelpError, type HelpModel } from './models'
 import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
-import { LineProtocolParser, cardChecks, issueKind, validateCard } from './protocol'
+import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
+import { wrapReason, wrapUserMessage, type WrapWhy } from './wrap'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -86,6 +87,12 @@ interface Run {
   /** Stage timings (ms): building the context, and the knowledge search inside it. */
   contextMs: number
   knowledgeMs: number
+  /** Asked for a wrap card (the WRAP button, or closing words before a HELP press); null: a normal card. */
+  wrap: WrapWhy | null
+  /** Approved knowledge was in this request's context (so the card could still cite it). */
+  knowledgeInContext: boolean
+  /** How many checks were on screen while the line was still streaming (diagnostics). */
+  earlyChecks: number
 }
 
 const PREFETCH_DEBOUNCE_MS = 700
@@ -136,10 +143,12 @@ export class HelpEngine {
     }
     // Found now (also for a prefetched card), so it goes out with this press's very first event.
     const passage = this.findPassage()
+    // WRAP, or HELP while the call sounds like it's ending: always a fresh request for a next-step card.
+    const wrap = wrapReason(origin, this.d.memory, this.d.sessionNowMs())
 
     // Reuse a prefetched candidate only if nothing new was said since it was built.
     const pf = this.prefetchRun
-    if (pf && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
+    if (pf && !wrap && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
       this.prefetchRun = null
       pf.seq = ++this.seq
       pf.origin = origin
@@ -149,12 +158,12 @@ export class HelpEngine {
       this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status, passage: !!passage })
       // On screen first; shown now, so its request is kept like any pressed request.
       this.emit(pf)
-      this.persist(pf, buildUserMessage(pf.ctx.text))
+      this.persist(pf, this.userMessage(pf))
       return pf.id
     }
     this.abortPrefetch()
-    const run = this.start(origin, false, pressedWall, passage)
-    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false, passage: !!passage })
+    const run = this.start(origin, false, pressedWall, passage, wrap)
+    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false, passage: !!passage, wrap: wrap !== null, closing: wrap === 'closing' })
     return run.id
   }
 
@@ -258,7 +267,7 @@ export class HelpEngine {
     return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
   }
 
-  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null): Run {
+  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null, wrap: WrapWhy | null = null): Run {
     const atMs = this.d.sessionNowMs()
     const c0 = this.wallNow()
     const ctx = buildHelpContext({ memory: this.d.memory, kb: this.d.kb, atMs, clock: this.wallNow })
@@ -291,18 +300,26 @@ export class HelpEngine {
       passageShownWall: null,
       contextMs,
       knowledgeMs: ctx.knowledge_ms,
+      wrap,
+      knowledgeInContext: [...ctx.sources.values()].some((x) => x.kind === 'knowledge'),
+      earlyChecks: 0,
     }
     if (!prefetch) this.current = run
     this.lastRequestWall = run.startedWall
     // The first card (with any approved passage) goes on screen before the request is written to disk.
     if (!prefetch) this.emit(run)
-    this.persist(run, buildUserMessage(ctx.text))
+    this.persist(run, this.userMessage(run))
     run.done = this.execute(run)
     return run
   }
 
+  /** What this run sends: the call context, then the HELP or wrap-card instruction (also what is kept on disk). */
+  private userMessage(run: Run): string {
+    return run.wrap ? wrapUserMessage(run.ctx.text, run.wrap) : buildUserMessage(run.ctx.text)
+  }
+
   private async execute(run: Run): Promise<void> {
-    const user = buildUserMessage(run.ctx.text)
+    const user = this.userMessage(run)
     const timer = setTimeout(() => run.abort.abort(new Error('timeout')), this.d.config.timeout_ms)
     try {
       const res = await this.d.model.run({
@@ -317,6 +334,9 @@ export class HelpEngine {
           if (run.status === 'pending') run.status = 'streaming'
           if (run.parser.feed(chunk)) {
             run.content = run.parser.partial()
+            // Keith may read the line before the card finishes: what's already certain goes up with it.
+            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, knowledgeInContext: run.knowledgeInContext })
+            run.earlyChecks = Math.max(run.earlyChecks, run.checks.length)
             this.emit(run)
           }
         },
@@ -390,6 +410,8 @@ export class HelpEngine {
     if (this.isDead(run) || run.status === 'complete' || run.status === 'failed' || run.status === 'timeout') return
     run.status = status
     if (status === 'superseded' || status === 'cancelled') run.abort.abort(new Error(status))
+    // Checks belong to a finished card; a line that never finished is shown struck through instead.
+    if (status !== 'complete') run.checks = []
     this.persist(run)
     const t = this.timing(run)
     this.d.log(run.prefetch && run.pressedWall === null ? 'help_prefetch_done' : 'help_done', {
@@ -398,6 +420,7 @@ export class HelpEngine {
       served_from_prefetch: t.served_from_prefetch, input_tokens: run.usage?.input_tokens, output_tokens: run.usage?.output_tokens,
       cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.errorCode,
       passage_ms: t.passage_ms, passage_used: run.passage ? this.passageUsed(run) : null, context_ms: t.context_ms, knowledge_ms: t.knowledge_ms,
+      wrap: run.wrap, early_checks: run.earlyChecks, checks: run.checks.length,
     })
     // A finished prefetch nobody pressed for stays in memory, unseen.
     if (run.pressedWall !== null || !run.prefetch) this.emit(run)
@@ -460,6 +483,7 @@ export class HelpEngine {
       setup: run.setup,
       sources,
       passage: run.passage ? { ...run.passage, used_by_card: this.passageUsed(run) } : null,
+      ...(run.wrap ? { wrap: true } : {}),
     }
     this.d.emit(ev)
   }
@@ -485,6 +509,8 @@ export class HelpEngine {
         ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length,
         // Which approved passage Keith saw at the press, and whether the finished card cited it.
         passage_chunk_ids: run.passage?.chunk_ids ?? null, passage_used: run.passage ? this.passageUsed(run) : null,
+        // A wrap card ('button' or 'closing'), so the review and scorecard can tell them apart.
+        ...(run.wrap ? { wrap: run.wrap } : {}),
       }),
       run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )

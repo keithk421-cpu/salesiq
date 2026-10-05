@@ -62,6 +62,8 @@ const api = {
   onAppSettings: (cb: (s: { hide_from_capture: boolean; retention_days: number | null }) => void) => ipcRenderer.on('app-settings', (_e, s) => cb(s)),
   onSession: (cb: (ev: unknown) => void) => ipcRenderer.on('session-event', (_e, ev) => cb(ev)),
   onScan: (cb: (ev: unknown) => void) => ipcRenderer.on('scan-event', (_e, ev) => cb(ev)),
+  helpWrap: () => ipcRenderer.invoke('help:wrap'),
+  setCompact: (on: boolean) => ipcRenderer.invoke('window:compact', on) as Promise<{ compact: boolean }>,
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

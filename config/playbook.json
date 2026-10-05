@@ -1,6 +1,6 @@
 {
   "_status": "DRAFT for Keith's review. Edit freely: wording here is read by HELP on every press. No code changes needed.",
-  "version": "m1-draft-1",
+  "version": "m1-draft-2",
   "principles": [
     "Understand the actual point of what was just said before suggesting anything. Long, rambling answers usually contain one real point.",
     "A neutral answer is not a problem. Never invent pain, urgency, dissatisfaction, ownership or desire to change. If they described how something works, get curious about how it works in practice.",
@@ -39,8 +39,9 @@
     "other": "Be useful and neutral."
   },
   "card_limits": {
-    "primary_max_words": 30,
-    "happening_max_words": 18,
-    "follow_up_max_words": 22
+    "primary_max_words": 15,
+    "happening_max_words": 12,
+    "follow_up_max_words": 15,
+    "technical_max_words": 30
   }
 }
