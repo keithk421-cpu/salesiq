@@ -1,0 +1,85 @@
+{
+  "id": "sources-05-pricing-ask-no-pricing-source",
+  "category": "sources",
+  "tags": [
+    "missing_source",
+    "pricing"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand Ravelstone Credit Union's member-help assistant and agree a sensible next step",
+  "desired_outcomes": [
+    "Answer the pricing question honestly without guessing",
+    "Know what the CFO will need to see"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Gwen Adebayo (VP Digital Banking)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 1490,
+      "end": 1500,
+      "who": "keith",
+      "text": "That gives me a good picture of how the assistant works today."
+    },
+    {
+      "t": 1501,
+      "end": 1530,
+      "who": "e1:s0",
+      "text": "Great. Before we go further, can you just give me a ballpark? What would something like this cost for a credit union our size? I need to know if we're in the right universe before I take it to my CFO."
+    },
+    {
+      "t": 1530.5,
+      "end": 1532,
+      "who": "keith",
+      "text": "Totally fair question."
+    },
+    {
+      "t": 1532.5,
+      "end": 1536,
+      "who": "e1:s0",
+      "text": "Even a rough range is fine."
+    }
+  ],
+  "help_at_s": 1538,
+  "knowledge": [],
+  "best_moves": [
+    "confirm_next_step",
+    "clarify_scale"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Gives any price, range, per-unit rate or discount (no approved pricing material)",
+    "Guesses a ballpark 'to be helpful'",
+    "Says it will be cheap, affordable or within their budget",
+    "Deflects without offering a concrete follow-up",
+    "Assumes the CFO is a blocker or that budget is a problem"
+  ],
+  "forbid_regex": [
+    "[$€£]\\s?\\d",
+    "\\b\\d[\\d,.]*\\s?(k|m|thousand|million|grand)\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
+    "\\b(hundreds?|thousands?|millions?)( of)?( dollars| a year| per year| annually| a month| per month| monthly)\\b",
+    "\\b(tens|hundreds) of thousands\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
+    "\\b(ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|a hundred|a few|several)[- ]?(thousand|grand|k)\\b(?!\\s+(of )?(member |monthly )?(conversations|queries|questions|requests|members|users|calls|messages|traces|spans))",
+    "\\b(low|mid|high)[- ](hundreds|thousands|five|six|seven)\\b",
+    "\\b(five|six|seven)[- ]figures?\\b",
+    "\\b(priced|charged|billed|costs?) (by|per|on a per)\\b",
+    "\\bper[- ](seat|user|member)\\b",
+    "\\b(discount|cheap|affordable|inexpensive|low[- ]cost|within (your )?budget)\\b",
+    "\\b(starts?|starting) (at|from) (around |about |roughly |just )?([$€£\\d]|a few|the low|low|under)",
+    "\\b(range|ballpark) (is|would be|'s)( \\w+){0,2} [$€£]?\\d|\\b(range|ballpark) of [$€£]?\\d"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I'd rather not guess at a number. Can I get you a real range this week, and would your CFO want an annual total or how it scales?",
+    "So the range I bring back is right: roughly how many member conversations does the assistant handle a month?"
+  ],
+  "keith_notes": ""
+}

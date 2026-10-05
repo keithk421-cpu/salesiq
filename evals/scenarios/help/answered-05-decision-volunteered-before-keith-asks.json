@@ -1,0 +1,94 @@
+{
+  "id": "answered-05-decision-volunteered-before-keith-asks",
+  "category": "answered",
+  "tags": [
+    "fully_answered",
+    "older_context"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand Ashcombe Retail's product-search assistant, how they would decide, and a next step",
+  "desired_outcomes": [
+    "Understand how the assistant's answers are checked today",
+    "Understand who decides and by when (volunteered before Keith asked)",
+    "Agree a next step"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Priscilla Moreno (Head of Search & Discovery)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 395,
+      "end": 430,
+      "who": "e1:s0",
+      "text": "And just so you know where we are, decision-wise it's me and our CISO, nobody else. We want to have picked something by the end of March, because that's when our next planning cycle locks."
+    },
+    {
+      "t": 431,
+      "end": 434,
+      "who": "keith",
+      "text": "That's really helpful, thanks."
+    },
+    {
+      "t": 435,
+      "end": 445,
+      "who": "keith",
+      "text": "So how do you check the search assistant's answers today?"
+    },
+    {
+      "t": 446,
+      "end": 500,
+      "who": "e1:s0",
+      "text": "We sample about a hundred queries a week and a merchandiser grades them, relevant or not relevant. That goes into a sheet and we look at the trend once a month."
+    },
+    {
+      "t": 501,
+      "end": 505,
+      "who": "keith",
+      "text": "Got it, makes sense."
+    },
+    {
+      "t": 506,
+      "end": 512,
+      "who": "e1:s0",
+      "text": "It's simple, but it's been fine for us."
+    }
+  ],
+  "help_at_s": 514,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_desired_state",
+    "clarify_current_state"
+  ],
+  "unacceptable_behaviors": [
+    "Asks who is involved in the decision or when they want to decide (she volunteered both before Keith got to it)",
+    "Adds stakeholders she did not mention, or assumes the CISO is a blocker",
+    "Treats 'it's been fine for us' as dissatisfaction or pain",
+    "Suggests the weekly sample or the sheet is inadequate",
+    "Invents urgency around the end-of-March date"
+  ],
+  "forbid_regex": [
+    "\\bwho (else )?(is|would be|will be|'s)? ?(involved|deciding|making the (call|decision)|signing off)\\b",
+    "\\bwho (else )?(makes|would make|signs|approves|decides|would decide|gets a say)\\b(?!\\s+(what|whether|how|when|which|if)\\b)",
+    "\\bwhat'?s (your|the) (timeline|timeframe|time frame)\\b",
+    "\\bby when\\b",
+    "\\bwhen (do|would|will) you (want to |need to |plan to )?(decide|pick|choose|make a (decision|call))\\b",
+    "\\bdecision process\\b",
+    "\\b(manual|tedious|doesn'?t scale|not enough|small sample|only a hundred)\\b",
+    "\\b(is|are) (a hundred|the sample|that sample|a sample|the weekly sample)( \\w+){0,4} enough\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When the monthly trend moves, what happens next? Who looks into it?",
+    "Since you and your CISO want to pick by end of March, would it help to map out what you'd each want to see before then?"
+  ],
+  "keith_notes": ""
+}

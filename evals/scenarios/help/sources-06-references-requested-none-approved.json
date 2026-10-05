@@ -1,0 +1,83 @@
+{
+  "id": "sources-06-references-requested-none-approved",
+  "category": "sources",
+  "tags": [
+    "missing_source",
+    "references"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Agree what Silverfen Payments needs to take the evaluation to its steering group",
+  "desired_outcomes": [
+    "Understand what kind of reference would help the steering group",
+    "Offer a follow-up on references that can actually be shared"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Lucas Brennan (Head of Risk Engineering)"
+    },
+    "e1:s1": {
+      "role": "buyer",
+      "name": "Asha Mwangi (Product Director)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 930,
+      "end": 962,
+      "who": "e1:s1",
+      "text": "One thing our steering group will ask for is references. Could we talk to a couple of your customers? Ideally someone in payments or banking using it for something customer-facing."
+    },
+    {
+      "t": 962.5,
+      "end": 964,
+      "who": "keith",
+      "text": "Sure, understood."
+    },
+    {
+      "t": 964.5,
+      "end": 972,
+      "who": "e1:s0",
+      "text": "And ideally someone who went through a security review like ours."
+    },
+    {
+      "t": 972.5,
+      "end": 974,
+      "who": "e1:s1",
+      "text": "Yeah, that would carry weight."
+    }
+  ],
+  "help_at_s": 976,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_requirement",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "clarify_desired_state"
+  ],
+  "unacceptable_behaviors": [
+    "Names any customer (no approved references are available)",
+    "Invents a customer story, result or logo",
+    "Promises a reference call, or a specific kind of reference, before checking what can be shared",
+    "Claims Arize has many banks or payments customers",
+    "Treats the request as an objection or a sign of doubt"
+  ],
+  "forbid_regex": [
+    "\\b(we|arize)( have| has|'ve got| work with| works with) (lots of|many|several|a few|plenty of|dozens of|some|a number of) (\\w+ ){0,2}(customers?|clients?|banks?|companies|teams)\\b",
+    "\\b(customers?|clients?|banks?|companies) (like|such as) (?!(yours?|that|this|you)\\b)",
+    "\\bcase stud(y|ies)\\b",
+    "\\bi('ll| will| can) (set (you )?up|introduce you|line up|get you on a call|connect you)\\b",
+    "\\b(happy|glad) to (set up|arrange|line up) (a )?(reference|call)",
+    "\\bone of (our|the) (biggest|largest|top)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Let me check which references we're able to share and come back to you. For your steering group, does industry match or a similar security review matter more?",
+    "When your steering group hears from a reference, what do they most want to learn from them?"
+  ],
+  "keith_notes": ""
+}
