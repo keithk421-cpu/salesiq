@@ -2,8 +2,6 @@
 
 Sales Copilot is a Windows desktop app Keith runs during Zoom sales calls. It captures call audio on the PC, turns it into text, and on request suggests his next line.
 
-**Before a call starts:** Start asks who the call is with, their deployment, and whether Keith has told everyone on the call that it's being transcribed. "Not recording today" starts nothing. (The suggested wording is a placeholder until Legal confirms it.)
-
 **While a call is running (between Start and Stop/Pause):**
 - **Deepgram (speech-to-text):** both audio streams stream live over an encrypted websocket (`wss://api.deepgram.com`, model nova-3): Keith's microphone, and the meeting audio, meaning everything that plays on the selected headset output (all remote participants, plus any other app's sound on that device). The request sets Deepgram's `mip_opt_out=true` (opt out of Deepgram's model improvement program). Deepgram's retention of audio and text is per Deepgram's terms, for Security to confirm.
 - **Anthropic (Claude API):** text, not audio. Each request contains:

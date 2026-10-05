@@ -29,7 +29,7 @@ Tip: Razer software can add extra outputs (e.g. "7.1 Surround", "Game", "Chat").
 ## 3. Smoke test (about 5 minutes)
 Join a Zoom call with a friend, or with your phone as the second person. **Wear the headset.**
 Put the other person (or your phone) in a **different room**, or have them use headphones. If they're in the same room, their voice reaches your mic through the air, and the app has to guess which copy is real.
-1. Click **Start**. A small box asks who the call is with, their deployment, and whether you've told everyone it's being transcribed. Click **Yes, start** (or **Not recording today** to skip). Then it checks both streams: play Zoom's Test Speaker or let your friend talk, and say a few words. Within a few seconds it should switch to **LIVE**. If you press Start before the other person joins, it just keeps waiting (up to 20 minutes) and goes live when it hears both sides; **Stop** cancels.
+1. Click **Start**. It checks both streams first: play Zoom's Test Speaker or let your friend talk, and say a few words. Within a few seconds it should switch to **LIVE**. If you press Start before the other person joins, it just keeps waiting (up to 20 minutes) and goes live when it hears both sides; **Stop** cancels.
 2. Talk back and forth. Your words show as blue **Keith · mic** bubbles on the right; the other side shows as **Remote · speaker 0 / speaker 1** on the left (speaker numbers are Deepgram's voice groups, not names).
 3. Click **Pause**. Keep talking for 10 seconds, then click **Resume**. Nothing you said while paused should appear. You should see a **Paused** line.
 4. **Headset test:** turn the headset **off** for about 10 seconds, then back **on**.
@@ -76,7 +76,7 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 
 ## On a call
 - Under the HELP button, a small light says whether HELP is ready: **HELP ready** (green), **Practice mode** (no Claude key: cards are MOCK), or a red/amber problem in plain words (key not working, out of credit, no internet). Click it to check again.
-- **Start** asks who the call is with and their **Deployment** (SaaS, self-hosted or not sure). With a deployment set, HELP won't state facts that only apply to the other one. You can change the strip (call type, goal, outcomes, account, deployment) at any point during the call; the next HELP press uses it. **Stop** clears the account, goal, outcomes and deployment so the next call starts clean (the call type stays).
+- Fill the strip when you can: **Account** and **Deployment** (SaaS, self-hosted or not sure) matter most. With a deployment set, HELP won't state facts that only apply to the other one. You can change the strip (call type, goal, outcomes, account, deployment) at any point, even mid-call; the next HELP press uses it. **Stop** clears the account, goal, outcomes and deployment so the next call starts clean (the call type stays).
 - Press **Ctrl+Alt+H** (or the **HELP** button) whenever you want a line. The app window comes to the front without taking you out of Zoom. You'll see one Ask or Say line, maybe a one-line read above it, maybe a follow-up. The card's top right says which account and deployment it assumed.
 - A yellow note on a card means it includes a number or a "we support…" claim that isn't backed by your approved knowledge: check it before saying it. A crossed-out line marked **Don't use this line** came from an answer that failed its checks: press HELP again.
 - **Ctrl+Alt+Shift+H** hides or shows the app window (if no other app uses that shortcut).

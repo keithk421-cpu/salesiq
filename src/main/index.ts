@@ -37,8 +37,6 @@ let hideHotkeyRegistered = false
 
 /** Show/hide the window without taking focus from Zoom. Registered only if no other app uses it. */
 const HIDE_HOTKEY = 'Control+Alt+Shift+H'
-/** Which consent wording Keith confirmed at Start (placeholder until Legal confirms the wording). */
-const DISCLOSURE_VERSION = 'placeholder-2026-10-05'
 
 interface AppSettings {
   /** Keep this window out of screen shares, recordings and screenshots (Windows 10 2004 and later). */
@@ -299,11 +297,8 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('session:start', async (_e, raw: unknown) => {
+  ipcMain.handle('session:start', async () => {
     if (session && ['checking', 'live', 'paused', 'stopping'].includes(session.state)) return { ok: false, reason: 'A session is already running.' }
-    // Start only after Keith confirms he told everyone on the call it's being transcribed.
-    if ((raw as { disclosed?: unknown } | null)?.disclosed !== true) return { ok: false, reason: "Not started: tell everyone on the call it's being transcribed first." }
-    log('call_disclosure_confirmed', { wording: DISCLOSURE_VERSION })
     scanner.stop()
     const config = storage.loadConfig()
     if (!config) return { ok: false, reason: 'Pick, test and save your devices first.' }

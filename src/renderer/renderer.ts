@@ -486,27 +486,10 @@ $('saveDevices').addEventListener('click', async () => {
   renderSources()
 })
 
-// Start asks who the call is with and whether everyone was told it's transcribed; "Not recording
-// today" doesn't start anything.
-$('startBtn').addEventListener('click', () => {
+$('startBtn').addEventListener('click', async () => {
   $('banner').hidden = true
-  $<HTMLInputElement>('smAccount').value = $<HTMLInputElement>('csAccount').value
-  const dep = $<HTMLSelectElement>('csDeploy').value
-  document.querySelectorAll<HTMLInputElement>('input[name="smDeploy"]').forEach((r) => (r.checked = r.value === dep))
-  $('startModal').hidden = false
-  $<HTMLInputElement>('smAccount').focus()
-})
-$('smNo').addEventListener('click', () => {
-  $('startModal').hidden = true
-  showBanner('info', "Not started. HELP needs the call's transcript, so it's off for this call.")
-})
-$('smYes').addEventListener('click', async () => {
-  $('startModal').hidden = true
-  $<HTMLInputElement>('csAccount').value = $<HTMLInputElement>('smAccount').value.trim()
-  $<HTMLSelectElement>('csDeploy').value = document.querySelector<HTMLInputElement>('input[name="smDeploy"]:checked')?.value ?? 'unknown'
-  saveSetup()
   $<HTMLButtonElement>('startBtn').disabled = true
-  const r = await api.start({ disclosed: true })
+  const r = await api.start()
   $<HTMLButtonElement>('startBtn').disabled = false
   if (!r.ok) showBanner('error', r.reason)
   await refreshConfig()
@@ -514,7 +497,6 @@ $('smYes').addEventListener('click', async () => {
 })
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return
-  $('startModal').hidden = true
   $('reviewModal').hidden = true
 })
 $('pauseBtn').addEventListener('click', async () => { const r = await api.pause(); if (!r.ok) showBanner('error', r.reason) })
