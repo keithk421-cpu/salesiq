@@ -113,3 +113,31 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 
 ## Send me after a few calls
 Diagnostics → **Save support files** → zip the folder it opens and send it. It has timings, counts, HELP speed reports and one numbers-only scorecard per call (how many times you pressed HELP, how fast lines came back, what it cost, your Useful/Bad taps), and no conversation text. Never send `copilot.db` or the `sessions` folder (they hold the full conversations). Your practice moments, and speed reports from runs that included them, are left out of the support files; send the **Export HELP feedback** file (above) for the lines and notes.
+
+# M2: nothing slips between calls
+
+## Before the call: "Last time with…"
+- Start typing the **Account** in the strip: it suggests accounts you've had calls with. When it matches one, a box shows **Last time with <Account> · <date> (<n> calls)**: **You promised**, **They owe**, **Agreed next step**, **Still open**, **They want** and **What they told us**, each with the date of the call it came from. It comes from the wrap-ups of your last three calls with them (items you removed are left out, and your edits are kept) and their call notes.
+- **Reuse last setup** fills the goal, outcomes and deployment from the last call, with call type **Follow-up**.
+- When you press **Start** the box folds to one line so it doesn't push HELP's card down; click it to open it again.
+- HELP knows these too: it may suggest a line like "Last time you mentioned X, is that still the case?". It treats them as what was true then, never as fact today, and won't promise again something you may already have done.
+
+## During the call
+- Lines are shorter now: an Ask or Say line is about 15 words, so you can read it in a glance. A technical answer from your approved files can run to about 30.
+- A yellow **check before saying** note now appears as soon as the line does, not when the whole card is finished.
+- **WRAP** (next to HELP, or **Ctrl+Alt+W**) near the end of the call gives you one line to lock the next step: what happens, who's there, and a date or time. If something was already agreed, it confirms the details; it never picks a date nobody said. The line underneath recaps what you promised to send. The card says **Wrapping up**.
+- If you press HELP just as they say something like "we're out of time" or "what are the next steps?", HELP aims for the next step too, unless they just asked you a question; then it answers that first.
+- **Compact** shrinks the app to a small strip on top of Zoom: HELP, WRAP, the line and its yellow note, and the approved note's first line. **Expand** brings the full window back. Between calls the strip shows no card.
+
+## After Stop: the wrap-up
+- **Stop** now finishes the call notes first (the last few minutes, when next steps usually get agreed), then a **Wrap-up** window opens by itself: "Finishing notes and wrap-up…" for a few seconds, then five short lists:
+  - **We owe them**
+  - **They said they'd do**
+  - **Agreed next steps**
+  - **Proposed, not agreed**
+  - **Their questions, not answered yet**
+- Each item shows the words it came from and when they were said. Tick the ones that are right, fix the wording, remove the wrong ones (Undo brings one back), and use **+ Add** for anything it missed.
+- **Draft follow-up email** writes a short email from you: thanks, what you heard, the next step, what you'll send, and what they said they'd do. It answers their questions only from your approved files; otherwise it says you'll come back on it. It uses the items you ticked plus any you added (tick none to use them all). A yellow note means it has a number or an Arize claim that isn't in the call or your approved files: check it before sending. Edit it in the box, then **Copy email** and **Copy subject**. Nothing is ever sent for you.
+- **Review cards** goes to the usual card ratings and comes back. **Done** closes it; the **Wrap-up** button next to **Review this call's cards** reopens it (until the next call starts).
+- If it couldn't build ("Claude took too long"), click **Try again**, or add the items yourself.
+- To switch it off: **Setup → step 3 → Wrap-up after each call**. Each wrap-up costs a few cents (one request after the call), and each email draft about a cent. In Practice mode (no Claude key) both are placeholders marked **MOCK**.

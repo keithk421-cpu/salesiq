@@ -54,6 +54,8 @@ const CLOSING: RegExp[] = [
   // "our next steps are to migrate", "next steps for us internally" or "the next steps in the pipeline"
   /\b(?:what(?:'s| is| are| would be| should be)?|talk about|talk through|discuss|cover|agree on|align on|figure out|map out|lock in|nail down|in terms of|as for|as) (?:the |some |any |a |our )?next steps?\b(?!\s+(?:in|of|after|within|inside|for (?:the|your|their|this|that|each|our)|on (?:the|your|their|that)|with (?:the|your|their|that))\b)/,
   /\bnext steps\s*\?/,
+  // "Should we wrap up?", "can we wrap things up here", but not "should we wrap up the evaluation by Q3"
+  /\b(?:should|shall|can|could) (?:we|i) (?:wrap|wind)(?: (?:things|this|it))? (?:up|down)(?= ?(?:[.,!?;\n]|$|here\b|now\b|for today\b))/,
   // "we've only got five minutes left", "just a couple of minutes left"
   /\b(?:only|just|got|have|we've|i've)(?: (?:about|got|only|just))? (?:a (?:few|couple(?: of)?)|one|two|three|four|five|ten|\d+) (?:more )?minutes? left\b/,
   // "I have another meeting in two minutes", "my next call starts in five"
@@ -98,11 +100,11 @@ ${WRAP_REASON[why]} Before they hang up, help Keith lock a concrete next step.
 - ASK or SAY: one line that pins down the next step: what happens, who attends, and a date or time. If a next step is already agreed (call_notes "agreed", or the transcript), confirm its details instead of proposing a new one. A step that was only proposed is not agreed: ask whether it works for them.
 - If no date or time was said, ask for one ("What day works for you?"); never pick a date, a name or a commitment nobody said. Keep to any timeframe they named ("after our Q1 planning").
 - If they said not now or not interested, don't push for a meeting: ask how and when they'd like Keith to follow up.
-- MOVE: confirm_next_step. Use call_control only if they are mid-thought and Keith should let them finish.
-- FOLLOW: what Keith still owes them from this call, as a short line in Keith's voice recapping only what he or a teammate promised to send or do ("I'll send over the SOC 2 report."); no new items or dates; "-" if nothing.
+- MOVE: ${why === 'button' ? 'confirm_next_step. Use call_control only if they are mid-thought and Keith should let them finish.' : 'confirm_next_step when the line locks the next step; when it answers what they just asked, the move that fits that.'}
+- FOLLOW: ${why === 'button' ? '' : 'the next-step question, when the line answers something else; otherwise '}what Keith still owes them from this call, as a short line in Keith's voice recapping only what he or a teammate promised to send or do ("I'll send over the SOC 2 report."); no new items or dates; "-" if nothing.
 </wrap_card>
 
-Give Keith his line to lock the next step.`
+${why === 'button' ? 'Give Keith his line to lock the next step.' : 'Give Keith his next line.'}`
 }
 
 /** A request asking for a wrap card (the offline MOCK model answers it with a next-step line). */

@@ -76,6 +76,8 @@ export function initWrapup(api: CopilotApi): void {
   const box = $<HTMLInputElement>('aiWrapup')
 
   const open = () => {
+    // The wrap-up needs the full window: leave the compact strip first (compact.ts).
+    if (document.body.classList.contains('compact')) $('expandBtn').click()
     $('wrapupModal').hidden = false
     render()
   }

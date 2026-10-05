@@ -56,7 +56,8 @@ After the closing notes pass, one background request builds the wrap-up for the 
   call time, and remove. "+ Add" per section. Buttons: "Draft follow-up email", "Review cards" (the
   existing review), "Done". A "Wrap-up" button stays in the call controls after Stop to reopen it.
 - `src/main/help/followup.ts`: the follow-up draft, made only when Keith clicks "Draft follow-up email".
-  - Input: confirmed items (or every item not removed, when none is confirmed), call setup, buyer
+  - Input: the items Keith ticked plus the ones he added (or every item not removed, when none is
+    ticked), call setup, buyer
     names from speaker labels, up to 3 of "what they want" from the notes, and approved knowledge:
     each open question and promise is searched in the approved, current, in-scope knowledge; up to 5
     sections, labelled K1..K5 with whose product they describe.
@@ -88,7 +89,8 @@ After the closing notes pass, one background request builds the wrap-up for the 
 - HELP: an `<earlier_calls>` block (at most about 700 characters, dated items, newest call first)
   when the call's account has memory, computed once at call start (excluding this call). Prompt rule:
   these are past statements; Keith can refer to them ("Last time you mentioned X, is that still the
-  priority?") but they are never stated as current fact. Call notes don't read it.
+  case?") but they are never stated as current fact, and something Arize promised then may already be
+  done. Call notes don't read it.
 
 ## 4. Before you hang up (feature 3)
 
@@ -99,7 +101,8 @@ After the closing notes pass, one background request builds the wrap-up for the 
   fresh request (never a background candidate). The card is labelled "Wrapping up".
 - A HELP press while the last 30 s contain closing language ("we're out of time", "hard stop",
   "I have to jump", "let you go", "top of the hour", "before we wrap", "next steps") gets the wrap
-  instruction too (and skips the background candidate). No pop-up; nothing appears without a press.
+  instruction too (and skips the background candidate), softened: a question they just asked is
+  answered first and the next-step question goes in FOLLOW. No pop-up; nothing appears without a press.
 
 ## 5. Shorter lines (feature 4)
 
@@ -112,7 +115,7 @@ After the closing notes pass, one background request builds the wrap-up for the 
 ## 6. Compact window (feature 5)
 
 - A "Compact" button in the call controls (and back with "Expand"): the window shrinks to a small
-  strip (about 460 x 240), stays on top during the call, and shows only HELP and WRAP, a status dot,
+  strip (about 460 x 300), stays on top during the call, and shows only HELP and WRAP, a status dot,
   the card's line with its checks, and the approved note's first line. Position and size are
   remembered per mode. Content protection is unchanged (same window).
 
@@ -123,3 +126,13 @@ Keith may already have read the line. As soon as the ASK/SAY line is complete, t
 already certain are shown: a number not in the call or knowledge, and, when no approved knowledge
 was given for this press, an Arize capability claim or a technical answer. The finished card's full
 checks replace them.
+
+## As built (differences from the plan above)
+
+- The wrap-up runs for the call that ended even if the next call starts meanwhile; a call where
+  nothing was transcribed sends no wrap-up request. A failed build has "Try again" and still allows
+  adding items and drafting from them. The Wrap-up button reopens it until the next call starts.
+- Quitting the app never waits: a wrap-up still building is saved as failed.
+- When the wrap-up window opens while the app is compact, the window goes back to full size.
+- An ASK/SAY line a little over its limit is kept whole (up to twice the limit) rather than cut
+  mid-sentence after Keith has started reading it.

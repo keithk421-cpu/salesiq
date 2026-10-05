@@ -25,6 +25,7 @@ describe('closing language', () => {
       'I have to run to my next meeting', "We've only got five minutes left", 'I have another meeting in two minutes',
       'I have another call at the top of the hour.', 'Okay, I need to drop off the call.', "Let's start wrapping up.",
       "To wrap up, we'd love a demo.", "I'll let you get back to your day.", 'Next steps?', "I'm short on time, sorry",
+      'Should we wrap up?', 'Can we wrap things up here?',
     ]) expect(closingLanguage(t), t).toBe(true)
   })
 
@@ -43,7 +44,16 @@ describe('closing language', () => {
       'the next steps after ingestion are labeling', 'The job runs at the top of the hour.', "We'll need to drop support for the old SDK.",
       'I have to drop the old tables first.', 'We wrap it up in a Docker image.', "we're tight on time to market",
       'What are your next steps for evaluating vendors?', 'We need to hop on a call next week with security.',
+      'Should we wrap up the evaluation by Q3?',
     ]) expect(closingLanguage(t), t).toBe(false)
+  })
+
+  it('closing words alone only ask for a next step when the line is about one', () => {
+    const u = wrapUserMessage('<call_setup>x</call_setup>', 'closing')
+    expect(u).toMatch(/MOVE: confirm_next_step when the line locks the next step; when it answers what they just asked, the move that fits that/)
+    expect(u).toMatch(/FOLLOW: the next-step question, when the line answers something else/)
+    expect(u.trimEnd().endsWith('Give Keith his next line.')).toBe(true)
+    expect(wrapUserMessage('<call_setup>x</call_setup>', 'button').trimEnd().endsWith('Give Keith his line to lock the next step.')).toBe(true)
   })
 
   it('the wrap instruction asks for one dated next step and what Keith still owes, without inventing anything', () => {
