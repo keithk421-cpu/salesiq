@@ -755,5 +755,7 @@ describe('plain errors and card checks', () => {
     expect(cardChecks({ ...card }, ['number not found in context: 40'], turnOnly)).toHaveLength(2)
     expect(cardChecks({ ...card, source_ids: ['K1'] }, [], new Map([['K1', 'knowledge' as const]]))).toEqual([])
     expect(cardChecks({ ...card, primary: 'Do we have time to look at SSO?' }, [], turnOnly)).toEqual([])
+    // Checking before answering is not a claim.
+    expect(cardChecks({ ...card, primary: 'Let me confirm we support that for self-hosted before I answer.' }, [], turnOnly)).toEqual([])
   })
 })

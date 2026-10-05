@@ -71,8 +71,8 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 ## One-time setup (5 minutes)
 1. **Setup → step 3 "Connect Claude for HELP":** paste your Anthropic API key there (on your PC, not in chat) and click **Save key**. Leave the model on **Claude Sonnet 5.5**.
 2. **Setup → step 4 "Knowledge pack" (optional but valuable):** click **Add a folder…** and pick the unzipped pack folder (it adds only the files that are ready, from `1-live-candidate`), or **Add files…** to pick single files. They arrive unapproved. Tick **Approved** on each file you've read; unticked files are never used. **Remove** takes a file out of use (it isn't deleted). If you edit a file later, it shows **Changed: approve again** and HELP stops using it until you re-tick it.
-3. **Diagnostics (bottom of the call screen) → Run HELP speed test**, with no call running. It takes a few minutes, costs roughly $1, and compares Sonnet vs Opus on 33 practice moments. Send me the report (**Open report**).
-4. **Review the 33 practice moments** in `docs/SCENARIO_REVIEW.md` (about 20 minutes). Reply with the numbers you agree with and a one-line fix for the rest. Only the ones you approve decide which model wins.
+3. **Diagnostics (bottom of the call screen) → Run HELP speed test**, with no call running. It takes a few minutes, costs roughly $1-2, and compares Sonnet vs Opus on 43 practice moments. Send me the report (**Open report**).
+4. **Review the 43 practice moments** in `docs/SCENARIO_REVIEW.md` (about 25 minutes). Reply with the numbers you agree with and a one-line fix for the rest. Only the ones you approve decide which model wins.
 
 ## On a call
 - Under the HELP button, a small light says whether HELP is ready: **HELP ready** (green), **Practice mode** (no Claude key: cards are MOCK), or a red/amber problem in plain words (key not working, out of credit, no internet). Click it to check again.

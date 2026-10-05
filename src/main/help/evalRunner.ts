@@ -12,8 +12,10 @@ import type { HelpCardContent, HelpModelConfig, HelpUsage } from '../../shared/h
 import { buildHelpContext } from './context'
 import type { HelpModel } from './models'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
-import { LineProtocolParser, validateCard } from './protocol'
+import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
 import { replayAt, type Scenario } from './replay'
+
+export { findCapabilityClaim }
 
 export interface ScenarioResult {
   scenario_id: string
@@ -37,40 +39,6 @@ export interface ScenarioResult {
 const PAIN_WORDS = /\b(pain|painful|frustrat\w*|struggl\w*|headache\w*|broken|bottleneck\w*|nightmare|problem\w*|issue\w*|challenge\w*)\b/gi
 /** Everyday phrases that use a pain word without claiming pain; removed before PAIN_WORDS is matched. */
 const NOT_PAIN = /\bno (?:problem|issue)s?\b|\b(?:that'?s|that is|it'?s|it is) not an? (?:problem|issue)\b|\bbroken (?:down|out|up|into)\b|\bissu(?:ed|ing)\b/gi
-
-/**
- * Wording that states what Arize can do. It must be tied to a cited approved source (a K# id).
- * "We have" / "we've got" only count with a product object ("we have an OpenTelemetry-based
- * tracer"), so "we have a call next week" or "we have two options" are not claims.
- */
-const CAPABILITY_CLAIM_SOURCE =
-  String.raw`\b(?:` +
-  [
-    String.raw`we (?:do |can |also |already |fully |natively )?(?:support|offer|provide)`,
-    String.raw`we(?: have|'ve got) (?:a |an |the )?(?:[\w-]+ ){0,2}?(?:integrations?|connectors?|support|features?|sdks?|exports?|apis?|plugins?|tracers?|tracing|instrumentation|capabilit(?:y|ies)|dashboards?|modules?|sso|saml|scim|rbac|otlp|soc ?2|certifications?)`,
-    String.raw`arize (?:also |already |fully |natively )?(?:supports|has|offers|provides|includes|covers|handles|works with|integrates with|can(?!'?t| ?not\b))`,
-    String.raw`(?:our|arize'?s|arize’s) (?:[\w-]+ ){0,2}?(?:platform|product|tracing|tracer|sdk|evals?|monitoring|instrumentation|integration|tool)s? (?:supports|includes|covers|handles|works with|integrates with|has)`,
-    String.raw`(?:it|the platform|the product|phoenix) (?:also |already |fully |natively )?(?:supports|includes)`,
-    String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
-  ].join('|') +
-  String.raw`)\b`
-/** A question or a subordinate lead right before the claim ("can we provide", "if that is supported", "which languages are supported"). */
-const CLAIM_LEAD = /\b(?:do|does|did|can|could|should|would|will|shall|if|what|which|once|when|until|before|after|suggest|propose|maybe|perhaps)\s+(?:[\w-]+\s+)?$/i
-/** A hedge earlier in the same sentence: the line is checking, not claiming ("let me confirm we support that"). */
-const CLAIM_HEDGE = /\b(?:confirm|check|verify|whether|not sure|unsure|not certain|find out|look into|double-check|ask)\b/i
-
-/** First unhedged Arize capability claim in the text, or null. */
-export function findCapabilityClaim(text: string): string | null {
-  for (const m of text.matchAll(new RegExp(CAPABILITY_CLAIM_SOURCE, 'gi'))) {
-    const before = text.slice(0, m.index)
-    const sentence = before.slice(Math.max(...['.', '!', '?', ';'].map((c) => before.lastIndexOf(c))) + 1)
-    if (CLAIM_LEAD.test(sentence) || CLAIM_HEDGE.test(sentence)) continue
-    // "Which languages are supported in your stack?" is about the buyer's side.
-    if (/^(?:is|are)\b/i.test(m[0]) && /^\s+(?:in|on|by|across|within)\s+(?:your|their)\b/i.test(text.slice(m.index + m[0].length))) continue
-    return m[0]
-  }
-  return null
-}
 
 export function loadScenarios(dir: string): Scenario[] {
   if (!fs.existsSync(dir)) return []
