@@ -15,7 +15,6 @@ const api = {
   setAppSettings: (s: unknown) => ipcRenderer.invoke('app:setSettings', s),
   callsInfo: () => ipcRenderer.invoke('calls:info'),
   confirmRetention: (yes: boolean) => ipcRenderer.invoke('calls:confirmRetention', yes),
-  deleteLastCall: () => ipcRenderer.invoke('calls:deleteLast'),
   deleteAllCalls: () => ipcRenderer.invoke('calls:deleteAll'),
   onRetentionPreview: (cb: (p: { days: number; calls: Array<{ started_at: string; account: string }> }) => void) => ipcRenderer.on('retention-preview', (_e, p) => cb(p)),
   pause: () => ipcRenderer.invoke('session:pause'),

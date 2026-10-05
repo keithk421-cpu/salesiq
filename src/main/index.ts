@@ -43,12 +43,12 @@ const DISCLOSURE_VERSION = 'placeholder-2026-10-05'
 interface AppSettings {
   /** Keep this window out of screen shares, recordings and screenshots (Windows 10 2004 and later). */
   hide_from_capture: boolean
-  /** Delete saved calls older than this many days; null keeps them until Keith deletes them. */
+  /** Delete saved calls older than this many days; null (the default) keeps them. */
   retention_days: number | null
   /** Keith said yes to the first deletion preview; after that, old calls are deleted without asking. */
   retention_confirmed: boolean
 }
-const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true, retention_days: 30, retention_confirmed: false }
+const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true, retention_days: null, retention_confirmed: false }
 const RETENTION_CHOICES = [7, 14, 30, 90]
 let appSettings: AppSettings = { ...DEFAULT_APP_SETTINGS }
 
@@ -231,12 +231,6 @@ function registerIpc(): void {
     appSettings.retention_confirmed = true
     storage.writeJson('app-settings.json', appSettings)
     return { ok: true, ...purgeCalls(dueForDeletion().map((c) => c.id), 'retention') }
-  })
-  ipcMain.handle('calls:deleteLast', () => {
-    const id = session?.sessionId
-    if (!id || activeCallId()) return { ok: false, reason: 'Stop the call first.' }
-    const r = purgeCalls([id], 'keith_last')
-    return { ok: r.failed === 0, ...r }
   })
   ipcMain.handle('calls:deleteAll', () => {
     const ids = listSavedCalls(storage.root, help?.db ?? null).map((c) => c.id).filter((id) => id !== activeCallId())

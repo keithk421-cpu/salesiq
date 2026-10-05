@@ -169,7 +169,6 @@
         <button id="resumeBtn" class="btn btn-primary btn-lg" hidden>Resume</button>
         <button id="stopBtn" class="btn btn-danger-ghost btn-lg" hidden>Stop</button>
         <button id="reviewCallBtn" class="btn btn-secondary btn-sm" hidden title="Rate each HELP card from this call and tick the lines you used">Review this call's cards</button>
-        <button id="deleteCallBtn" class="btn btn-ghost btn-sm" hidden title="Removes this call's transcript, HELP cards and notes from this PC">Delete this call</button>
       </div>
     </div>
 
@@ -285,7 +284,7 @@
       <div class="row small">
         <span>Keep saved calls for</span>
         <select id="retention" class="input">
-          <option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option><option value="90">90 days</option><option value="never">Until I delete them</option>
+          <option value="never">Forever</option><option value="90">90 days</option><option value="30">30 days</option><option value="14">14 days</option><option value="7">7 days</option>
         </select>
         <span id="callsInfo" class="muted"></span>
         <button id="deleteAll" class="btn btn-ghost btn-sm">Delete all saved calls…</button>

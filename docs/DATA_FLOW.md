@@ -25,7 +25,7 @@ Sales Copilot is a Windows desktop app Keith runs during Zoom sales calls. It ca
 - Per-call HELP scorecards and speed-test reports: numbers only (counts, timings, cost, feedback taps); speed-test reports also hold the model's answers to the built-in practice scenarios.
 - **No audio is ever saved.**
 - "Save support files" copies only the logs, per-call diagnostics and counters, scorecards, speed-test reports and the non-secret settings into a new folder; never the database, transcripts, call setup, keys or knowledge files.
-- Saved calls are deleted automatically after 30 days (Keith can choose 7, 14, 30 or 90 days, or keep them until he deletes them). The first time any call is past the limit, the app lists those calls and asks before deleting; after that it deletes them on its own. Deleting a call removes its transcript, speaker labels, HELP requests and cards, feedback and notes, and compacts the database. Keith can also delete the call he just finished, or all saved calls, at any time. Numbers-only scorecards are kept.
+- Saved calls are kept until Keith deletes them. An optional setting deletes calls older than 7, 14, 30 or 90 days (off by default; the first time it would delete anything, it lists the calls and asks). Deleting removes a call's transcript, speaker labels, HELP requests and cards, feedback and notes, and compacts the database. Numbers-only scorecards are kept.
 
 **On screen:** the app window is hidden from screen sharing, recordings and screenshots by default (Windows 10 version 2004 and later). Keith can turn this off in Diagnostics to take a screenshot.
 

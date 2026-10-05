@@ -200,7 +200,6 @@ function setButtons(): void {
   $('pauseBtn').hidden = s !== 'live'
   $('resumeBtn').hidden = s !== 'paused'
   $('stopBtn').hidden = !['checking', 'live', 'paused'].includes(s)
-  $('deleteCallBtn').hidden = s !== 'stopped' || lastCallDeleted
   $('reviewCallBtn').hidden = s !== 'stopped' || lastCallDeleted
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
@@ -575,16 +574,6 @@ function clearCallView(): void {
   renderCard()
   renderTranscript()
 }
-$('deleteCallBtn').addEventListener('click', async () => {
-  if (!confirm("Delete this call from this PC? Its transcript, HELP cards and your notes are removed. This can't be undone.")) return
-  const r = (await api.deleteLastCall()) as { ok: boolean; reason?: string }
-  if (!r.ok) return showBanner('error', r.reason ?? "Couldn't delete every file of this call. Close the app and try again.")
-  lastCallDeleted = true
-  clearCallView()
-  setButtons()
-  showBanner('info', 'Deleted. Nothing from that call is left on this PC.')
-  void renderCallsInfo()
-})
 async function renderCallsInfo(): Promise<void> {
   const i = (await api.callsInfo()) as { count: number; oldest: string | null; retention_days: number | null }
   $<HTMLSelectElement>('retention').value = i.retention_days === null ? 'never' : String(i.retention_days)

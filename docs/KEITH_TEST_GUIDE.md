@@ -88,8 +88,7 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 
 ## After a call
 - **Review this call's cards** (under Start) lists every HELP card from the call: rate each one, tick **I used this line** for the ones you actually said, and add a note if something would have been better. 2 minutes; it's the most useful feedback for improving HELP.
-- **Delete this call** removes that call's transcript, cards and notes from your PC.
-- Saved calls are deleted automatically after **30 days** (change it in **Diagnostics → Keep saved calls for**). The first time, the app shows which calls and asks first.
+- Every call is kept on your PC. (Diagnostics has an optional "Keep saved calls for" setting if you ever want old calls cleared out; it's off.)
 - **Setup → step 4** shows which playbook HELP uses. If you edited it and made a typo, it says what's wrong and uses the built-in one until you fix it. When a new built-in playbook ships, it asks whether to switch (your copy is kept) or keep yours. Edits apply from the next call; no restart needed.
 - Knowledge files close to their review date show **Expires in N days**: ask me for a refresh before then.
 
