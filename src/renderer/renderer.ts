@@ -43,7 +43,9 @@ const labels = new Map<string, SpeakerLabel>()
 /** The HELP card currently displayed (only the newest request is ever shown). */
 let card: HelpCardEvent | null = null
 let cardShownAt = 0
-let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string } | null = null
+type ReadyState = { readiness: string; message: string }
+let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string; ready?: ReadyState } | null = null
+let hideHotkey: string | null = null
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -200,7 +202,6 @@ function setButtons(): void {
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
   $<HTMLButtonElement>('helpBtn').disabled = s !== 'live'
-  for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount']) $<HTMLInputElement>(id).disabled = !['idle', 'stopped'].includes(s)
   setPill()
 }
 
@@ -365,6 +366,9 @@ api.onSession((raw) => {
         renderTranscript()
       }
       if (ev.state === 'idle' && ev.detail) showBanner('error', ev.detail)
+      // Stop clears who the call was with (the next call starts clean).
+      if (ev.state === 'stopped') void refreshHelpInfo()
+      if (ev.state !== 'live') $('idleBanner').hidden = true
       if (ev.detail) addActivity(ev.state === 'idle' ? 'error' : 'info', ev.detail)
       setButtons()
       renderSources()
@@ -377,7 +381,7 @@ api.onSession((raw) => {
       $('ckSys').classList.toggle('pass', ev.systemPassed)
       $('ckMic').classList.toggle('pass', ev.micPassed)
       $('ckDg').classList.toggle('pass', ev.providersOpen)
-      $('ckLeft').textContent = `${Math.ceil(ev.remainingMs / 1000)} s left`
+      $('ckLeft').textContent = ev.remainingMs > 90_000 ? `Waits ${Math.ceil(ev.remainingMs / 60_000)} more min` : `${Math.ceil(ev.remainingMs / 1000)} s left`
       break
     case 'stream_status':
       statuses[ev.status.stream] = ev.status
@@ -462,15 +466,33 @@ $('saveDevices').addEventListener('click', async () => {
   renderSources()
 })
 
-$('startBtn').addEventListener('click', async () => {
+// Start asks who the call is with and whether everyone was told it's transcribed; "Not recording
+// today" doesn't start anything.
+$('startBtn').addEventListener('click', () => {
   $('banner').hidden = true
+  $<HTMLInputElement>('smAccount').value = $<HTMLInputElement>('csAccount').value
+  const dep = $<HTMLSelectElement>('csDeploy').value
+  document.querySelectorAll<HTMLInputElement>('input[name="smDeploy"]').forEach((r) => (r.checked = r.value === dep))
+  $('startModal').hidden = false
+  $<HTMLInputElement>('smAccount').focus()
+})
+$('smNo').addEventListener('click', () => {
+  $('startModal').hidden = true
+  showBanner('info', "Not started. HELP needs the call's transcript, so it's off for this call.")
+})
+$('smYes').addEventListener('click', async () => {
+  $('startModal').hidden = true
+  $<HTMLInputElement>('csAccount').value = $<HTMLInputElement>('smAccount').value.trim()
+  $<HTMLSelectElement>('csDeploy').value = document.querySelector<HTMLInputElement>('input[name="smDeploy"]:checked')?.value ?? 'unknown'
+  saveSetup()
   $<HTMLButtonElement>('startBtn').disabled = true
-  const r = await api.start()
+  const r = await api.start({ disclosed: true })
   $<HTMLButtonElement>('startBtn').disabled = false
   if (!r.ok) showBanner('error', r.reason)
   await refreshConfig()
   setButtons()
 })
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('startModal').hidden) $('startModal').hidden = true })
 $('pauseBtn').addEventListener('click', async () => { const r = await api.pause(); if (!r.ok) showBanner('error', r.reason) })
 $('resumeBtn').addEventListener('click', async () => { const r = await api.resume(); if (!r.ok) showBanner('error', r.reason) })
 $('stopBtn').addEventListener('click', () => void api.stop())
@@ -486,6 +508,11 @@ $('switchBtn').addEventListener('click', async () => {
 $('snapBefore').addEventListener('click', async () => { const r = await api.snapshot('before'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('snapAfter').addEventListener('click', async () => { const r = await api.snapshot('after'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('openFolder').addEventListener('click', () => void api.openFolder())
+$('hideCapture').addEventListener('change', async () => {
+  const on = $<HTMLInputElement>('hideCapture').checked
+  await api.setAppSettings({ hide_from_capture: on })
+  $('snapMsg').textContent = on ? 'This window is hidden from screen sharing and screenshots again.' : 'This window can now be captured. Take the screenshot, then tick the box again before your next call.'
+})
 void (api.buildInfo() as Promise<{ version: string; build: string; sha: string; date: string }>).then((b) => {
   $('buildTag').textContent = `· build ${b.build} (${b.sha}${b.date ? `, ${b.date}` : ''})`
 })
@@ -516,19 +543,28 @@ function renderCard(): void {
   el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
   $('hcBadge').hidden = !card.mock
   $('hcHappening').textContent = c.happening ?? ''
+  const su = card.setup
+  $('hcFor').textContent = su ? `For ${su.account || 'account not set'} · ${DEPLOY_LABEL[su.deployment] ?? 'deployment not sure'}` : ''
   const prim = $('hcPrimary')
-  if (usable) {
+  const broken = card.status === 'failed' || card.status === 'timeout'
+  if (usable && broken) {
+    // A line that streamed in but whose answer then failed is shown struck through, never as advice.
+    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(card.error ?? "the answer didn't finish its checks")}</span>`
+  } else if (usable) {
     prim.innerHTML = `<span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span>${esc(c.primary_kind === 'ask' ? `"${c.primary}"` : c.primary!)}`
-  } else if (card.status === 'failed' || card.status === 'timeout') {
-    prim.textContent = card.status === 'timeout' ? 'HELP took too long - press again.' : `HELP couldn't produce a usable line${card.error ? ` (${card.error})` : ''}.`
+  } else if (broken) {
+    prim.textContent = card.error ?? 'HELP could not produce a usable line. Press HELP again.'
   } else if (card.status === 'cancelled') {
     prim.textContent = 'Cancelled.'
   } else {
     prim.textContent = PENDING_TEXT[card.status] ?? ''
   }
   const fol = $('hcFollow')
-  fol.hidden = !c.follow_up
+  fol.hidden = !c.follow_up || broken
   fol.textContent = c.follow_up ?? ''
+  const checks = done ? card.checks ?? [] : []
+  $('hcChecks').hidden = checks.length === 0
+  $('hcChecks').textContent = checks.join(' ')
   const warns = [...card.warnings]
   if (c.note && done) warns.push(c.note)
   $('hcWarn').hidden = warns.length === 0
@@ -559,6 +595,41 @@ api.onHelp((raw) => {
 })
 
 api.onHelpNotice((msg) => showBanner('info', msg))
+// Hotkey press: the window comes up without taking focus; bring the card into view.
+api.onHelpFocus(() => $('helpCard').scrollIntoView({ block: 'nearest' }))
+api.onAppNotice((n) => {
+  showBanner(n.level, n.text)
+  addActivity(n.level, n.text)
+})
+
+const DEPLOY_LABEL: Record<string, string> = { saas: 'SaaS', self_hosted: 'self-hosted', unknown: 'deployment not sure' }
+
+// ---- HELP-ready light ----
+function renderReady(r: ReadyState | undefined): void {
+  const el = $('helpReady')
+  const state = r?.readiness ?? 'checking'
+  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' ? 'warn' : 'bad'}`
+  $('helpReadyText').textContent = r?.message ?? 'Checking HELP…'
+}
+api.onHelpReady((r) => renderReady(r))
+$('helpReady').addEventListener('click', async () => renderReady((await api.helpCheckReady()) ?? undefined))
+
+// ---- "Still on a call?" ----
+let idleTimer: ReturnType<typeof setInterval> | null = null
+api.onIdle((st) => {
+  if (idleTimer) clearInterval(idleTimer)
+  idleTimer = null
+  $('idleBanner').hidden = !st.warning
+  if (!st.warning) return
+  const until = Date.now() + (st.seconds ?? 60) * 1000
+  const tick = () => { $('idleLeft').textContent = String(Math.max(0, Math.ceil((until - Date.now()) / 1000))) }
+  tick()
+  idleTimer = setInterval(tick, 1000)
+})
+$('idleKeep').addEventListener('click', () => {
+  $('idleBanner').hidden = true
+  void api.stillHere()
+})
 
 function el_resetFeedback(): void {
   $('helpCard').querySelectorAll('.fb').forEach((b) => b.classList.remove('chosen'))
@@ -654,7 +725,9 @@ async function refreshHelpInfo(): Promise<void> {
   $<HTMLInputElement>('csAccount').value = su.account
   $<HTMLSelectElement>('csDeploy').value = su.deployment ?? 'unknown'
   $('kbPath').textContent = helpInfo.knowledgeDir ? `Knowledge folder: ${helpInfo.knowledgeDir}` : ''
-  $('hotkeyHint').textContent = helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button'
+  $('hotkeyHint').textContent = (helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button') +
+    (hideHotkey ? ` · hide/show: ${hideHotkey}` : '')
+  renderReady(helpInfo.ready)
   $('helpBtn').title = helpInfo.hotkeyRegistered ? 'HELP (Ctrl+Alt+H)' : 'HELP'
 }
 
@@ -747,6 +820,9 @@ void (async () => {
 void (async () => {
   const info = await api.info()
   hasKey = info.hasApiKey
+  hideHotkey = info.hideHotkey ?? null
+  if (hideHotkey) void refreshHelpInfo()
+  $<HTMLInputElement>('hideCapture').checked = info.settings?.hide_from_capture ?? true
   $('demoTag').hidden = !info.demoMode
   await refreshConfig()
   setButtons()

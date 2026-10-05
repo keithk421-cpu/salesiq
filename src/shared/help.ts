@@ -167,6 +167,10 @@ export interface HelpCardEvent {
   model_label: string
   mock: boolean
   error: string | null
+  /** Plain-language warnings about a finished card (an unbacked number or capability claim). */
+  checks: string[]
+  /** Who the call is with, as set when this request was built (so a wrong setup is visible). */
+  setup: { account: string; deployment: Deployment }
   /** Sources resolved for display (collapsed by default). */
   sources: Array<{ id: string; kind: 'turn' | 'knowledge'; label: string; detail: string }>
 }

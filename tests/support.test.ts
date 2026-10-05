@@ -50,4 +50,18 @@ describe('Save support files', () => {
     expect(out.skipped.map((f) => f.split(path.sep).join('/'))).toEqual(['logs/app.jsonl'])
     expect(fs.readFileSync(path.join(out.dir, 'README.txt'), 'utf8')).toMatch(/Could not copy: logs.app\.jsonl/)
   })
+
+  it.skipIf(process.platform === 'win32')('never follows a link from an allowed name to a conversation file', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'))
+    fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'sessions', 's1'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'copilot.db'), 'FULL CONVERSATIONS')
+    fs.writeFileSync(path.join(root, 'sessions', 's1', 'transcript.jsonl'), 'BUYER SECRET')
+    fs.symlinkSync(path.join(root, 'copilot.db'), path.join(root, 'logs', 'x.jsonl'))
+    fs.symlinkSync(path.join(root, 'sessions', 's1', 'transcript.jsonl'), path.join(root, 'sessions', 's1', 'summary.json'))
+    const out = saveSupportFiles(root, fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')))
+    expect(out.files).toEqual([])
+    const all = fs.readdirSync(out.dir, { recursive: true }).map((f) => path.join(out.dir, String(f))).filter((f) => fs.statSync(f).isFile())
+    for (const f of all) expect(fs.readFileSync(f, 'utf8')).not.toMatch(/CONVERSATIONS|SECRET/)
+  })
 })

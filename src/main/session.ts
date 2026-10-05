@@ -35,6 +35,9 @@ import { invalidNativeEvent } from './validate'
 const AUDIBLE_DBFS = -50
 import { TurnBuilder, type TurnEvent } from './turnBuilder'
 
+/** How long Start keeps waiting to hear both sides before giving up (Stop cancels sooner). */
+export const START_WAIT_MS = 20 * 60_000
+
 export type SessionState = 'idle' | 'checking' | 'live' | 'paused' | 'stopping' | 'stopped'
 export type CaptureState = 'off' | 'capturing' | 'lost' | 'recovering'
 
@@ -216,7 +219,8 @@ export class SessionController {
     const providers = Promise.all(this.streams.map((rt) => this.connectProvider(rt)))
     providers.catch(() => undefined)
 
-    const timeoutMs = this.deps.checkTimeoutMs ?? 60000
+    // Keith often presses Start before the buyer joins: keep waiting for both sides (Stop cancels).
+    const timeoutMs = this.deps.checkTimeoutMs ?? START_WAIT_MS
     const startedAt = Date.now()
     const result = await new Promise<{ ok: boolean; reason?: string }>((resolve) => {
       this.checkResolve = resolve
@@ -546,6 +550,8 @@ export class SessionController {
     if (rt.dg !== dg) return
     rt.dg = null
     this.deps.log('provider_lost', { stream: rt.stream, epoch: dg.epoch, detail })
+    // While waiting for the call to begin, just reconnect: no audio has been sent, so nothing is missed.
+    if (this.state === 'checking') return this.scheduleProviderRetry(rt)
     if (this.state !== 'live') return
     if (!rt.openGap) this.openGap(rt, 'provider_disconnect', `Speech service connection closed (${detail})`)
     this.alert('warning', `${rt.label}: speech service disconnected (${detail}). Reconnecting; gap marked; no audio will be replayed.`)
@@ -559,14 +565,16 @@ export class SessionController {
     rt.providerAttempts++
     rt.providerRetryTimer = setTimeout(async () => {
       rt.providerRetryTimer = null
-      if (this.state !== 'live' || rt.dg || rt.capture !== 'capturing') return
+      const waiting = this.state === 'checking'
+      if ((this.state !== 'live' && !waiting) || rt.dg || rt.capture !== 'capturing') return
       try {
         await this.connectProvider(rt)
+        if (waiting) return
         this.counters.providerReconnects++
         this.alert('info', `${rt.label}: speech service reconnected (new connection epoch ${rt.epoch}; speaker labels restart).`)
       } catch (err) {
         this.deps.log('provider_retry_failed', { stream: rt.stream, attempt: rt.providerAttempts, message: (err as Error).message })
-        if (this.state === 'live') this.scheduleProviderRetry(rt)
+        if (this.state === 'live' || this.state === 'checking') this.scheduleProviderRetry(rt)
       }
     }, delay)
   }

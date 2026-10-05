@@ -13,14 +13,15 @@
  * - Cache/connection pre-warm at session start and keep-warm while live.
  */
 import { randomUUID } from 'node:crypto'
-import type { FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { Stream } from '../../shared/contracts'
 import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { buildHelpContext, type BuiltContext } from './context'
-import type { HelpModel } from './models'
+import { describeError, type HelpError, type HelpModel } from './models'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
-import { LineProtocolParser, validateCard } from './protocol'
+import { LineProtocolParser, cardChecks, issueKind, validateCard } from './protocol'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -37,6 +38,8 @@ export interface HelpEngineDeps {
   prefetch?: boolean
   /** Wall clock in ms (injectable for tests). */
   wallNow?: () => number
+  /** A key, credit or model-access problem that pressing again won't fix (background work stops). */
+  onBlocked?: (e: HelpError | null) => void
 }
 
 interface Run {
@@ -59,13 +62,21 @@ interface Run {
   card: HelpCardContent | null
   issues: string[]
   usage: HelpUsage | null
+  /** Plain words for Keith; errorCode is what logs keep. */
   error: string | null
+  errorCode: string | null
+  /** Plain-language warnings about the finished card (an unbacked number or claim). */
+  checks: string[]
+  /** Who the call is with, as set when the request was built. */
+  setup: { account: string; deployment: Deployment }
   raw: string
   done: Promise<void>
 }
 
 const PREFETCH_DEBOUNCE_MS = 700
 const PREFETCH_MAX_AGE_MS = 25_000
+/** Background candidates are capped so a fast back-and-forth can't run up cost. */
+const PREFETCH_PER_MINUTE = 4
 const KEEP_WARM_MS = 4 * 60_000
 
 export class HelpEngine {
@@ -77,6 +88,9 @@ export class HelpEngine {
   private warmTimer: NodeJS.Timeout | null = null
   private lastRequestWall = 0
   private cancelled = false
+  private prefetchStarts: number[] = []
+  /** Set by a key/credit/model-access error: no background work until a request succeeds again. */
+  private blocked: HelpError | null = null
   private readonly system: string
   private readonly wallNow: () => number
 
@@ -120,15 +134,27 @@ export class HelpEngine {
     return run.id
   }
 
-  /** Call when new final transcript words arrive. Schedules a background candidate. */
-  onFinalWords(): void {
-    if (!this.d.prefetch || this.d.model.mock || this.cancelled) return
+  /**
+   * Call when new final transcript words arrive. After the other side speaks, schedules a background
+   * candidate; Keith's own words only cancel a pending one (he's talking, so it would be stale).
+   */
+  onFinalWords(stream: Stream = 'system_remote'): void {
+    if (!this.d.prefetch || this.d.model.mock || this.cancelled || this.blocked) return
     if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+    this.prefetchTimer = null
+    if (stream !== 'system_remote') return
     this.prefetchTimer = setTimeout(() => {
       this.prefetchTimer = null
-      if (this.cancelled) return
+      if (this.cancelled || this.blocked) return
       const key = this.snapshotKey()
       if (this.prefetchRun && this.prefetchRun.snapshotKey === key) return
+      const now = this.wallNow()
+      this.prefetchStarts = this.prefetchStarts.filter((t) => now - t < 60_000)
+      if (this.prefetchStarts.length >= PREFETCH_PER_MINUTE) {
+        this.d.log('help_prefetch_capped', { per_minute: PREFETCH_PER_MINUTE })
+        return
+      }
+      this.prefetchStarts.push(now)
       this.abortPrefetch()
       this.prefetchRun = this.start('help_requested', true, null)
     }, PREFETCH_DEBOUNCE_MS)
@@ -166,7 +192,7 @@ export class HelpEngine {
   private startKeepWarm(): void {
     this.stopKeepWarm()
     this.warmTimer = setInterval(() => {
-      if (this.cancelled || this.wallNow() - this.lastRequestWall < KEEP_WARM_MS) return
+      if (this.cancelled || this.blocked || this.wallNow() - this.lastRequestWall < KEEP_WARM_MS) return
       void this.prewarm()
     }, 60_000)
   }
@@ -220,6 +246,9 @@ export class HelpEngine {
       issues: [],
       usage: null,
       error: null,
+      errorCode: null,
+      checks: [],
+      setup: { account: this.d.memory.setup.account, deployment: this.d.memory.setup.deployment },
       raw: '',
       done: Promise.resolve(),
     }
@@ -255,7 +284,13 @@ export class HelpEngine {
       run.parser.end()
       run.content = run.parser.partial()
       run.usage = res.usage
-      if (res.stop_reason === 'refusal') throw new Error('model declined (refusal)')
+      this.setBlocked(null)
+      if (res.stop_reason === 'refusal') {
+        run.error = 'Claude declined to answer this one. Press HELP again.'
+        run.errorCode = 'refusal'
+        this.finish(run, 'failed')
+        return
+      }
       const v = validateCard(run.content, run.parser.fieldOrder, {
         knownSourceIds: new Set(run.ctx.sources.keys()),
         contextText: run.ctx.text,
@@ -263,22 +298,44 @@ export class HelpEngine {
       })
       run.issues = v.issues
       if (!v.ok || !v.card) {
-        run.error = v.issues.join('; ')
+        run.error = "HELP's answer didn't pass its checks. Press HELP again."
+        run.errorCode = 'invalid'
         this.finish(run, 'failed')
         return
       }
       run.card = v.card
       run.content = v.card
+      run.checks = cardChecks(v.card, v.issues, new Map([...run.ctx.sources].map(([id, x]) => [id, x.kind])))
       run.completeWall = this.wallNow()
       this.finish(run, 'complete')
     } catch (err) {
       if (this.isDead(run)) return
       const timedOut = run.abort.signal.aborted && (run.abort.signal.reason as Error | undefined)?.message === 'timeout'
-      run.error = timedOut ? `no complete card within ${this.d.config.timeout_ms} ms` : (err as Error).message
+      if (timedOut) {
+        run.error = `No complete answer within ${Math.round(this.d.config.timeout_ms / 1000)} s. Press HELP again.`
+        run.errorCode = 'timeout'
+      } else {
+        const e = describeError(err)
+        run.error = e.message
+        run.errorCode = e.code
+        if (e.blocking) this.setBlocked(e)
+      }
       this.finish(run, timedOut ? 'timeout' : 'failed')
     } finally {
       clearTimeout(timer)
     }
+  }
+
+  private setBlocked(e: HelpError | null): void {
+    if ((this.blocked?.code ?? null) === (e?.code ?? null)) return
+    this.blocked = e
+    if (e) {
+      if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
+      this.prefetchTimer = null
+      this.abortPrefetch()
+    }
+    this.d.log('help_blocked', { code: e?.code ?? null })
+    this.d.onBlocked?.(e)
   }
 
   /** A run whose results must be ignored (superseded, cancelled, or a discarded prefetch). */
@@ -296,7 +353,7 @@ export class HelpEngine {
       request_id: run.id, seq: run.seq, status, origin: run.origin, model: this.d.config.model,
       first_usable_ms: t.first_usable_ms, complete_ms: t.complete_ms, first_token_ms: t.first_token_ms,
       served_from_prefetch: t.served_from_prefetch, input_tokens: run.usage?.input_tokens, output_tokens: run.usage?.output_tokens,
-      cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.error,
+      cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.errorCode,
     })
     // A finished prefetch nobody pressed for stays in memory, unseen.
     if (run.pressedWall !== null || !run.prefetch) this.emit(run)
@@ -341,6 +398,8 @@ export class HelpEngine {
       model_label: this.d.model.label(this.d.config),
       mock: this.d.model.mock,
       error: run.error,
+      checks: run.checks,
+      setup: run.setup,
       sources,
     }
     this.d.emit(ev)
@@ -362,7 +421,9 @@ export class HelpEngine {
       run.id, this.d.memory.sessionId, run.origin, new Date().toISOString(), run.ctx.refs.at_session_ms, run.status,
       JSON.stringify({ ...this.d.config, label: this.d.model.label(this.d.config), mock: this.d.model.mock, playbook: this.d.playbook.version }),
       JSON.stringify(run.ctx.refs), shown ? (requestText ?? null) : null, shown ? run.raw || null : null, shown && run.card ? JSON.stringify(run.card) : null,
-      JSON.stringify({ ...t, issues: run.issues }), run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
+      // Issue details can quote the model's output; an unseen request keeps only what kind they were.
+      JSON.stringify({ ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length }),
+      run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )
   }
 }

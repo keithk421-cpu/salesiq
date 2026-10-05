@@ -162,6 +162,7 @@
       </div>
       <div class="controls">
         <button id="helpBtn" class="btn btn-help btn-lg" title="Ctrl+Alt+H">HELP</button>
+        <button id="helpReady" class="ready-light" title="Click to check again"><span class="dot"></span><span id="helpReadyText">Checking HELP…</span></button>
         <button id="startBtn" class="btn btn-primary btn-lg">Start</button>
         <button id="pauseBtn" class="btn btn-secondary btn-lg" hidden>Pause</button>
         <button id="resumeBtn" class="btn btn-primary btn-lg" hidden>Resume</button>
@@ -187,9 +188,11 @@
       <div class="hc-top">
         <span id="hcBadge" class="tag tag-warn" hidden>MOCK</span>
         <span id="hcHappening" class="hc-happening"></span>
+        <span id="hcFor" class="hc-for muted small"></span>
       </div>
       <div id="hcPrimary" class="hc-primary"></div>
       <div id="hcFollow" class="hc-follow" hidden></div>
+      <div id="hcChecks" class="hc-checks" hidden></div>
       <div id="hcWarn" class="hc-warn" hidden></div>
       <div class="hc-foot">
         <details id="hcSources" class="hc-sources"><summary>Sources</summary><div id="hcSourceList"></div></details>
@@ -230,9 +233,17 @@
       <button id="bannerClose" class="icon-btn" title="Dismiss">✕</button>
     </div>
 
+    <div id="idleBanner" class="banner warning" hidden>
+      <span class="banner-ico"></span>
+      <div class="banner-body">
+        <div><b>Still on a call?</b> Nothing has been heard from the other side for 10 minutes. Stopping in <b id="idleLeft">60</b> s.</div>
+        <div class="row"><button id="idleKeep" class="btn btn-sm btn-primary">Still on the call</button></div>
+      </div>
+    </div>
+
     <div id="checkCard" class="card check" hidden>
-      <h2>Getting ready…</h2>
-      <p class="muted">Click <b>Test Speaker</b> in Zoom (or let the meeting play) and say a few words.</p>
+      <h2>Waiting for the call…</h2>
+      <p class="muted">It goes live as soon as it hears both sides: the meeting audio (or Zoom's <b>Test Speaker</b>) and you saying a few words. It keeps waiting up to 20 minutes; press <b>Stop</b> to cancel.</p>
       <ul class="checks">
         <li id="ckSys"><span class="ck"></span>Meeting audio</li>
         <li id="ckMic"><span class="ck"></span>Your mic</li>
@@ -267,6 +278,7 @@
         <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
       <p id="snapMsg" class="muted small"></p>
+      <label class="inline check small"><input type="checkbox" id="hideCapture" /> Hide this window from screen sharing, recordings and screenshots (untick only to take a screenshot for support)</label>
       <div class="bench">
         <div class="row">
           <button id="benchRun" class="btn btn-secondary btn-sm">Run HELP speed test (Sonnet 5.5 vs Opus 5.5)</button>
@@ -280,6 +292,29 @@
       <div id="activity" class="activity"></div>
     </details>
   </section>
+
+  <div id="startModal" class="modal-back" hidden>
+    <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="smTitle">
+      <h2 id="smTitle">Before you start</h2>
+      <label class="field"><span>Who is this call with?</span>
+        <input id="smAccount" class="input" placeholder="Account name (optional)" />
+      </label>
+      <div class="field"><span>Their deployment</span>
+        <div class="seg">
+          <label><input type="radio" name="smDeploy" value="saas" /> SaaS</label>
+          <label><input type="radio" name="smDeploy" value="self_hosted" /> Self-hosted</label>
+          <label><input type="radio" name="smDeploy" value="unknown" /> Not sure</label>
+        </div>
+      </div>
+      <div class="field"><span>Have you told everyone on the call that it's being transcribed?</span>
+        <p class="muted small">Placeholder until Legal confirms the wording. For example: "Quick heads-up: I use a tool that transcribes this call for my notes."</p>
+      </div>
+      <div class="row">
+        <button id="smYes" class="btn btn-primary">Yes, start</button>
+        <button id="smNo" class="btn btn-ghost">Not recording today</button>
+      </div>
+    </div>
+  </div>
 
   <script src="renderer.js"></script>
 </body>

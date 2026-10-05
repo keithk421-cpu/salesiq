@@ -2,10 +2,10 @@
  * Electron main process for the M0 debug app.
  * Read-only toward Windows/Zoom audio settings. Local-only storage.
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, safeStorage, shell } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, powerMonitor, safeStorage, shell } from 'electron'
 import WebSocket from 'ws'
 import type { AudioEndpointConfig, BuildInfo } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule } from '../shared/nativeApi'
@@ -15,6 +15,7 @@ import { resolveConfig, shortId, toEndpointRef } from './endpoints'
 import { saveSupportFiles } from './support'
 import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
+import { IdleWatch } from './idleWatch'
 import { SessionController, type SessionEvent } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
@@ -30,6 +31,23 @@ let session: SessionController | null = null
 let sessionLog: JsonlWriter | null = null
 let transcriptLog: JsonlWriter | null = null
 let help: HelpService | null = null
+let idle: IdleWatch | null = null
+let hideHotkeyRegistered = false
+
+/** Show/hide the window without taking focus from Zoom. Registered only if no other app uses it. */
+const HIDE_HOTKEY = 'Control+Alt+Shift+H'
+/** Which consent wording Keith confirmed at Start (placeholder until Legal confirms the wording). */
+const DISCLOSURE_VERSION = 'placeholder-2026-10-05'
+
+interface AppSettings {
+  /** Keep this window out of screen shares, recordings and screenshots (Windows 10 2004 and later). */
+  hide_from_capture: boolean
+}
+const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true }
+let appSettings: AppSettings = { ...DEFAULT_APP_SETTINGS }
+
+/** Knowledge file names can name a customer; logs keep a short fingerprint instead. */
+const docRef = (docId: string) => createHash('sha256').update(docId).digest('hex').slice(0, 8)
 declare const __BUILD_INFO__: BuildInfo
 /** Which build this is (tests and dev runs without the build script get a placeholder). */
 export const BUILD: BuildInfo = typeof __BUILD_INFO__ === 'undefined' ? { version: app?.getVersion?.() ?? '0', build: 'dev', sha: 'dev', date: '' } : __BUILD_INFO__
@@ -73,6 +91,7 @@ function onSessionEvent(ev: SessionEvent): void {
   send('session-event', ev)
   const s = session
   if (help && s) help.onSessionEvent(ev, s.sessionId, () => s.nowSessionMs())
+  watchIdle(ev)
   if (!transcriptLog) return
   if (ev.type === 'turn' && ev.event.type === 'turn_final') transcriptLog.write({ kind: 'turn', ...ev.event.turn })
   if (ev.type === 'gap_open' || ev.type === 'gap_close') transcriptLog.write({ kind: ev.type, ...ev.gap })
@@ -84,11 +103,73 @@ function onSessionEvent(ev: SessionEvent): void {
   }
 }
 
+/** Forgotten-call guard: fresh per call; the clock restarts on resume and whenever the other side speaks. */
+function watchIdle(ev: SessionEvent): void {
+  if (ev.type === 'state') {
+    if (ev.state === 'checking') idle = new IdleWatch(() => Date.now())
+    if (ev.state === 'live') clearIdleWarning()
+    if (ev.state === 'stopped' || ev.state === 'idle') {
+      clearIdleWarning()
+      idle = null
+    }
+    return
+  }
+  const remote = (ev.type === 'turn' && ev.event.turn.stream === 'system_remote') || (ev.type === 'interim' && ev.stream === 'system_remote' && !!ev.text)
+  if (remote) clearIdleWarning()
+}
+
+function clearIdleWarning(): void {
+  const was = idle?.warning
+  idle?.reset()
+  if (was) {
+    send('idle', { warning: false })
+    win?.flashFrame(false)
+  }
+}
+
+function checkIdle(): void {
+  if (!idle || session?.state !== 'live') return
+  const v = idle.tick()
+  if (v === 'warn') {
+    log('idle_warning')
+    send('idle', { warning: true, seconds: 60 })
+    win?.flashFrame(true)
+  } else if (v === 'stop') {
+    log('idle_stop')
+    clearIdleWarning()
+    idle = null
+    send('app-notice', { level: 'warning', text: 'Stopped: nothing was heard from the call for over 10 minutes, and nobody answered "Still on a call?".' })
+    void session?.stop()
+  }
+}
+
+/** Locking the PC or sleep pauses a live call, so nothing is captured while Keith is away. */
+function autoPause(why: 'lock' | 'sleep'): void {
+  if (session?.state !== 'live') return
+  const r = session.pause()
+  log('auto_pause', { why, ok: r.ok })
+  if (r.ok) send('app-notice', { level: 'warning', text: `Paused because the PC ${why === 'lock' ? 'was locked' : 'went to sleep'}. Press Resume when you're back on the call.` })
+}
+
+function applyWindowSettings(): void {
+  if (!win || win.isDestroyed()) return
+  win.setContentProtection(appSettings.hide_from_capture)
+}
+
 function registerIpc(): void {
   ipcMain.handle('app:info', () => ({
     demoMode, nativeSource, platform: process.platform, version: app.getVersion(),
-    userData: app.getPath('userData'), hasApiKey: !!storage.loadApiKey(),
+    userData: app.getPath('userData'), hasApiKey: !!storage.loadApiKey(), settings: appSettings,
+    hideHotkey: hideHotkeyRegistered ? 'Ctrl+Alt+Shift+H' : null,
   }))
+  ipcMain.handle('app:setSettings', (_e, raw: unknown) => {
+    const r = (raw ?? {}) as Record<string, unknown>
+    if (typeof r.hide_from_capture === 'boolean') appSettings.hide_from_capture = r.hide_from_capture
+    storage.writeJson('app-settings.json', appSettings)
+    applyWindowSettings()
+    log('app_settings', { ...appSettings })
+    return appSettings
+  })
 
   ipcMain.handle('devices:list', () => endpointsForUi())
 
@@ -151,8 +232,11 @@ function registerIpc(): void {
     }
   })
 
-  ipcMain.handle('session:start', async () => {
+  ipcMain.handle('session:start', async (_e, raw: unknown) => {
     if (session && ['checking', 'live', 'paused', 'stopping'].includes(session.state)) return { ok: false, reason: 'A session is already running.' }
+    // Start only after Keith confirms he told everyone on the call it's being transcribed.
+    if ((raw as { disclosed?: unknown } | null)?.disclosed !== true) return { ok: false, reason: "Not started: tell everyone on the call it's being transcribed first." }
+    log('call_disclosure_confirmed', { wording: DISCLOSURE_VERSION })
     scanner.stop()
     const config = storage.loadConfig()
     if (!config) return { ok: false, reason: 'Pick, test and save your devices first.' }
@@ -193,6 +277,11 @@ function registerIpc(): void {
     await session?.stop()
     return { ok: true }
   })
+  ipcMain.handle('session:stillHere', () => {
+    log('idle_still_here')
+    clearIdleWarning()
+    return { ok: true }
+  })
   ipcMain.handle('session:switchEndpoint', async (_e, stream: unknown, endpointId: unknown) => {
     if (!isStream(stream) || !isEndpointId(endpointId)) return { ok: false, reason: 'Invalid request' }
     if (!session) return { ok: false, reason: 'No session' }
@@ -217,6 +306,7 @@ function registerIpc(): void {
 
   // ---- M1 HELP ----
   ipcMain.handle('help:info', () => help?.info() ?? null)
+  ipcMain.handle('help:checkReady', () => help?.checkReady() ?? null)
   ipcMain.handle('help:press', () => help?.press() ?? { ok: false, reason: 'HELP unavailable' })
   ipcMain.handle('help:feedback', (_e, raw: unknown) => help?.feedback(raw) ?? { ok: false })
   ipcMain.handle('help:setSettings', (_e, raw: unknown) => help?.setSettings((raw ?? {}) as Record<string, never>))
@@ -228,6 +318,7 @@ function registerIpc(): void {
     try {
       storage.saveSecret('anthropic', key)
       log('anthropic_key_saved')
+      void help?.checkReady()
       return { ok: true }
     } catch (err) {
       return { ok: false, error: (err as Error).message }
@@ -238,7 +329,7 @@ function registerIpc(): void {
   ipcMain.handle('knowledge:approve', (_e, docId: unknown, approved: unknown) => {
     if (!help || typeof docId !== 'string' || typeof approved !== 'boolean') return { ok: false }
     help.kb.approve(docId, approved)
-    log('knowledge_approval', { doc_id: docId, approved })
+    log('knowledge_approval', { doc: docRef(docId), approved })
     return { ok: true, docs: help.kb.listDocs() }
   })
   ipcMain.handle('knowledge:openFolder', async () => {
@@ -257,7 +348,7 @@ function registerIpc(): void {
     try {
       return { ok: true, ...help.importKnowledge(r.filePaths, folder) }
     } catch (err) {
-      log('knowledge_import_failed', { message: (err as Error).message })
+      log('knowledge_import_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
       return { ok: false, error: (err as Error).message }
     }
   })
@@ -287,21 +378,42 @@ function createWindow(): void {
   win.setMenuBarVisibility(false)
   void win.loadFile(path.join(__dirname, 'renderer', 'index.html'))
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  applyWindowSettings()
   win.webContents.on('will-navigate', (e) => e.preventDefault())
 }
 
-/** Ctrl+Alt+H: only if it registers without a conflict. The HELP button always works. */
-function registerHotkey(): void {
-  if (!help) return
-  let ok = false
+/** Bring the window up without taking focus from Zoom (so Keith keeps typing/talking there). */
+function showWithoutFocus(): void {
+  if (!win || win.isDestroyed()) return
+  if (win.isMinimized() || !win.isVisible()) win.showInactive()
+  win.moveTop()
+}
+
+function tryRegister(accelerator: string, fn: () => void): boolean {
   try {
-    ok = globalShortcut.register(HELP_HOTKEY, () => {
-      const r = help?.press()
-      if (r && !r.ok) send('help-notice', r.reason)
-    }) && globalShortcut.isRegistered(HELP_HOTKEY)
+    return globalShortcut.register(accelerator, fn) && globalShortcut.isRegistered(accelerator)
   } catch {
-    ok = false
+    return false
   }
+}
+
+/** Ctrl+Alt+H and Ctrl+Alt+Shift+H: only if they register without a conflict. The buttons always work. */
+function registerHotkey(): void {
+  hideHotkeyRegistered = tryRegister(HIDE_HOTKEY, () => {
+    if (!win || win.isDestroyed()) return
+    if (win.isMinimized() || !win.isVisible()) showWithoutFocus()
+    else win.minimize()
+  })
+  log('hide_hotkey', { hotkey: HIDE_HOTKEY, registered: hideHotkeyRegistered })
+  if (!help) return
+  const ok = tryRegister(HELP_HOTKEY, () => {
+    const r = help?.press()
+    if (r && !r.ok) send('help-notice', r.reason)
+    else {
+      showWithoutFocus()
+      send('help-focus', null)
+    }
+  })
   help.hotkeyRegistered = ok
   log('help_hotkey', { hotkey: HELP_HOTKEY, registered: ok })
 }
@@ -341,16 +453,23 @@ if (!app.requestSingleInstanceLock()) {
       app.quit()
       return
     }
-    log('app_start', { version: app.getVersion(), build: BUILD.build, sha: BUILD.sha, built: BUILD.date, demoMode, nativeSource, platform: process.platform })
+    // The module's file name only: its full path includes the Windows user name.
+    log('app_start', { version: app.getVersion(), build: BUILD.build, sha: BUILD.sha, built: BUILD.date, demoMode, nativeSource: path.basename(nativeSource), platform: process.platform })
+    appSettings = { ...DEFAULT_APP_SETTINGS, ...storage.readJson('app-settings.json', DEFAULT_APP_SETTINGS) }
     scanner = new DeviceScanner(native, (e) => send('scan-event', e), log)
     try {
       help = new HelpService(storage, app.getAppPath(), (e) => send('help-event', e), log)
     } catch (err) {
       log('help_init_failed', { message: (err as Error).message })
     }
+    if (help) help.onReadiness = (r) => send('help-ready', r)
     registerIpc()
     createWindow()
     registerHotkey()
+    void help?.checkReady()
+    powerMonitor.on('lock-screen', () => autoPause('lock'))
+    powerMonitor.on('suspend', () => autoPause('sleep'))
+    setInterval(checkIdle, 5000)
   })
 
   app.on('before-quit', () => shutdownCapture('before-quit'))

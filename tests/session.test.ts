@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AudioEndpointConfig, AudioFrame } from '../src/shared/contracts'
 import { toEndpointRef } from '../src/main/endpoints'
 import { MOCK_IDS, MockNative } from '../src/main/mockNative'
-import { SessionController, type SessionEvent } from '../src/main/session'
+import { START_WAIT_MS, SessionController, type SessionEvent } from '../src/main/session'
 import { noise, tone, zeros } from './helpers/audio'
 import { dgResults, fakeWsFactory } from './helpers/fakeWs'
 
@@ -100,6 +100,22 @@ describe('session-start gate', () => {
     const r = await p
     expect(r.ok).toBe(false)
     expect(r.reason).toMatch(/no meeting audio heard/)
+  })
+
+  it('keeps waiting past a minute for the call to begin, and reconnects the speech service if it drops meanwhile', async () => {
+    expect(START_WAIT_MS).toBe(20 * 60_000)
+    const ctx = setup({ checkTimeoutMs: START_WAIT_MS })
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 61_000, 'voice', 'zero') // Keith is there; the buyer hasn't joined yet
+    expect(ctx.session.state).toBe('checking')
+    const before = ctx.ws.sockets.length
+    ctx.ws.sockets.find((w) => !w.closed && w.url.includes('diarize=true'))!.serverClose(1011, 'idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ctx.ws.sockets.length).toBe(before + 1)
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    expect(ctx.session.state).toBe('live')
   })
 
   it('blocks when Deepgram rejects the key', async () => {
@@ -344,7 +360,12 @@ describe('transcript', () => {
     expect(finals[1].speaker_cluster).toBe('e1:s1')
     expect(finals[0].start_ms).toBeGreaterThanOrEqual(80)
     expect(finals[0].start_ms).toBeLessThanOrEqual(140)
+    // Including interims (live, not final), the call's diagnostics log never carries what was said.
+    const mic = ctx.ws.sockets.find((s) => s.url.includes('diarize=false'))!
+    mic.message(dgResults([['Kubernetes', 1.5, 1.9]], false))
+    await vi.advanceTimersByTimeAsync(100)
     await ctx.session.stop()
+    expect(JSON.stringify(ctx.logs)).not.toMatch(/datadog|agreed|kubernetes/i)
   })
 })
 

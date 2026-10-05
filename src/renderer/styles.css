@@ -266,3 +266,21 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 
 .bench { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .bench-summary { white-space: pre-wrap; font-size: 11.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 320px; overflow: auto; }
+
+/* Batch B: HELP-ready light, card checks, start check */
+.ready-light { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 2px 4px; color: var(--muted); font-size: 12px; cursor: pointer; text-align: left; }
+.ready-light .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.ready-light.ready { color: var(--ok); } .ready-light.ready .dot { background: var(--ok); }
+.ready-light.practice .dot { background: var(--muted); }
+.ready-light.bad { color: var(--err); } .ready-light.bad .dot { background: var(--err); }
+.ready-light.warn { color: var(--warn); } .ready-light.warn .dot { background: var(--warn); }
+.hc-for { margin-left: auto; white-space: nowrap; }
+.hc-checks { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 600; }
+.hc-primary .struck { opacity: 0.55; text-decoration: line-through; }
+.hc-dontuse { display: block; margin-top: 4px; font-size: 13px; font-weight: 650; color: var(--err); }
+.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.modal { width: min(520px, 100%); display: grid; gap: 14px; }
+.modal h2 { margin: 0; font-size: 18px; }
+.modal .field { display: grid; gap: 6px; font-weight: 600; }
+.modal .field p { margin: 0; font-weight: 400; }
+.seg { display: flex; gap: 14px; flex-wrap: wrap; font-weight: 400; }

@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import Anthropic from '@anthropic-ai/sdk'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { HelpCardEvent, HelpModelConfig } from '../src/shared/help'
+import type { HelpCardContent, HelpCardEvent, HelpModelConfig } from '../src/shared/help'
 import { Db, ftsConcepts } from '../src/main/db'
 import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, loadAliases, parseFrontMatter, docMetaFrom, importKnowledgeFiles, removeKnowledgeFile } from '../src/main/knowledge'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
 import { HelpEngine } from '../src/main/help/engine'
-import { MockHelpModel, type HelpModel, type HelpModelRun, type HelpModelResult } from '../src/main/help/models'
+import { MockHelpModel, describeError, type HelpError, type HelpModel, type HelpModelRun, type HelpModelResult } from '../src/main/help/models'
 import { buildSystemPrompt, loadPlaybook } from '../src/main/help/prompt'
-import { LineProtocolParser, isUsableLine, validateCard } from '../src/main/help/protocol'
+import { LineProtocolParser, cardChecks, isUsableLine, validateCard } from '../src/main/help/protocol'
 import { replayAt, type Scenario } from '../src/main/help/replay'
 
 const playbook = loadPlaybook(fileURLToPath(new URL('../config/playbook.json', import.meta.url)))
@@ -399,6 +400,7 @@ class ScriptedModel implements HelpModel {
   calls: Array<{ user: string; release: () => void; chunks: string[]; signal: AbortSignal }> = []
   label() { return 'scripted' }
   async prewarm() {}
+  async check() { return { readiness: 'ready' as const } }
   run(req: HelpModelRun): Promise<HelpModelResult> {
     return new Promise((resolve, reject) => {
       const chunks = ['MOVE: clarify_current_state\n', `ASK: How does that work in practice, call ${this.calls.length + 1}?\n`, 'HAPPENING: They described ownership.\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n']
@@ -416,7 +418,7 @@ class ScriptedModel implements HelpModel {
   }
 }
 
-function engineSetup(model: HelpModel, opts: { prefetch?: boolean; timeout?: number } = {}) {
+function engineSetup(model: HelpModel, opts: { prefetch?: boolean; timeout?: number; onBlocked?: (e: HelpError | null) => void } = {}) {
   const db = new Db(':memory:')
   const r = replayAt(scenario(), 20)
   const memory = new CallMemory('sess', db)
@@ -429,7 +431,7 @@ function engineSetup(model: HelpModel, opts: { prefetch?: boolean; timeout?: num
   const config: HelpModelConfig = { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low', thinking: 'off', timeout_ms: opts.timeout ?? 8000, max_tokens: 400 }
   const engine = new HelpEngine({
     memory, kb: null, model, config, playbook, db, sessionNowMs: () => sessionMs, emit: (e) => events.push(e),
-    log: (e, d) => logs.push({ e, d }), prefetch: opts.prefetch ?? false, wallNow: () => wall,
+    log: (e, d) => logs.push({ e, d }), prefetch: opts.prefetch ?? false, wallNow: () => wall, onBlocked: opts.onBlocked,
   })
   return {
     db, memory, engine, events, logs,
@@ -562,6 +564,98 @@ describe('HELP engine', () => {
   })
 
 
+  it("only the other side finishing a sentence starts a background candidate; Keith's own words cancel a pending one", async () => {
+    const m = new ScriptedModel()
+    const s = engineSetup(m, { prefetch: true })
+    s.engine.onFinalWords('local_mic')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(m.calls).toHaveLength(0)
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(300)
+    s.engine.onFinalWords('local_mic') // Keith starts talking before it fires
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(m.calls).toHaveLength(0)
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(800)
+    expect(m.calls).toHaveLength(1)
+  })
+
+  it('background candidates are capped per minute', async () => {
+    const m = new ScriptedModel()
+    const s = engineSetup(m, { prefetch: true })
+    for (let i = 0; i < 6; i++) {
+      s.addTurn(`New point number ${i}`)
+      s.engine.onFinalWords('system_remote')
+      await vi.advanceTimersByTimeAsync(800)
+      s.advance(5000)
+    }
+    expect(m.calls).toHaveLength(4)
+    expect(s.logs.some((l) => l.e === 'help_prefetch_capped')).toBe(true)
+    s.advance(60_000)
+    s.addTurn('Later point')
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(800)
+    expect(m.calls).toHaveLength(5)
+  })
+
+  it('a rejected key gives a plain message and stops background work until a request succeeds', async () => {
+    const auth = new Anthropic.AuthenticationError(401, { type: 'error', error: { type: 'authentication_error', message: 'invalid x-api-key' } }, 'invalid x-api-key', new Headers())
+    let fail = true
+    const calls: string[] = []
+    const model: HelpModel = {
+      mock: false, label: () => 'x', prewarm: async () => {}, check: async () => ({ readiness: 'ready' as const }),
+      run: async (req) => {
+        calls.push(req.user)
+        if (fail) throw auth
+        req.onText('MOVE: clarify_current_state\nASK: How does that work today?\nHAPPENING: -\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n')
+        return { usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 }, stop_reason: 'end_turn', served_model: 'x', fell_back: false }
+      },
+    }
+    const blocked: Array<string | null> = []
+    const s = engineSetup(model, { prefetch: true, onBlocked: (e) => blocked.push(e?.code ?? null) })
+    s.engine.press()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)).toMatchObject({ status: 'failed', error: 'Claude rejected the API key. Check it in Setup, step 3.' })
+    expect(s.logs.find((l) => l.e === 'help_done')?.d?.error).toBe('key_rejected')
+    expect(blocked).toEqual(['key_rejected'])
+    s.addTurn('Something new')
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(calls).toHaveLength(1) // no background request while the key is rejected
+    // A press still tries; once it works, background work resumes.
+    fail = false
+    s.engine.press()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)!.status).toBe('complete')
+    expect(blocked).toEqual(['key_rejected', null])
+  })
+
+  it('a background candidate never shown keeps only the kind of each issue, not text quoted from the output', async () => {
+    const model: HelpModel = {
+      mock: false, label: () => 'x', prewarm: async () => {}, check: async () => ({ readiness: 'ready' as const }),
+      run: async (req) => {
+        req.onText("MOVE: clarify_current_state\nASK: How does that work today?\nHAPPENING: -\nFOLLOW: -\nSOURCES: T1 (buyer's SSO question)\nNOTE: -\n")
+        return { usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 }, stop_reason: 'end_turn', served_model: 'x', fell_back: false }
+      },
+    }
+    const s = engineSetup(model, { prefetch: true })
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(800)
+    const row = s.db.sql.prepare('SELECT timing_json FROM help_requests').get() as { timing_json: string }
+    expect(row.timing_json).not.toMatch(/SSO|buyer/)
+    expect(JSON.parse(row.timing_json).issues).toContain('unknown source ids removed')
+  })
+
+  it('a card says who the call is with, as set when it was requested', async () => {
+    const m = new ScriptedModel()
+    const s = engineSetup(m)
+    s.memory.setup = { ...s.memory.setup, account: 'Northwind', deployment: 'self_hosted' }
+    s.engine.press()
+    m.calls[0].release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)!.setup).toEqual({ account: 'Northwind', deployment: 'self_hosted' })
+  })
+
   it('opening a database from an older build drops the text of background requests Keith never saw', () => {
     const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'db-')), 'copilot.db')
     const old = new Db(file)
@@ -592,7 +686,7 @@ describe('HELP engine', () => {
 
   it('garbage output fails validation instead of showing a broken card', async () => {
     const bad: HelpModel = {
-      mock: false, label: () => 'bad', prewarm: async () => {},
+      mock: false, label: () => 'bad', prewarm: async () => {}, check: async () => ({ readiness: 'ready' as const }),
       run: async (req) => { req.onText('Sure! Here is some advice: be nice.\n'); return { usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 }, stop_reason: 'end_turn', served_model: 'x', fell_back: false } },
     }
     const s = engineSetup(bad)
@@ -638,5 +732,28 @@ describe('replay of a real saved session', () => {
     expect(ctx.text).toContain('Mostly spot checks each week.')
     expect(ctx.text).not.toContain('move vendors')
     expect(ctx.warnings.join(' ')).toMatch(/Gap 0:10–0:12/)
+  })
+})
+
+describe('plain errors and card checks', () => {
+  it('turns Claude errors into plain words, and knows which ones pressing again will not fix', () => {
+    const H = new Headers()
+    expect(describeError(new Anthropic.AuthenticationError(401, {}, 'x', H))).toMatchObject({ code: 'key_rejected', blocking: true })
+    expect(describeError(new Anthropic.PermissionDeniedError(403, {}, 'x', H))).toMatchObject({ code: 'key_not_allowed', blocking: true })
+    const credit = { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low to access the Anthropic API.' } }
+    expect(describeError(new Anthropic.BadRequestError(400, credit, undefined, H))).toMatchObject({ code: 'no_credit', blocking: true })
+    expect(describeError(new Anthropic.RateLimitError(429, {}, 'x', H))).toMatchObject({ code: 'rate_limited', blocking: false })
+    expect(describeError(new Anthropic.InternalServerError(529, {}, 'Overloaded', H))).toMatchObject({ code: 'overloaded', blocking: false })
+    expect(describeError(new Anthropic.APIConnectionError({ message: 'fetch failed' }))).toMatchObject({ code: 'offline' })
+    expect(describeError(new Error('weird'))).toMatchObject({ code: 'error', blocking: false })
+    for (const m of [401, 403, 429, 500].map((n) => describeError(new Anthropic.APIError(n, {}, 'raw text', H)).message)) expect(m).not.toContain('raw text')
+  })
+
+  it('flags an unbacked number or an Arize capability claim with no approved source', () => {
+    const card: HelpCardContent = { move: 'technical_answer', primary_kind: 'say', primary: 'We support SSO for 40 teams.', happening: null, follow_up: null, source_ids: ['T1'], note: null }
+    const turnOnly = new Map([['T1', 'turn' as const]])
+    expect(cardChecks({ ...card }, ['number not found in context: 40'], turnOnly)).toHaveLength(2)
+    expect(cardChecks({ ...card, source_ids: ['K1'] }, [], new Map([['K1', 'knowledge' as const]]))).toEqual([])
+    expect(cardChecks({ ...card, primary: 'Do we have time to look at SSO?' }, [], turnOnly)).toEqual([])
   })
 })

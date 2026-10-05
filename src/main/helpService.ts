@@ -2,6 +2,7 @@
  * Main-process wiring for M1 HELP: local DB, knowledge pack, playbook, settings, per-call
  * memory + engine, Ctrl+Alt+H hotkey, and IPC. Credentials stay in the main process.
  */
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { CallSetup, CallType, Deployment, FeedbackType, BadReason, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
@@ -10,7 +11,8 @@ import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
-import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpModel } from './help/models'
+import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
+import { buildScorecard } from './help/scorecard'
 import { loadPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import type { SessionEvent } from './session'
@@ -24,6 +26,21 @@ export interface HelpSettings {
 }
 
 const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true }
+
+export interface HelpReadyState {
+  readiness: HelpReadiness
+  message: string
+}
+
+const READY_TEXT: Record<HelpReadiness, string> = {
+  ready: 'HELP ready',
+  practice: 'Practice mode: no Claude key, cards are MOCK',
+  key_rejected: 'Claude key not working: check Setup, step 3',
+  no_credit: 'Anthropic account is out of credit',
+  offline: "Can't reach Claude: check the internet",
+  unavailable: "HELP's Claude model isn't available to this key",
+  checking: 'Checking HELP…',
+}
 
 const KNOWLEDGE_README = `# Knowledge pack (local, private)
 
@@ -69,6 +86,8 @@ export class HelpService {
   private sessionState = 'idle'
   private sessionNow: () => number = () => 0
   hotkeyRegistered = false
+  ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
+  onReadiness: ((r: HelpReadyState) => void) | null = null
 
   constructor(
     private readonly storage: Storage,
@@ -90,7 +109,7 @@ export class HelpService {
     try {
       this.kb.indexFolder(this.knowledgeDir)
     } catch (err) {
-      log('knowledge_index_failed', { message: (err as Error).message })
+      log('knowledge_index_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
     }
   }
 
@@ -129,7 +148,32 @@ export class HelpService {
     return {
       hasKey: this.hasKey(), settings: this.settings, setup: this.setup, hotkey: 'Ctrl+Alt+H', hotkeyRegistered: this.hotkeyRegistered,
       modelLabel: model.label(this.modelConfig()), mock: model.mock, playbookVersion: this.playbook.version, knowledgeDir: this.knowledgeDir,
+      ready: this.ready,
     }
+  }
+
+  private setReady(readiness: HelpReadiness): void {
+    this.ready = { readiness, message: READY_TEXT[readiness] }
+    this.log('help_readiness', { readiness })
+    this.onReadiness?.(this.ready)
+  }
+
+  /** HELP-ready light: a free check that Claude accepts the saved key (no tokens used). */
+  async checkReady(): Promise<HelpReadyState> {
+    const model = this.createModel()
+    if (model.mock) {
+      this.setReady('practice')
+      return this.ready
+    }
+    this.setReady('checking')
+    const r = await model.check(this.modelConfig())
+    this.setReady(r.readiness)
+    return this.ready
+  }
+
+  private onBlocked(e: HelpError | null): void {
+    if (!e) this.setReady('ready')
+    else this.setReady(e.code === 'no_credit' ? 'no_credit' : e.code === 'model_unavailable' ? 'unavailable' : 'key_rejected')
   }
 
   // ---------------------------------------------------------------- settings / setup / knowledge
@@ -153,7 +197,11 @@ export class HelpService {
     }
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
-    if (this.memory) this.memory.setup = setup
+    if (this.memory) {
+      // Editable mid-call: the next HELP press uses it, and the call's record keeps the latest.
+      this.memory.setup = setup
+      this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
+    }
     return setup
   }
 
@@ -166,7 +214,7 @@ export class HelpService {
   removeKnowledge(docId: string): { ok: boolean; docs: KnowledgeDocMeta[] } {
     const doc = this.kb.getDoc(docId)
     const ok = !!doc && removeKnowledgeFile(this.knowledgeDir, doc.file)
-    this.log('knowledge_remove', { doc_id: docId, ok })
+    this.log('knowledge_remove', { doc: createHash('sha256').update(docId).digest('hex').slice(0, 8), ok })
     return { ok, docs: this.reindexKnowledge() }
   }
 
@@ -204,6 +252,7 @@ export class HelpService {
       }
       if (ev.state === 'paused') this.engine?.cancelAll('pause')
       if (ev.state === 'stopping' || ev.state === 'stopped' || ev.state === 'idle') this.engine?.cancelAll('stop')
+      if (ev.state === 'stopped') this.endCall()
       return
     }
     const m = this.memory
@@ -213,7 +262,7 @@ export class HelpService {
       case 'turn': {
         const t = ev.event.turn
         m.upsertTurn({ id: t.turn_id, stream: t.stream, cluster: t.speaker_cluster, start_ms: t.start_ms, end_ms: t.end_ms, text: t.text, available_ms: now }, ev.event.type === 'turn_final')
-        this.engine?.onFinalWords()
+        this.engine?.onFinalWords(t.stream)
         break
       }
       case 'interim':
@@ -241,8 +290,28 @@ export class HelpService {
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
       sessionNowMs: () => this.sessionNow(), emit: this.emit, log: this.log, prefetch: this.settings.prefetch,
+      onBlocked: (e) => this.onBlocked(e),
     })
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
+    void this.checkReady()
+  }
+
+  /** Stop: write the numbers-only scorecard, then clear who the call was with so the next call starts clean. */
+  private endCall(): void {
+    const m = this.memory
+    if (m) {
+      try {
+        const dir = path.join(this.storage.root, 'reports')
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, `help-scorecard-${m.sessionId}.json`), JSON.stringify(buildScorecard(this.db, m.sessionId, this.sessionNow()), null, 2))
+      } catch (err) {
+        this.log('help_scorecard_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      }
+    }
+    // Account, goal, outcomes and deployment are per call; the call type often repeats. The finished
+    // call's own record keeps what it was.
+    this.setup = { ...DEFAULT_SETUP, call_type: this.setup.call_type }
+    this.storage.writeJson('call-setup.json', this.setup)
   }
 
   /** HELP button / hotkey. Never gated by speaker role. */

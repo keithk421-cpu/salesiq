@@ -18,9 +18,18 @@ export function saveSupportFiles(root: string, outParent: string, now = new Date
       'No conversation text, no call notes, no API keys. Safe to zip and send.\r\n',
   )
   // One file that can't be read (locked, removed mid-copy) is noted and skipped, not fatal.
+  const realRoot = (() => {
+    try {
+      return fs.realpathSync(root)
+    } catch {
+      return root
+    }
+  })()
   const copy = (src: string, name: string) => {
     try {
-      if (!fs.existsSync(src) || !fs.statSync(src).isFile()) return
+      // A link is never followed: an allowlisted name can't pull in a conversation file.
+      if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) return
+      if (!fs.realpathSync(src).startsWith(realRoot + path.sep)) return
       fs.mkdirSync(path.dirname(path.join(dir, name)), { recursive: true })
       fs.copyFileSync(src, path.join(dir, name))
       files.push(name)
@@ -47,6 +56,7 @@ export function saveSupportFiles(root: string, outParent: string, now = new Date
   for (const f of list(path.join(root, 'reports'))) if (/\.(json|md)$/.test(f)) copy(path.join(root, 'reports', f), path.join('reports', f))
   // Settings without secrets.
   copy(path.join(root, 'help-settings.json'), 'help-settings.json')
+  copy(path.join(root, 'app-settings.json'), 'app-settings.json')
   if (skipped.length) fs.appendFileSync(path.join(dir, 'README.txt'), `Could not copy: ${skipped.join(', ')}\r\n`)
   return { dir, files, skipped }
 }

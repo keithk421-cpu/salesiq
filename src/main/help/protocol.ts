@@ -162,3 +162,37 @@ export function validateCard(
     },
   }
 }
+
+/** The kind of a validation issue without its details (details can quote the model's output). */
+export function issueKind(issue: string): string {
+  return issue.split(':')[0]
+}
+
+/**
+ * Wording that states what Arize can do. It must be tied to a cited approved source (a K# id).
+ * Question forms ("do we have", "what we offer", "whether Arize supports") and time talk
+ * ("we have ten minutes", "we have to wrap") are not claims.
+ */
+export const CAPABILITY_CLAIM = new RegExp(
+  String.raw`(?<!\b(?:do|does|did|what|whether|if|which)\s)\b(?:` +
+    [
+      String.raw`we (?:support|offer|provide|can support|can handle)`,
+      String.raw`we have(?!\s+(?:to|time|about|around|until|left|a few|a couple|a minute|a moment|\d|five|ten|fifteen|twenty|thirty)\b)`,
+      String.raw`we've got`,
+      String.raw`arize (?:supports|has|offers|provides|includes|can)`,
+      String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
+      String.raw`(?:it|the platform|the product) (?:supports|includes)`,
+    ].join('|') +
+    String.raw`)\b`,
+  'i',
+)
+
+/** Plain-language warnings shown on a finished card: things Keith should check before saying. */
+export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds: Map<string, 'turn' | 'knowledge'>): string[] {
+  const out: string[] = []
+  if (issues.some((i) => issueKind(i) === 'number not found in context')) out.push("Has a number that isn't in the call or approved knowledge. Check it before saying it.")
+  const visible = [card.primary, card.happening ?? '', card.follow_up ?? ''].join(' ')
+  const citesKnowledge = card.source_ids.some((id) => sourceKinds.get(id) === 'knowledge')
+  if (CAPABILITY_CLAIM.test(visible) && !citesKnowledge) out.push('Says what Arize can do without an approved source. Check it before saying it.')
+  return out
+}
