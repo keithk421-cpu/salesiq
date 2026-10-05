@@ -92,4 +92,4 @@ jobs:
           notes="Newest Windows installer. Build ${GITHUB_RUN_NUMBER} (${GITHUB_SHA::7}) from ${GITHUB_REF_NAME}, $(date -u +%F). Download the .exe below and run it."
           gh release view latest >/dev/null 2>&1 || gh release create latest --prerelease --title "Latest build" --notes "$notes"
           gh release upload latest release/*.exe --clobber
-          gh release edit latest --notes "$notes" --title "Latest build
+          gh release edit latest --notes "$notes" --title "Latest build"
