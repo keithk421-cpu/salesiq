@@ -26,6 +26,7 @@ const PRESSED = '2026-10-05T14:32:10.000Z'
 const SSO_DOC = `---
 title: SSO FAQ (illustrative fixture, not verified)
 category: deployment_security
+vendor: arize
 source: Security answers (test fixture)
 version: 2026-09
 review_by: 2027-03-01
@@ -111,7 +112,7 @@ describe('practice moment from a real call', () => {
     expect(m.speakers).toEqual({ 'e1:s0': { role: 'buyer', name: 'Dana Reyes (Head of ML Platform)' }, 'e1:s1': { role: 'unknown', name: null } })
     // The approved section HELP used, copied in with its source, version and scope; no review date.
     expect(m.knowledge).toEqual([{
-      id: 'sso-faq-1', title: 'SSO FAQ (illustrative fixture, not verified)', category: 'deployment_security', source: 'Security answers (test fixture)', version: '2026-09',
+      id: 'sso-faq-1', title: 'SSO FAQ (illustrative fixture, not verified)', category: 'deployment_security', vendor: 'arize', source: 'Security answers (test fixture)', version: '2026-09',
       approved: true, applies_to: ['saas'],
       text: '## Single sign-on\n\nSingle sign-on works with Okta through SAML in the hosted product.\n\nSource: Security answers, SSO section (test fixture).',
     }])
@@ -123,7 +124,7 @@ describe('practice moment from a real call', () => {
     expect(ctx.text).toContain("deployment: Arize's SaaS")
     expect(ctx.text).toContain('Dana Reyes (Head of ML Platform) (buyer): We run a weekly review')
     expect(ctx.text).not.toContain('Sam Okafor')
-    expect(ctx.text).toMatch(/\[K1\] SSO FAQ \(illustrative fixture, not verified\) - Single sign-on \(applies to: Arize's SaaS; version 2026-09\): Single sign-on works with Okta/)
+    expect(ctx.text).toMatch(/\[K1\] SSO FAQ \(illustrative fixture, not verified\) - Single sign-on \(about: Arize; applies to: Arize's SaaS; version 2026-09\): Single sign-on works with Okta/)
     // What HELP said and what Keith thought of it.
     expect(m.observed).toEqual({
       move: 'clarify_requirement', primary_kind: 'ask', primary: 'Which identity provider setup does security need to sign off on?', follow_up: 'Who on security owns that review?',

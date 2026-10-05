@@ -38,7 +38,7 @@ export interface Scenario {
   gaps?: Array<{ start: number; end: number; stream: Stream; cause: string }>
   help_at_s: number
   knowledge?: Array<{
-    id: string; title: string; text: string; category?: KnowledgeCategory; source?: string; version?: string
+    id: string; title: string; text: string; category?: KnowledgeCategory; vendor?: string; source?: string; version?: string
     approved?: boolean; review_by?: string | null; applies_to?: string[]
   }>
   best_moves: string[]
@@ -97,7 +97,7 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   const kb = new KnowledgeBase(db, null)
   for (const k of s.knowledge ?? []) {
     const meta: KnowledgeDocMeta = {
-      doc_id: k.id, title: k.title, category: k.category ?? 'other', source: k.source ?? 'scenario fixture', version: k.version ?? 'fixture',
+      doc_id: k.id, title: k.title, category: k.category ?? 'other', ...(k.vendor ? { vendor: k.vendor } : {}), source: k.source ?? 'scenario fixture', version: k.version ?? 'fixture',
       content_hash: '', approved: false, needs_reapproval: false, approved_by: null, approved_at: null, review_by: k.review_by ?? null,
       applies_to: k.applies_to ?? [], tags: [], file: `${s.id}#${k.id}`,
     }

@@ -106,6 +106,61 @@ function capWords(s: string, max: number): { text: string; cut: boolean } {
   return { text: `${w.slice(0, max).join(' ')}…`, cut: true }
 }
 
+/** A number written with digits: "40", "$1,500", "2.5", "30%" (the "$" or "%" doesn't change which number it is). */
+const FIGURE = /\$?\d[\d,]*(?:\.\d+)?%?/g
+/**
+ * Digits in the context that are not figures anyone said: tags (<last_30_seconds>), ids ([T3], [K1]),
+ * line clock stamps "(0:41)", the press and gap times, and knowledge version labels.
+ */
+const NOT_FIGURES = /<[^>\n]*>|\[[TK]\d+\]|\(\d{1,3}:\d{2}\)|pressed HELP at \d{1,3}:\d{2}|\bgap \d{1,3}:\d{2}–(?:\d{1,3}:\d{2}|now)|\bversion [^\s):;]+/g
+/** One figure's value as text: "1,500" and "1500" are the same, "05" is "5". */
+const figure = (n: string) => String(Number(n.replace(/[$,%]/g, '')))
+const SMALL: Record<string, number> = Object.fromEntries(
+  'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen'.split(' ').map((w, i) => [w, i]),
+)
+const TENS: Record<string, number> = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 }
+const SCALES: Record<string, number> = { hundred: 100, thousand: 1000, million: 1_000_000 }
+
+/**
+ * Every figure in the text, as numbers written with digits or spelled out ("three teams" -> 3,
+ * "twenty-five" -> 25, "a hundred" -> 100), so a card's "3" matches a buyer's "three" but its "15"
+ * doesn't match "150".
+ */
+export function numbersIn(text: string): Set<string> {
+  const out = new Set((text.match(FIGURE) ?? []).map(figure))
+  // Words in a row make one number ("two hundred and fifty"); "two, three" is two numbers.
+  let total = 0
+  let current = 0
+  let last: 'none' | 'small' | 'tens' | 'scale' = 'none'
+  const flush = () => {
+    if (last !== 'none') out.add(String(total + current))
+    total = current = 0
+    last = 'none'
+  }
+  for (const [, w, gap] of text.toLowerCase().matchAll(/([a-z]+)([^a-z]*)/g)) {
+    if (w in SMALL) {
+      if (last === 'small') flush()
+      current += SMALL[w]
+      last = 'small'
+    } else if (w in TENS) {
+      if (last === 'small' || last === 'tens') flush()
+      current += TENS[w]
+      last = 'tens'
+    } else if (w === 'hundred') {
+      current = (current || 1) * 100
+      last = 'scale'
+    } else if (w in SCALES && (last !== 'none' || w === 'thousand')) {
+      total += (current || 1) * SCALES[w]
+      current = 0
+      last = 'scale'
+    } else if (!(w === 'and' && last === 'scale')) flush()
+    // A comma or full stop ends the number ("two, three"); a hyphen or space doesn't ("twenty-five").
+    if (/[^\s-]/.test(gap)) flush()
+  }
+  flush()
+  return out
+}
+
 export interface ValidationResult {
   ok: boolean
   card: HelpCardContent | null
@@ -143,10 +198,9 @@ export function validateCard(
   if (p.cut || h?.cut || f?.cut) issues.push('trimmed to card limits')
 
   const visible = [p.text, h?.text ?? '', f?.text ?? ''].join(' ')
-  const ctx = opts.contextText
-  for (const n of visible.match(/\$?\d[\d,.]*%?/g) ?? []) {
-    const bare = n.replace(/[$%,]/g, '').replace(/\.$/, '')
-    if (bare && !ctx.includes(bare)) issues.push(`number not found in context: ${n}`)
+  const said = numbersIn(opts.contextText.replace(NOT_FIGURES, ' '))
+  for (const n of visible.match(FIGURE) ?? []) {
+    if (!said.has(figure(n))) issues.push(`number not found in context: ${n}`)
   }
   return {
     ok: true,
@@ -178,7 +232,7 @@ const CAPABILITY_CLAIM_SOURCE =
   [
     String.raw`we (?:do |can |also |already |fully |natively )?(?:support|offer|provide)`,
     String.raw`we(?: have|'ve got) (?:a |an |the )?(?:[\w-]+ ){0,2}?(?:integrations?|connectors?|support|features?|sdks?|exports?|apis?|plugins?|tracers?|tracing|instrumentation|capabilit(?:y|ies)|dashboards?|modules?|sso|saml|scim|rbac|otlp|soc ?2|certifications?)`,
-    String.raw`arize (?:also |already |fully |natively )?(?:supports|has|offers|provides|includes|covers|handles|works with|integrates with|can(?!'?t| ?not\b))`,
+    String.raw`(?:arize(?: ax)?|ax|phoenix) (?:also |already |fully |natively )?(?:supports|has|offers|provides|includes|covers|handles|works with|integrates with|can(?!'?t| ?not\b))`,
     String.raw`(?:our|arize'?s|arize’s) (?:[\w-]+ ){0,2}?(?:platform|product|tracing|tracer|sdk|evals?|monitoring|instrumentation|integration|tool)s? (?:supports|includes|covers|handles|works with|integrates with|has)`,
     String.raw`(?:it|the platform|the product|phoenix) (?:also |already |fully |natively )?(?:supports|includes)`,
     String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
@@ -229,6 +283,9 @@ export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds:
   const citesKnowledge = card.source_ids.some((id) => sourceKinds.get(id) === 'knowledge')
   // Each field on its own, so a hedge in one field never excuses a claim in another.
   const claim = [card.primary, card.happening ?? '', card.follow_up ?? ''].some((x) => findCapabilityClaim(x) !== null)
+  // A technical answer that states something (not a question, not "let me check") needs an approved source too.
+  const technical = card.move === 'technical_answer' && card.primary_kind === 'say' && !card.primary.trim().endsWith('?') && !CLAIM_HEDGE.test(card.primary)
   if (claim && !citesKnowledge) out.push('Says what Arize can do without an approved source. Check it before saying it.')
+  else if (technical && !citesKnowledge) out.push('Technical answer without an approved source. Check it before saying it.')
   return out
 }

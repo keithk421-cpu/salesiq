@@ -15,6 +15,8 @@
  * When the question spans several of their turns, what they said last is searched on its own too, so
  * the approved note found for it (passage.ts) is always among the sections the model gets.
  * Hits well below the best are dropped so fewer distractors reach the model; at most `limit` are kept.
+ * A competitor's own sections are searched only when someone named that competitor in these words
+ * (the question or the last 30 s), so a question about Arize doesn't get a competitor's look-alike section.
  */
 import type { Deployment, KnowledgeChunk } from '../../shared/help'
 import { ftsConcepts } from '../db'
@@ -99,9 +101,11 @@ export function retrieveKnowledge(kb: KnowledgeBase, opts: { question: string; n
   const today = opts.today ?? new Date()
   const question = opts.question.trim()
   const newest = opts.newest?.trim() ?? ''
-  const questionSearch = question ? kb.searchRanked(question, today, opts.deployment) : null
-  const newestSearch = newest && newest !== question ? kb.searchRanked(newest, today, opts.deployment) : null
-  const hotSearch = kb.searchRanked(opts.hotText, today, opts.deployment)
+  // A competitor's own sections only when someone named that competitor in the last 30 s (knowledge.ts header).
+  const named = { competitorsNamed: kb.competitorsNamed(`${question} ${newest} ${opts.hotText}`) }
+  const questionSearch = question ? kb.searchRanked(question, today, opts.deployment, named) : null
+  const newestSearch = newest && newest !== question ? kb.searchRanked(newest, today, opts.deployment, named) : null
+  const hotSearch = kb.searchRanked(opts.hotText, today, opts.deployment, named)
   const searches = [questionSearch, newestSearch, hotSearch]
   const usable = mergeRanked(searches.map((x) => x?.ranked ?? null), opts.limit)
   const staleTitles = [...new Set(searches.flatMap((x) => x?.staleTitles ?? []))]

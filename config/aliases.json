@@ -12,15 +12,18 @@
     ["hallucination", "hallucinations", "hallucinate"],
     ["rag", "retrieval", "retrieval-augmented"],
     ["weights & biases", "wandb", "w&b", "weave"],
-    ["langsmith", "langchain smith"],
-    ["datadog"],
+    ["langsmith", "langchain smith", "lang smith"],
+    ["datadog", "data dog"],
+    ["braintrust", "brain trust"],
+    ["langfuse", "lang fuse"],
     ["sso", "single sign-on", "saml", "okta"],
     ["self-hosted", "on-prem", "on premise", "on-premise", "vpc", "private cloud"],
     ["soc2", "soc 2", "soc-2"],
     ["hipaa"],
     ["gdpr"],
     ["pii", "personal data", "sensitive data"],
-    ["pricing", "price", "cost", "budget"],
+    ["pricing", "price", "cost"],
+    ["budget", "budgets"],
     ["poc", "proof of concept", "pilot", "trial"],
     ["air-gapped", "airgapped", "air gap", "air-gap"],
     ["baa", "business associate agreement"],
@@ -38,6 +41,7 @@
     ["agentcore", "bedrock agentcore"],
     ["in-house", "homegrown", "build it ourselves", "build vs buy"],
     ["lock-in", "vendor lock-in"],
-    ["annotation", "annotations", "labeling", "human review"]
+    ["annotation", "annotations", "labeling", "human review"],
+    ["cli", "command line", "command-line"]
   ]
 }

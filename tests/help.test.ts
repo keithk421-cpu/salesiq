@@ -267,7 +267,7 @@ describe('knowledge import', () => {
     expect(kb.search('Is Dynatrace going to change our pricing?', 2).usable[0].doc_id).toBe('news')
     // Two words from the same synonym group are still one concept.
     expect(kb.search('Is Dynatrace going to change our pricing? What will it cost?', 2).usable[0].doc_id).toBe('news')
-    expect(kb.search('Does the Dynatrace deal change our pricing or budget?', 2).usable[0].doc_id).toBe('news')
+    expect(kb.search('Does the Dynatrace deal change our pricing or cost?', 2).usable[0].doc_id).toBe('news')
   })
 
   it('a multi-word synonym said as a phrase is one concept, not its words', () => {

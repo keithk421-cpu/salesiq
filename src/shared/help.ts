@@ -60,6 +60,11 @@ export interface KnowledgeDocMeta {
   doc_id: string
   title: string
   category: KnowledgeCategory
+  /**
+   * Whose product the document describes (front matter `vendor`, lower case): "arize", a competitor's
+   * name ("langsmith"), "neutral" (guidance) or "mixed". Absent when the file doesn't say.
+   */
+  vendor?: string
   source: string
   /** Readable label only. Approval is bound to content_hash, never to this string. */
   version: string

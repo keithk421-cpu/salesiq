@@ -208,6 +208,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
       // Pack format, so replay indexes it as the same one section with its whole "Source:" paragraph.
       text: [c.heading ? `## ${c.heading}` : '', c.text, c.source_ref].filter(Boolean).join('\n\n'),
       category: meta.category,
+      ...(meta.vendor ? { vendor: meta.vendor } : {}),
       source: meta.source,
       version: meta.version,
       approved: true,

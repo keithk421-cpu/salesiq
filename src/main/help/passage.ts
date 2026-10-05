@@ -19,15 +19,21 @@
  *     "Good question." "Sure, no rush."). So an earlier question that Keith already answered in a few
  *     words can't bring back its note once they've moved on to something with its own note;
  *   - it must be clearly ahead of the best match from any other section.
+ * A competitor's section is shown only when someone named that competitor in the last 30 s, and not
+ * when what they said last is put to Keith ("How does yours handle it?") without naming it: then the
+ * box stays empty rather than showing another section in its place.
  * Unapproved documents are never searched at all. The box shows the section's first sentence or two,
  * leaving out "Possible reason" lines (objection notes: hypotheses about buyers in general, not facts
  * and not something to say); the whole note keeps them.
  */
 import type { ApprovedPassage, Deployment } from '../../shared/help'
 import { ftsConcepts } from '../db'
-import { inScope, type KnowledgeBase, type RankedSearch } from '../knowledge'
+import { inScope, isCompetitor, type KnowledgeBase, type RankedSearch } from '../knowledge'
 import type { CallMemory } from './callMemory'
-import { questionParts } from './retrieval'
+import { QUESTION_WINDOW_MS, questionParts } from './retrieval'
+
+/** Put to Keith: "Can your platform…", "How does yours…". */
+const TO_KEITH = /\b(?:you|your|yours)\b/i
 
 /**
  * A concept mentioned by more than this share of the searchable sections is too common to count, unless
@@ -163,7 +169,22 @@ export function findApprovedPassage(opts: { kb: KnowledgeBase | null; memory: Ca
   if (!q.text) return null
   const deployment = opts.memory.setup.deployment ?? 'unknown'
   const today = opts.today ?? new Date()
-  const find = (search: string, about: string) => passageFrom(kb, kb.searchRanked(search, today, deployment, { everyApproved: true }), deployment, about)
+  // Who was named in the last 30 s (both sides, with words still being transcribed).
+  const recent = [
+    q.text,
+    ...opts.memory.turnsAsOf(opts.atMs).filter((t) => t.end_ms >= opts.atMs - QUESTION_WINDOW_MS).map((t) => t.text),
+    ...opts.memory.interimsAsOf(opts.atMs).map((i) => i.text),
+  ].join(' ')
+  const named = new Set(kb.competitorsNamed(recent))
+  const namedLast = new Set(kb.competitorsNamed(q.newest))
+  const toKeith = TO_KEITH.test(q.newest)
+  const find = (search: string, about: string) => {
+    const p = passageFrom(kb, kb.searchRanked(search, today, deployment, { everyApproved: true }), deployment, about)
+    const meta = p ? kb.getDoc(p.doc_id) : null
+    // A competitor's note only when they're being discussed; hidden, never swapped for another note (see the header).
+    if (meta && isCompetitor(meta) && (!named.has(meta.vendor!) || (toKeith && !namedLast.has(meta.vendor!)))) return null
+    return p
+  }
   // What they said last, on its own; else the whole question, about the last thing they asked (see the header).
   const last = q.newest ? find(q.newest, q.newest) : null
   // Nothing more to try when they asked nothing, or what they said last was all they said.

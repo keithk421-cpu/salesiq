@@ -8,8 +8,8 @@
  * Turn and knowledge references are short ids ([T3], [K1]) mapped back to real ids for validation.
  */
 import type { Stream } from '../../shared/contracts'
-import type { HelpContextRefs, KnowledgeChunk, MemoryTurn } from '../../shared/help'
-import type { KnowledgeBase } from '../knowledge'
+import type { HelpContextRefs, KnowledgeChunk, KnowledgeDocMeta, MemoryTurn } from '../../shared/help'
+import { isCompetitor, vendorPattern, type KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { callNotesBlock } from './callNotes'
 import { questionParts, retrieveKnowledge } from './retrieval'
@@ -53,6 +53,21 @@ export function speakerName(memory: CallMemory, t: { stream: Stream; cluster: st
   if (!label || label.role === 'unknown') return label?.name ? `${label.name} (role unknown)` : `Speaker ${tag} (unlabeled)`
   const role = label.role === 'teammate' ? 'Arize teammate' : 'buyer'
   return label.name ? `${label.name} (${role})` : `Speaker ${tag} (${role})`
+}
+
+/** A competitor's name as its document's title writes it ("LangSmith"), else the vendor value capitalised. */
+function vendorName(vendor: string, title: string): string {
+  return vendorPattern(vendor).exec(title)?.[0] ?? vendor.replace(/(^|\s)\p{Ll}/gu, (c) => c.toUpperCase())
+}
+
+/** Whose product an item describes, from its file's vendor line ('' when the file doesn't say). */
+export function aboutLabel(meta: Pick<KnowledgeDocMeta, 'vendor' | 'title'>): string {
+  const v = meta.vendor
+  if (!v || v === 'unknown') return ''
+  if (isCompetitor(meta)) return `${vendorName(v, meta.title)} (competitor)`
+  if (v === 'neutral') return 'guidance, not a product fact'
+  if (v === 'mixed') return 'more than one product: keep each sentence with its own product'
+  return v === 'phoenix' ? 'Arize (Phoenix)' : 'Arize'
 }
 
 function scopeLabel(applies: string[]): string {
@@ -127,7 +142,7 @@ export function buildHelpContext(opts: {
     const s = `K${i + 1}`
     kShort.push(s)
     // The card's sources show the whole section and its full reference, so a line can be traced exactly.
-    sources.set(s, { id: c.chunk_id, kind: 'knowledge', label: c.meta.title, detail: `${c.heading ? c.heading + ': ' : ''}${c.text}${c.source_ref ? `\n${c.source_ref}` : ''}` })
+    sources.set(s, { id: c.chunk_id, kind: 'knowledge', label: isCompetitor(c.meta) ? `${c.meta.title} (competitor)` : c.meta.title, detail: `${c.heading ? c.heading + ': ' : ''}${c.text}${c.source_ref ? `\n${c.source_ref}` : ''}` })
   })
 
   // STATUS: gaps and lag. Never pretend coverage was continuous.
@@ -176,11 +191,12 @@ export function buildHelpContext(opts: {
   }
   if (usable.length) {
     parts.push(
-      `<approved_knowledge note="the ONLY material you may state as Arize fact. These are search matches: use an item only if it directly answers what was asked; if none does, say you'll follow up">\n${usable
+      `<approved_knowledge note="the ONLY material you may state as product fact, and only as fact about the product it describes: an item about a competitor is that competitor's, never Arize's. These are search matches: use an item only if it directly answers what was asked; if none does, say you'll follow up">\n${usable
         .map((c, i) => {
           const scope = scopeLabel(c.meta.applies_to)
+          const about = aboutLabel(c.meta)
           const ref = c.source_ref.length > SOURCE_REF_MODEL_MAX ? `${c.source_ref.slice(0, SOURCE_REF_MODEL_MAX)}... (full reference in card sources)` : c.source_ref
-          return `[${kShort[i]}] ${c.meta.title}${c.heading ? ` - ${c.heading}` : ''} (applies to: ${scope}; version ${c.meta.version}): ${c.text}\n   ${ref || `Source: ${c.meta.source}`}`
+          return `[${kShort[i]}] ${c.meta.title}${c.heading ? ` - ${c.heading}` : ''} (${about ? `about: ${about}; ` : ''}applies to: ${scope}; version ${c.meta.version}): ${c.text}\n   ${ref || `Source: ${c.meta.source}`}`
         })
         .join('\n')}\n</approved_knowledge>`,
     )

@@ -4,7 +4,7 @@
  *
  * Importing is NOT approval. A document counts as approved only if Keith approved it in the app,
  * and the approval is bound to the exact content he reviewed: a hash of the body plus the material
- * front matter (title, category, source, version, review_by, applies_to, tags). Any edit, including
+ * front matter (title, category, vendor when given, source, version, review_by, applies_to, tags). Any edit, including
  * one that keeps the same readable version, needs approval again. `approved: true` written in a file
  * does not approve it, so no tool or import can approve on Keith's behalf; revoking in the app always wins.
  *
@@ -16,8 +16,14 @@
  * all of which the model receives) plus the section's "Source:" paragraph, kept whole and separate.
  *
  * Front matter (optional, between --- lines at the top):
- *   title, category (product|deployment_security|competitive|objection_handling|other), source,
- *   version, review_by (YYYY-MM-DD), applies_to (saas | self_hosted | all), tags (comma list)
+ *   title, category (product|deployment_security|competitive|objection_handling|other), vendor (whose
+ *   product it describes: arize, a competitor's name, neutral or mixed), source, version,
+ *   review_by (YYYY-MM-DD), applies_to (saas | self_hosted | all), tags (comma list)
+ *
+ * A competitor's own documents are searched for HELP only when that competitor was named in the
+ * words searched with (retrieval.ts passes the names said in the last 30 s): otherwise a question
+ * about Arize ("Can you evaluate multi-turn conversations?") can bring back a competitor's section
+ * worded the same way. Documents without a vendor are always searched.
  */
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -34,6 +40,25 @@ const TAG_BOOST = 0.05
 /** Weight of the bm25 match strength next to the concept score (both scaled to 0-1 per search). */
 const BM25_BLEND = 0.25
 const SOURCE_PARA = /^source\s*:/i
+/** Vendor values that are not a competitor: Arize's own products, guidance, or several products. */
+const NOT_COMPETITOR = new Set(['arize', 'phoenix', 'neutral', 'mixed', 'unknown'])
+
+/** The front matter's vendor, lower case with single spaces; undefined when the file doesn't say. */
+export function normalizeVendor(v: string | undefined): string | undefined {
+  const x = (v ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  return x || undefined
+}
+
+/** A document about a competitor's product (its vendor is named and is not Arize, guidance or mixed). */
+export function isCompetitor(meta: Pick<KnowledgeDocMeta, 'vendor'>): boolean {
+  return !!meta.vendor && !NOT_COMPETITOR.has(meta.vendor)
+}
+
+/** A vendor's name as a word or phrase in any case and spacing ("langsmith", "new relic" in "NewRelic"). */
+export function vendorPattern(name: string): RegExp {
+  const words = name.split(/[\s-]+/).filter(Boolean).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return new RegExp(`(?<![\\p{L}\\p{N}])${words.join('[\\s-]*')}(?![\\p{L}\\p{N}])`, 'iu')
+}
 
 export function loadAliases(file: string): Map<string, string[]> {
   const map = new Map<string, string[]>()
@@ -62,11 +87,16 @@ export function parseFrontMatter(src: string): { meta: Record<string, string>; b
 
 const list = (s: string | undefined) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : [])
 
-type Material = Pick<KnowledgeDocMeta, 'title' | 'category' | 'source' | 'version' | 'review_by' | 'applies_to' | 'tags'>
+type Material = Pick<KnowledgeDocMeta, 'title' | 'category' | 'vendor' | 'source' | 'version' | 'review_by' | 'applies_to' | 'tags'>
 
-/** Identity of the reviewed content: body plus everything in the front matter that changes meaning or scope. */
+/**
+ * Identity of the reviewed content: body plus everything in the front matter that changes meaning or
+ * scope. The vendor counts only when the file names one, so documents approved before files had a
+ * vendor line keep their approval.
+ */
 export function contentHash(m: Material, body: string): string {
-  const material = { title: m.title, category: m.category, source: m.source, version: m.version, review_by: m.review_by, applies_to: m.applies_to, tags: m.tags }
+  const vendor = normalizeVendor(m.vendor)
+  const material = { title: m.title, category: m.category, ...(vendor ? { vendor } : {}), source: m.source, version: m.version, review_by: m.review_by, applies_to: m.applies_to, tags: m.tags }
   return createHash('sha256').update(JSON.stringify(material)).update('\n').update(body.replace(/\r\n/g, '\n')).digest('hex')
 }
 
@@ -76,6 +106,7 @@ export function docMetaFrom(file: string, meta: Record<string, string>, body: st
   const material: Material = {
     title: meta.title || firstHeading || path.basename(file),
     category,
+    vendor: normalizeVendor(meta.vendor),
     source: meta.source || path.basename(file),
     version: meta.version || createHash('sha1').update(body).digest('hex').slice(0, 10),
     review_by: meta.review_by || null,
@@ -236,7 +267,7 @@ export class KnowledgeBase {
 
   /** Index one document (used by indexFolder, replay and tests). The content hash is always recomputed here. */
   addDoc(doc: KnowledgeDocMeta, body: string, mtimeMs = 0): void {
-    const stored: KnowledgeDocMeta = { ...doc, content_hash: contentHash(doc, body), approved: false, needs_reapproval: false, approved_by: null, approved_at: null }
+    const stored: KnowledgeDocMeta = { ...doc, vendor: normalizeVendor(doc.vendor), content_hash: contentHash(doc, body), approved: false, needs_reapproval: false, approved_by: null, approved_at: null }
     this.db.sql.prepare('INSERT OR REPLACE INTO knowledge_docs (doc_id, file, mtime_ms, meta_json) VALUES (?, ?, ?, ?)')
       .run(doc.doc_id, doc.file, Math.round(mtimeMs), JSON.stringify(stored))
     const ins = this.db.sql.prepare('INSERT INTO knowledge_chunks (chunk_id, doc_id, title, heading, text, source_ref) VALUES (?, ?, ?, ?, ?, ?)')
@@ -330,6 +361,15 @@ export class KnowledgeBase {
     }
   }
 
+  /**
+   * The competitors (vendor values of approved documents) named in the text, by their vendor name or an
+   * alias from aliases.json ("lang smith" for "langsmith").
+   */
+  competitorsNamed(text: string): string[] {
+    const vendors = new Set(this.listDocs().filter((d) => d.approved && isCompetitor(d)).map((d) => d.vendor!))
+    return [...vendors].filter((v) => [v, ...(this.aliases.get(v) ?? [])].some((name) => vendorPattern(name).test(text)))
+  }
+
   /** Every chunk of one section (a document's "## " heading), in order; the section's text is these joined. */
   sectionChunks(docId: string, heading: string): Array<{ chunk_id: string; text: string; source_ref: string }> {
     const rows = this.db.sql.prepare('SELECT chunk_id, text, source_ref FROM knowledge_chunks WHERE doc_id = ? AND heading = ?').all(docId, heading) as Array<{ chunk_id: string; text: string; source_ref: string }>
@@ -351,15 +391,18 @@ export class KnowledgeBase {
   /**
    * search() with every usable chunk (not just the first few) and how each one matched. With
    * `everyApproved`, every approved document is ranked whatever its scope, and stale chunks stay in
-   * the list marked `stale` (to judge whether the best match overall is one HELP may use).
+   * the list marked `stale` (to judge whether the best match overall is one HELP may use). With
+   * `competitorsNamed`, competitors' documents not in it are left out entirely.
    */
-  searchRanked(text: string, today = new Date(), deployment: Deployment = 'unknown', opts: { everyApproved?: boolean } = {}): RankedSearch {
+  searchRanked(text: string, today = new Date(), deployment: Deployment = 'unknown', opts: { everyApproved?: boolean; competitorsNamed?: string[] } = {}): RankedSearch {
     const none: RankedSearch = { ranked: [], staleTitles: [], scopedOut: [], concepts: [], sections: 0 }
     const concepts = ftsConcepts(text, this.aliases)
     const terms = concepts.flat()
     const q = ftsQuery(text, this.aliases)
     if (!q) return none
-    const approved = this.listDocs().filter((d) => d.approved)
+    // With `competitorsNamed`, a competitor's own documents are searched only if it is among them (see the header).
+    const named = opts.competitorsNamed ? new Set(opts.competitorsNamed) : null
+    const approved = this.listDocs().filter((d) => d.approved && (!named || !isCompetitor(d) || named.has(d.vendor!)))
     if (!approved.length) return none
     const byId = new Map(approved.map((d) => [d.doc_id, d]))
     const query = (ids: string[], max: number): Row[] => {
