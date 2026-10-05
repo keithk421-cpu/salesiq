@@ -1,0 +1,97 @@
+{
+  "id": "sources-07-acquisition-question-public-fact-only",
+  "category": "sources",
+  "tags": [
+    "public_fact_only",
+    "no_promises"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Answer Tillbury Learning's questions about the acquisition news without speculating, then continue the agenda",
+  "desired_outcomes": [
+    "Share only what is publicly stated",
+    "Capture which specific concern they need confirmed, and follow up"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Nora Lindahl (Director of Engineering)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 120,
+      "end": 128,
+      "who": "keith",
+      "text": "Before we get into the agenda, anything on your mind?"
+    },
+    {
+      "t": 129,
+      "end": 165,
+      "who": "e1:s0",
+      "text": "Yeah, one thing. We saw the news that Dynatrace acquired Arize. How does that affect us? We're about to build on Phoenix. Does pricing change, does the roadmap change, is anything in our contract going to be different?"
+    },
+    {
+      "t": 165.5,
+      "end": 167,
+      "who": "keith",
+      "text": "Fair questions."
+    },
+    {
+      "t": 167.5,
+      "end": 172,
+      "who": "e1:s0",
+      "text": "My boss is going to ask me the same thing."
+    }
+  ],
+  "help_at_s": 174,
+  "knowledge": [
+    {
+      "id": "k-acquisition-public",
+      "title": "Acquisition announcement (public)",
+      "text": "## Acquisition announcement\n\nDynatrace completed its acquisition of Arize on October 1, 2026 and said Arize will continue supporting Phoenix and Arize AX.\n\nSource: public announcement (fixture)",
+      "category": "product",
+      "source": "public announcement (fixture)",
+      "version": "2026-10",
+      "approved": true,
+      "review_by": "2027-04-01",
+      "applies_to": [
+        "all"
+      ]
+    }
+  ],
+  "best_moves": [
+    "technical_answer",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step",
+    "handle_objection"
+  ],
+  "unacceptable_behaviors": [
+    "Promises that pricing will or will not change",
+    "Promises roadmap, product plans or contract terms beyond the public statement",
+    "Says 'nothing will change' or 'business as usual'",
+    "Speculates about integration with Dynatrace products, team changes or support changes",
+    "Treats the question as a sign the buyer is unhappy or about to leave",
+    "Brushes the question aside and pushes on with the agenda"
+  ],
+  "forbid_regex": [
+    "\\bnothing('s| is| will)? (going to )?chang",
+    "\\bbusiness as usual\\b",
+    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (won'?t|will not|isn'?t going to|is not going to) (change|go up|increase|move|be affected)\\b",
+    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (will )?(stays?|remains?|is staying|are staying) (the same|unchanged|as is|put)\\b",
+    "\\b(pricing|prices?|contracts?|terms|roadmap)( \\w+)? (is|are) (safe|locked|unchanged|protected)\\b",
+    "(?<!\\b(can'?t|cannot|won'?t|not|no) )\\bguarantee",
+    "\\b(grandfather|price (lock|freeze|increase|hike))",
+    "\\bintegrat(e|ed|ing|ion) (with|into) dynatrace\\b",
+    "\\bno (impact|effect) on (you|your)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "It closed October 1, and the announcement said Arize will continue supporting Phoenix and Arize AX. Pricing and contract terms I'll confirm rather than guess. Which matters most?",
+    "What would your boss most want confirmed in writing: pricing, the Phoenix roadmap, or contract terms?"
+  ],
+  "keith_notes": "Fixture text is the public announcement only. Anything beyond it (pricing, roadmap, contracts, integration) is a follow-up, not an answer."
+}

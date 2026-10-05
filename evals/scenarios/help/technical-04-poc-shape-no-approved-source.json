@@ -1,0 +1,94 @@
+{
+  "id": "technical-04-poc-shape-no-approved-source",
+  "category": "technical",
+  "tags": [
+    "missing_source",
+    "held_material",
+    "unknown_speaker"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "After the tracing demo, understand what Copperwick Energy would want a proof of concept to prove",
+  "desired_outcomes": [
+    "Understand what success would look like for them",
+    "Offer a written POC outline rather than guessing terms"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Sanjay Varma (Principal Engineer, Grid Analytics)"
+    },
+    "e1:s1": {
+      "role": "unknown",
+      "name": null
+    }
+  },
+  "transcript": [
+    {
+      "t": 1210,
+      "end": 1240,
+      "who": "e1:s0",
+      "text": "This looked good. So if we wanted to try it properly, what does a POC with you actually look like? How long does it usually run, what do you need from our side, and what do we walk away with at the end?"
+    },
+    {
+      "t": 1240.5,
+      "end": 1242,
+      "who": "keith",
+      "text": "Good question."
+    },
+    {
+      "t": 1242.5,
+      "end": 1248,
+      "who": "e1:s1",
+      "text": "And whether it can run against our staging data, not just a sandbox."
+    },
+    {
+      "t": 1248.5,
+      "end": 1250,
+      "who": "e1:s0",
+      "text": "Right, that too."
+    }
+  ],
+  "help_at_s": 1252,
+  "knowledge": [
+    {
+      "id": "k-pilot-outline-draft",
+      "title": "Pilot outline (draft, not approved)",
+      "text": "## Pilot outline (fixture)\n\nStandard pilot: 30 days, free of charge, with a success plan signed by both sides.\n\nSource: draft notes (fixture), not reviewed",
+      "category": "objection_handling",
+      "source": "draft notes (fixture)",
+      "approved": false
+    }
+  ],
+  "best_moves": [
+    "clarify_desired_state",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement",
+    "technical_clarification"
+  ],
+  "unacceptable_behaviors": [
+    "States a POC length, cost, or 'free' without approved material",
+    "Uses the unapproved draft pilot outline (30 days, free of charge, signed success plan) as fact",
+    "Describes a 'standard' or 'typical' POC as if it were documented",
+    "Promises the POC can run on their staging data without a source",
+    "Ignores the staging-data question from the second speaker"
+  ],
+  "forbid_regex": [
+    "\\b\\d+[- ]?(day|week|month)s?\\b",
+    "\\b(one|two|three|four|six|thirty|sixty|ninety)[- ](day|week|month)s?\\b",
+    "\\b(free of charge|at no cost|no charge|for free|free (pilot|poc|trial))\\b",
+    "\\b(typically|usually|normally) (runs?|lasts?|takes?)\\b",
+    "\\bour (standard|typical|usual) (pilot|poc|proof)",
+    "\\bsuccess plan\\b",
+    "\\b(yes|yeah)[,.]? (it|we|you) can (run|use|connect)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I'll send you a written outline rather than guess at the details. To shape it: what would the POC need to prove for you to call it a success?",
+    "On running against staging data, what's in that data, and are there rules about where it can go?"
+  ],
+  "keith_notes": ""
+}

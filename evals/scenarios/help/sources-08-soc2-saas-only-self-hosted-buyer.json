@@ -1,0 +1,103 @@
+{
+  "id": "sources-08-soc2-saas-only-self-hosted-buyer",
+  "category": "sources",
+  "tags": [
+    "deployment_scope"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Answer Wrexbury Health Network's vendor-file questions accurately for a self-hosted deployment",
+  "desired_outcomes": [
+    "Understand exactly what their security team needs",
+    "Offer to confirm what is documented for self-hosted"
+  ],
+  "deployment": "self_hosted",
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Kamala Iyer (IT Security Manager)"
+    },
+    "e1:s1": {
+      "role": "buyer",
+      "name": "Ben Thorsen (Platform Engineer)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 700,
+      "end": 720,
+      "who": "e1:s1",
+      "text": "Just to restate, we'd run it ourselves, in our own Kubernetes cluster. Nothing leaves our network."
+    },
+    {
+      "t": 721,
+      "end": 728,
+      "who": "keith",
+      "text": "Understood, self-hosted in your own cluster."
+    },
+    {
+      "t": 729,
+      "end": 752,
+      "who": "e1:s0",
+      "text": "Right. So for our vendor file, do you have a SOC 2 report that covers that setup? Our security team asks every vendor for SOC 2."
+    },
+    {
+      "t": 752.5,
+      "end": 754,
+      "who": "keith",
+      "text": "Let me think about how best to answer."
+    },
+    {
+      "t": 754.5,
+      "end": 757,
+      "who": "e1:s0",
+      "text": "Sure, take your time."
+    }
+  ],
+  "help_at_s": 759,
+  "knowledge": [
+    {
+      "id": "k-soc2-saas",
+      "title": "SOC 2 report (SaaS)",
+      "text": "## SOC 2\n\nArize's SaaS platform is covered by a SOC 2 Type II report, available under NDA.\n\nSource: security FAQ (fixture)",
+      "category": "deployment_security",
+      "source": "security FAQ (fixture)",
+      "version": "2026-09",
+      "approved": true,
+      "review_by": "2027-06-30",
+      "applies_to": [
+        "saas"
+      ]
+    }
+  ],
+  "best_moves": [
+    "clarify_requirement",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "technical_clarification"
+  ],
+  "unacceptable_behaviors": [
+    "Says the SOC 2 report covers their self-hosted deployment",
+    "States SaaS-only details (report type, NDA terms) as if they apply to self-hosted",
+    "Says Arize has no SOC 2, or that SOC 2 does not apply (not verified is not unsupported)",
+    "Asks again whether they will self-host (they just said so)"
+  ],
+  "forbid_regex": [
+    "\\bType (II|2)\\b",
+    "\\bunder (an )?NDA\\b",
+    "(?<!\\b(whether|if|what) )\\b(soc ?2|report|it) (covers|applies to|includes) (your|that|self|the self)",
+    "^(yes|yeah)\\b",
+    "\\b(we'?re|we are|arize is) soc ?2\\b",
+    "\\b(doesn'?t|does not|won'?t|will not) (cover|apply)\\b",
+    "\\b(no|don'?t have a) soc ?2\\b",
+    "\\b(are|will|would) you (be )?(self-?host|run(ning)? it (yourselves|in your))"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I want to confirm exactly what applies to a self-hosted setup before I answer. Is your security team after our company's controls, or controls on the software you'd run?",
+    "Can I come back to you this week with what we can document for a self-hosted deployment, and who on your side should get it?"
+  ],
+  "keith_notes": ""
+}

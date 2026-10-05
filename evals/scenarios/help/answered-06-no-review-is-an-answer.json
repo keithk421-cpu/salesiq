@@ -1,0 +1,88 @@
+{
+  "id": "answered-06-no-review-is-an-answer",
+  "category": "answered",
+  "tags": [
+    "fully_answered",
+    "sa_handling",
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Kilnworth Home Insurance keeps an eye on its quoting agent's answers",
+  "desired_outcomes": [
+    "Understand what happens today when an answer is wrong",
+    "Understand what, if anything, they want to change"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Felipe Duarte (Engineering Manager)"
+    },
+    "e1:s1": {
+      "role": "teammate",
+      "name": "Mira (Arize SA)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 260,
+      "end": 268,
+      "who": "e1:s1",
+      "text": "Is anyone reviewing the agent's answers today, even a sample?"
+    },
+    {
+      "t": 269,
+      "end": 292,
+      "who": "e1:s0",
+      "text": "No. Nobody reviews them, honestly. We ship it and watch the support queue. If a customer writes in about a wrong quote, someone on my team digs into the logs."
+    },
+    {
+      "t": 292.5,
+      "end": 294,
+      "who": "e1:s1",
+      "text": "Okay, got it."
+    },
+    {
+      "t": 294.5,
+      "end": 300,
+      "who": "keith",
+      "text": "Thanks, that's clear."
+    },
+    {
+      "t": 300.5,
+      "end": 303,
+      "who": "e1:s0",
+      "text": "Yep."
+    }
+  ],
+  "help_at_s": 305,
+  "knowledge": [],
+  "best_moves": [
+    "explore_process",
+    "clarify_desired_state"
+  ],
+  "acceptable_moves": [
+    "clarify_scale",
+    "clarify_current_state"
+  ],
+  "unacceptable_behaviors": [
+    "Re-asks whether anyone reviews or samples the answers (the buyer said nobody does; a 'no' is an answer)",
+    "Treats 'nobody reviews them' as a problem, risk or gap the buyer has not voiced",
+    "Lectures about why they should review outputs",
+    "Pitches review or eval features in response",
+    "Talks over the SA's thread instead of building on it"
+  ],
+  "forbid_regex": [
+    "\\b(is|does) (anyone|anybody|someone|somebody) (review|check|look at|sample|read)",
+    "\\bdo you (review|check|sample|evaluate|look at) (the |any )?(answers|outputs|responses|quotes)\\b",
+    "\\b(risky|risk|dangerous|blind spot|flying blind|scary|worr(y|ied|ying)|exposed)\\b",
+    "(?<!\\b(would|do|did|will) )\\byou (should|need to|ought to|really want to)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When a customer writes in about a wrong quote, what does digging into the logs look like for your team?",
+    "How often does a quote question come through the support queue in a typical month?"
+  ],
+  "keith_notes": ""
+}

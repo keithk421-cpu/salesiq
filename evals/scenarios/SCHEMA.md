@@ -42,7 +42,8 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
   "best_moves": ["handle_objection"],            // SalesMove values (see below)
   "acceptable_moves": ["clarify_decision"],
   "unacceptable_behaviors": ["Assumes the buyer has budget pain", "Quotes a price"],
-  "forbid_regex": ["(?i)discount"],              // optional machine-checkable Level 1 extras
+  "forbid_regex": ["\\bdiscount"],               // optional machine-checkable Level 1 extras; JavaScript regex, always
+                                                 // case-insensitive (no inline "(?i)": it does not compile in JS)
   "silence_preferred": false,                    // HELP is manual, so usually false
   "acceptable_questions": ["optional examples of good next questions"],
   "keith_notes": ""
@@ -53,6 +54,7 @@ SalesMove values: `no_move`, `clarify_current_state`, `explore_process`, `test_f
 
 Rules every scenario encodes:
 - A neutral answer is not an objection or a problem. Never invent pain, urgency, dissatisfaction or ownership.
+- Asked is not answered; proposed is not agreed. A question the buyer already answered (even with "no", or before Keith asked it) is not re-asked.
 - A buyer's claim about Arize or a competitor is a buyer statement, not verified documentation.
 - Without approved, current material, the right output is a useful clarification or follow-up, not an invented answer.
 - HELP never depends on speaker roles; unknown speakers are normal.

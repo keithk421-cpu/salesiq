@@ -1,0 +1,81 @@
+{
+  "id": "answered-03-pilot-proposed-not-agreed",
+  "category": "answered",
+  "tags": [
+    "proposed_not_agreed",
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand where Quarrybrook Freight stands after the demo and what a sensible next step would be",
+  "desired_outcomes": [
+    "Understand what a pilot would need to show",
+    "Understand who has to agree to a pilot, and when"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Marta Kowalski (Dir. Applied ML)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 820,
+      "end": 826,
+      "who": "keith",
+      "text": "So, thinking about next steps, what would make sense from your side?"
+    },
+    {
+      "t": 827,
+      "end": 858,
+      "who": "e1:s0",
+      "text": "Honestly, I think maybe a pilot next quarter could make sense. I'd have to run it past our platform lead first, and we haven't really talked budget for it. But something like that, maybe."
+    },
+    {
+      "t": 858.5,
+      "end": 860,
+      "who": "keith",
+      "text": "Okay, that's helpful."
+    },
+    {
+      "t": 860.5,
+      "end": 866,
+      "who": "e1:s0",
+      "text": "Yeah, I'm not committing to anything yet, just thinking out loud."
+    }
+  ],
+  "help_at_s": 868,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_decision",
+    "clarify_desired_state"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Treats the pilot as agreed, scheduled or decided (the buyer floated it and said she is not committing)",
+    "Moves to paperwork: an order form, SOW or pilot agreement",
+    "Pushes for a start date or a commitment",
+    "Assumes the platform lead will agree or that budget is available",
+    "Invents urgency, e.g. 'before next quarter fills up'"
+  ],
+  "forbid_regex": [
+    "\\b(great|perfect|awesome)[,!.]? (let'?s|we'?ll|i'?ll) (lock|get|set|book|schedule|kick)",
+    "\\block(ed|ing)? (it |that |this |the pilot )?in\\b",
+    "\\b(order form|sow|statement of work|pilot agreement|paperwork)\\b",
+    "\\bsince (you'?re|we'?re) (doing|running|going ahead with|moving ahead with) (a|the) pilot",
+    "\\b(when|once) (we|you) (start|kick off|begin|run) the pilot\\b",
+    "\\bpilot (is|'s) (agreed|confirmed|set|happening)\\b",
+    "\\b(start|kick-?off) date\\b",
+    "\\bso we'?re (all )?(set|agreed|aligned)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "If a pilot did make sense, what would it need to show for you and your platform lead to think it was worth it?",
+    "Who besides your platform lead would weigh in on whether a pilot happens at all?"
+  ],
+  "keith_notes": ""
+}

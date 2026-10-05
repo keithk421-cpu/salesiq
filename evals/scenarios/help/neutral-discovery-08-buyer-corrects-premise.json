@@ -1,0 +1,83 @@
+{
+  "id": "neutral-discovery-08-buyer-corrects-premise",
+  "category": "neutral_discovery",
+  "tags": [
+    "premise_correction",
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Lindenmark Analytics' ML team looks at its research assistant's conversations",
+  "desired_outcomes": [
+    "Understand what the ML team wants to do with individual conversations",
+    "Understand how that would fit next to the existing dashboards"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Ingrid Solberg (Head of ML)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 290,
+      "end": 312,
+      "who": "e1:s0",
+      "text": "We built some dashboards in-house last year. Latency, error rates, token spend per team. The SRE folks live in them."
+    },
+    {
+      "t": 313,
+      "end": 322,
+      "who": "keith",
+      "text": "Got it. And since you're looking to replace those dashboards, what would you want the new setup to cover first?"
+    },
+    {
+      "t": 323,
+      "end": 352,
+      "who": "e1:s0",
+      "text": "Oh, no, we're not replacing them. The dashboards stay, the SREs are happy with them. This would be for the ML team, to look at individual conversations and score them. Different audience, different job."
+    },
+    {
+      "t": 352.5,
+      "end": 354,
+      "who": "keith",
+      "text": "Ah, okay, thanks for correcting me."
+    },
+    {
+      "t": 354.5,
+      "end": 357,
+      "who": "e1:s0",
+      "text": "No worries."
+    }
+  ],
+  "help_at_s": 359,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state",
+    "clarify_desired_state"
+  ],
+  "acceptable_moves": [
+    "explore_process",
+    "identify_owner"
+  ],
+  "unacceptable_behaviors": [
+    "Repeats or builds on Keith's wrong premise that the dashboards are being replaced",
+    "Positions Arize as a replacement for, or consolidation of, the in-house dashboards",
+    "Suggests the dashboards are limited or that the SREs have outgrown them",
+    "Assumes the ML team has a problem reviewing conversations today (they described a job, not a pain)",
+    "Re-asks whether the dashboards are staying"
+  ],
+  "forbid_regex": [
+    "(?<!\\b(not|no|isn'?t|aren'?t|never) (a )?)\\breplac(e|es|ed|ing|ement)\\b",
+    "\\b(migrat(e|ion)|consolidat(e|ion)|move off|rip out|sunset)\\b",
+    "\\b(outgrown|limitations|falls? short)\\b",
+    "\\b(are|will) (you keep(ing)?|the dashboards stay(ing)?)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Thanks for setting me straight. How does the ML team look at individual conversations today, if at all?",
+    "When the ML team scores a conversation, what would they be looking for?"
+  ],
+  "keith_notes": ""
+}

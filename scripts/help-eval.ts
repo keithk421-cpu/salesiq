@@ -4,12 +4,14 @@
  *   npm run eval:help -- --mock                                  (offline; labelled MOCK)
  *   npm run eval:help -- --replay evals/scenarios/help/<id>.json (print exactly what HELP would see)
  *   npm run eval:help -- --session <userData>/sessions/<id>/transcript.jsonl --at 754   (a real call, as of 12:34)
+ *   npm run eval:help -- --save-baseline evals/reports/baseline.json  (per scenario: move, Level 1, first usable; summaries)
+ *   npm run eval:help -- --compare evals/reports/baseline.json        (prints regressions; exit code 1 if any)
  * Reports go to evals/reports/ (git-ignored).
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import { buildHelpContext } from '../src/main/help/context'
-import { benchmark, loadScenarios, reportMarkdown } from '../src/main/help/evalRunner'
+import { benchmark, compareBaseline, comparisonText, loadScenarios, reportMarkdown, toBaseline, type Baseline } from '../src/main/help/evalRunner'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG } from '../src/main/help/models'
 import { buildSystemPrompt, buildUserMessage, loadPlaybook } from '../src/main/help/prompt'
 import { loadScenario, replayAt, scenarioFromSession } from '../src/main/help/replay'
@@ -51,3 +53,18 @@ fs.writeFileSync(`${file}.json`, JSON.stringify({ ...report, mock }, null, 2))
 const md = (mock ? '> MOCK RUN - no model was called.\n\n' : '') + reportMarkdown(report)
 fs.writeFileSync(`${file}.md`, md)
 console.log(`\n\n${md}\nSaved ${file}.json`)
+
+const baseline = toBaseline(report, mock)
+const saveTo = arg('save-baseline')
+if (saveTo) {
+  fs.mkdirSync(path.dirname(saveTo), { recursive: true })
+  fs.writeFileSync(saveTo, JSON.stringify(baseline, null, 2))
+  console.log(`Saved baseline ${saveTo}`)
+}
+const compareWith = arg('compare')
+if (compareWith) {
+  const before = JSON.parse(fs.readFileSync(compareWith, 'utf8')) as Baseline
+  const cmp = compareBaseline(before, baseline)
+  console.log(`\nCompared with ${compareWith} (${before.created_at}):\n${comparisonText(cmp)}`)
+  if (cmp.regressions.length) process.exitCode = 1
+}

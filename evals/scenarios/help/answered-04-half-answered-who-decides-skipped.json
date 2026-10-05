@@ -1,0 +1,75 @@
+{
+  "id": "answered-04-half-answered-who-decides-skipped",
+  "category": "answered",
+  "tags": [
+    "partially_answered"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Fernhollow Insurance decides a claims-assistant change is ready to ship, and who makes that call",
+  "desired_outcomes": [
+    "Understand the release check (answered)",
+    "Know who makes the call to ship (still open)"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Theo Marsh (ML Engineering Lead)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 505,
+      "end": 514,
+      "who": "keith",
+      "text": "How do you decide a new prompt version is good enough to ship, and who makes that call?"
+    },
+    {
+      "t": 515,
+      "end": 560,
+      "who": "e1:s0",
+      "text": "So we have a regression set, about two hundred real claim questions with reference answers. We run the new version against it, compare the scores with the current one, and then someone reads through the ones that changed. If nothing got worse, it goes out, usually on a Tuesday."
+    },
+    {
+      "t": 560.5,
+      "end": 562,
+      "who": "keith",
+      "text": "Got it."
+    },
+    {
+      "t": 562.5,
+      "end": 568,
+      "who": "e1:s0",
+      "text": "Yeah, that's been the routine since spring."
+    }
+  ],
+  "help_at_s": 570,
+  "knowledge": [],
+  "best_moves": [
+    "identify_owner",
+    "clarify_decision"
+  ],
+  "acceptable_moves": [
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Re-asks how they test a new version (the regression set, score comparison and read-through were already described)",
+    "Treats the whole two-part question as answered when who makes the call is still open",
+    "Assumes the read-through is slow, manual pain or a bottleneck",
+    "Assumes there is no owner, or that ownership is a problem"
+  ],
+  "forbid_regex": [
+    "\\bhow do you (test|check|evaluate|validate|decide)\\b",
+    "\\bwhat'?s (your|the) (testing|release|eval(uation)?|qa) process\\b",
+    "\\b(manual|slow|tedious|time-consuming|labou?r-intensive)\\b",
+    "\\b(nobody|no one) (owns|decides)\\b",
+    "\\bno (clear )?owner\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When the changed answers get read through, who has the final say on whether it goes out on Tuesday?",
+    "And on the second half of my question: who makes the call that a version is good to ship?"
+  ],
+  "keith_notes": ""
+}

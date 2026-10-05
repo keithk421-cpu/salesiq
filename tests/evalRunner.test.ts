@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import type { HelpCardContent } from '../src/shared/help'
-import { benchmark, level1, percentile, reportMarkdown, summarize, type ScenarioResult } from '../src/main/help/evalRunner'
+import {
+  benchmark, compareBaseline, comparisonText, level1, percentile, reportMarkdown, summarize, toBaseline,
+  type Baseline, type BaselineScenario, type ConfigSummary, type ScenarioResult,
+} from '../src/main/help/evalRunner'
 import { DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG } from '../src/main/help/models'
 import { loadPlaybook } from '../src/main/help/prompt'
 import type { Scenario } from '../src/main/help/replay'
@@ -34,6 +37,33 @@ describe('Level 1 (hard gate)', () => {
   it('fails a technical answer with no approved source, and Arize claims with no knowledge', () => {
     expect(level1(s, card({ move: 'technical_answer' }), [], '', kinds).join(' ')).toMatch(/technical answer without an approved knowledge source/)
     expect(level1(s, card({ primary_kind: 'say', primary: 'Arize supports that out of the box with SSO.' }), [], '<approved_knowledge>(none relevant)', kinds).join(' ')).toMatch(/states an Arize capability/)
+  })
+
+  it('fails invented pain in any category, but not pain the transcript voiced', () => {
+    const objection: Scenario = { ...s, id: 'objection-x', category: 'objection', transcript: [{ t: 0, end: 6, who: 'e1:s0', text: 'The other option is cheaper, that is the main thing.' }] }
+    expect(level1(objection, card({ primary: 'Is the price gap a real problem for the team?' }), [], '', kinds).join(' ')).toMatch(/assumed pain not voiced by the buyer: problem/)
+    const sources: Scenario = { ...s, id: 'sources-x', category: 'sources' }
+    expect(level1(sources, card({ primary: 'How frustrating has that been?' }), [], '', kinds).join(' ')).toMatch(/assumed pain not voiced by the buyer: frustrating/)
+    const voiced: Scenario = { ...objection, transcript: [{ t: 0, end: 6, who: 'e1:s0', text: 'Honestly the bigger problem is the review backlog.' }] }
+    expect(level1(voiced, card({ primary: 'How big is that problem week to week?' }), [], '', kinds)).toEqual([])
+  })
+
+  it('an Arize capability claim must cite approved knowledge (K#); approved knowledge merely in context is not enough', () => {
+    const withK = new Map<string, 'turn' | 'knowledge'>([['T1', 'turn'], ['K1', 'knowledge']])
+    const ctx = '<approved_knowledge note="the ONLY material you may state as Arize fact">\n[K1] Tracing ...</approved_knowledge>'
+    const claims = ['Arize supports OTLP export natively.', 'We have an OpenTelemetry-based tracer for that.', 'We offer SSO on every plan.', 'That is fully supported.', 'It supports OTLP out of the box.', 'Arize has that built in.']
+    for (const primary of claims) {
+      expect(level1(s, card({ primary_kind: 'say', primary, source_ids: ['T1'] }), [], ctx, withK).join(' '), primary).toMatch(/states an Arize capability .* without citing an approved knowledge source/)
+      expect(level1(s, card({ primary_kind: 'say', primary, source_ids: ['T1', 'K1'] }), [], ctx, withK), primary).toEqual([])
+    }
+    // A K# that is not a knowledge source in this context does not count.
+    expect(level1(s, card({ primary_kind: 'say', primary: 'We support that.', source_ids: ['K2'] }), [], ctx, withK).join(' ')).toMatch(/states an Arize capability/)
+    // Also checked in the supporting lines, not just the primary.
+    expect(level1(s, card({ follow_up: 'Arize supports SSO too.' }), [], ctx, withK).join(' ')).toMatch(/states an Arize capability/)
+    // Questions and time talk are not claims.
+    for (const primary of ['Do we have time to cover the security piece?', 'Let me check what we offer for self-hosted and come back to you.', 'I want to confirm whether Arize supports that before I answer.', 'We have about ten minutes left; what matters most?', 'We have to wrap up soon, can we pick a next step?']) {
+      expect(level1(s, card({ primary, source_ids: ['T1'] }), [], ctx, withK), primary).toEqual([])
+    }
   })
 
   it('fails invented figures, unknown sources, forbidden patterns, missing card', () => {
@@ -73,5 +103,95 @@ describe('benchmark', () => {
     expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 50)).toBe(5)
     expect(percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95)).toBe(10)
     expect(percentile([], 50)).toBeNull()
+  })
+})
+
+describe('baseline compare', () => {
+  const sum = (over: Partial<ConfigSummary> = {}): ConfigSummary => ({
+    config_label: 'm', model: 'm', runs: 3, first_usable_median_ms: 900, first_usable_p95_ms: 1500, complete_median_ms: 1800, complete_p95_ms: 2500,
+    usable_within_2s: 1, usable_within_3s: 1, timeouts: 0, failures: 0, level1_pass_rate: 1, approved_move_agreement: null, draft_move_agreement: 1,
+    input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, cost_per_request_usd: 0, ...over,
+  })
+  const sc = (over: Partial<BaselineScenario> = {}): BaselineScenario => ({
+    approved: false, move: 'clarify_current_state', move_ok: true, level1_pass: true, level1_failures: [], first_usable_ms: 900, ...over,
+  })
+  const base = (scenarios: Record<string, BaselineScenario>, summary = sum()): Baseline => ({
+    created_at: '2026-10-01T00:00:00Z', playbook_version: 'p1', repeats: 1, mock: false, models: { m: { summary, scenarios } },
+  })
+
+  it('no regressions when nothing got worse (and a fix is not a regression)', () => {
+    const before = base({ a: sc(), b: sc({ level1_pass: false, level1_failures: ['x'] }) })
+    const after = base({ a: sc(), b: sc() }, sum({ first_usable_p95_ms: 1800 })) // +20% exactly is within tolerance
+    const c = compareBaseline(before, after)
+    expect(c.regressions).toEqual([])
+    expect(comparisonText(c)).toMatch(/No regressions/)
+  })
+
+  it('flags Level 1 pass -> fail, but not fail -> fail', () => {
+    const before = base({ a: sc(), b: sc({ level1_pass: false }) })
+    const after = base({ a: sc({ level1_pass: false, level1_failures: ['matched forbidden pattern /x/'] }), b: sc({ level1_pass: false }) })
+    const c = compareBaseline(before, after)
+    expect(c.regressions).toEqual([{ model: 'm', kind: 'level1', scenario_id: 'a', detail: 'passed Level 1 before, fails now: matched forbidden pattern /x/' }])
+  })
+
+  it('flags move agreement drops on shared scenarios, split approved / drafts, with the scenarios that flipped', () => {
+    const before = base({ a: sc({ approved: true }), b: sc({ approved: true }), c: sc(), d: sc({ move_ok: false }) })
+    const after = base({ a: sc({ approved: true, move: 'handle_objection', move_ok: false }), b: sc({ approved: true }), c: sc(), d: sc({ move_ok: true }) })
+    const c = compareBaseline(before, after)
+    expect(c.regressions.map((r) => [r.kind, r.scenario_id, r.detail])).toEqual([
+      ['move', 'a', 'move clarify_current_state (agreed) -> handle_objection (not agreed)'],
+      ['move_agreement', null, 'approved move agreement 100% -> 50% on 2 shared scenario(s)'],
+    ])
+  })
+
+  it('a bigger scenario set is not a drop: only shared scenarios are compared, the rest are noted', () => {
+    const before = base({ a: sc() })
+    const after = base({ a: sc(), n1: sc({ move_ok: false, level1_pass: false }), n2: sc({ move_ok: false }) })
+    const c = compareBaseline(before, after)
+    expect(c.regressions).toEqual([])
+    expect(c.notes.join(' ')).toMatch(/2 scenario\(s\) not in the baseline \(not compared\): n1, n2/)
+  })
+
+  it('flags p95 latency increases over 20%, for first usable and full card', () => {
+    const c = compareBaseline(base({ a: sc() }), base({ a: sc() }, sum({ first_usable_p95_ms: 1801, complete_p95_ms: 4000 })))
+    expect(c.regressions.map((r) => [r.kind, r.detail])).toEqual([
+      ['latency', 'first usable p95 1500 ms -> 1801 ms (+20%, limit +20%)'],
+      ['latency', 'complete p95 2500 ms -> 4000 ms (+60%, limit +20%)'],
+    ])
+    expect(compareBaseline(base({ a: sc() }), base({ a: sc() }, sum({ first_usable_p95_ms: null }))).regressions).toEqual([])
+  })
+
+  it('models on one side only are notes, not regressions', () => {
+    const before = base({ a: sc() })
+    const after: Baseline = { ...base({ a: sc() }), models: { other: { summary: sum({ model: 'other' }), scenarios: { a: sc({ level1_pass: false }) } } } }
+    const c = compareBaseline(before, after)
+    expect(c.regressions).toEqual([])
+    expect(c.notes.join('\n')).toMatch(/m: in the baseline, not in this run[\s\S]*other: not in the baseline/)
+  })
+
+  it('MOCK timings are never compared (offline noise), but Level 1 and moves still are', () => {
+    const before: Baseline = { ...base({ a: sc() }), mock: true }
+    const after: Baseline = { ...base({ a: sc({ level1_pass: false }) }, sum({ first_usable_p95_ms: 9000 })), mock: true }
+    const c = compareBaseline(before, after)
+    expect(c.regressions.map((r) => r.kind)).toEqual(['level1'])
+    expect(c.notes.join(' ')).toMatch(/MOCK baseline vs MOCK run: latency not compared/)
+  })
+
+  it('toBaseline folds repeats: most common move, Level 1 only if every run passed, median first usable', async () => {
+    const report = await benchmark({ scenarios: [s], model: new MockHelpModel(5), configs: [DEFAULT_HELP_CONFIG], playbook, repeats: 3 })
+    report.results[0] = { ...report.results[0], first_usable_ms: 900 }
+    report.results[1] = { ...report.results[1], level1: { pass: false, failures: ['x'] }, first_usable_ms: 5000 }
+    report.results[2] = { ...report.results[2], first_usable_ms: 1 }
+    const b = toBaseline(report, true)
+    const entry = b.models['claude-sonnet-5-5'].scenarios['neutral-ownership']
+    expect(entry.move).toBe('clarify_current_state')
+    expect(entry.move_ok).toBe(true)
+    expect(entry.level1_pass).toBe(false)
+    expect(entry.level1_failures).toEqual(['x'])
+    expect(entry.first_usable_ms).toBe(900)
+    expect(b.mock).toBe(true)
+    expect(b.models['claude-sonnet-5-5'].summary.runs).toBe(3)
+    // A run compared with its own baseline has no regressions.
+    expect(compareBaseline(b, b).regressions).toEqual([])
   })
 })

@@ -1,6 +1,6 @@
 # HELP practice moments: review sheet
 
-33 made-up call moments (no real companies or calls). Each one stops where Keith presses HELP.
+43 made-up call moments (no real companies or calls). Each one stops where Keith presses HELP.
 For each: is the "Good HELP" right, and is the "Bad HELP" list right? Reply with the numbers you agree with,
 and a one-line fix for any you don't. Only the ones you approve become the Golden Set that decides which model wins.
 
@@ -66,7 +66,125 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 3. competitor-01-neutral-langfuse-mention
+## 3. answered-03-pilot-proposed-not-agreed
+
+**Call:** follow_up. Goal: Understand where Quarrybrook Freight stands after the demo and what a sensible next step would be
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 14:28):
+> **Keith:** So, thinking about next steps, what would make sense from your side?
+> **Marta Kowalski (Buyer):** Honestly, I think maybe a pilot next quarter could make sense. I'd have to run it past our platform lead first, and we haven't really talked budget for it. But something like that, maybe.
+> **Keith:** Okay, that's helpful.
+> **Marta Kowalski (Buyer):** Yeah, I'm not committing to anything yet, just thinking out loud.
+
+**Good HELP would:**
+- clarify decision: How a decision gets made: steps, people, timing, criteria.
+- clarify desired state: What good would look like for them, in their words.
+- Also fine: identify owner, explore process
+
+Example good lines:
+- "If a pilot did make sense, what would it need to show for you and your platform lead to think it was worth it?"
+- "Who besides your platform lead would weigh in on whether a pilot happens at all?"
+
+**Bad HELP would:**
+- Treats the pilot as agreed, scheduled or decided (the buyer floated it and said she is not committing)
+- Moves to paperwork: an order form, SOW or pilot agreement
+- Pushes for a start date or a commitment
+- Assumes the platform lead will agree or that budget is available
+- Invents urgency, e.g. 'before next quarter fills up'
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 4. answered-04-half-answered-who-decides-skipped
+
+**Call:** discovery. Goal: Understand how Fernhollow Insurance decides a claims-assistant change is ready to ship, and who makes that call
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 9:30):
+> **Keith:** How do you decide a new prompt version is good enough to ship, and who makes that call?
+> **Theo Marsh (Buyer):** So we have a regression set, about two hundred real claim questions with reference answers. We run the new version against it, compare the scores with the current one, and then someone reads through the ones that changed. If nothing got worse, it goes out, usually on a Tuesday.
+> **Keith:** Got it.
+> **Theo Marsh (Buyer):** Yeah, that's been the routine since spring.
+
+**Good HELP would:**
+- identify owner: Who owns or decides this; who else cares.
+- clarify decision: How a decision gets made: steps, people, timing, criteria.
+- Also fine: explore process
+
+Example good lines:
+- "When the changed answers get read through, who has the final say on whether it goes out on Tuesday?"
+- "And on the second half of my question: who makes the call that a version is good to ship?"
+
+**Bad HELP would:**
+- Re-asks how they test a new version (the regression set, score comparison and read-through were already described)
+- Treats the whole two-part question as answered when who makes the call is still open
+- Assumes the read-through is slow, manual pain or a bottleneck
+- Assumes there is no owner, or that ownership is a problem
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 5. answered-05-decision-volunteered-before-keith-asks
+
+**Call:** discovery. Goal: Understand Ashcombe Retail's product-search assistant, how they would decide, and a next step
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 8:34):
+> **Priscilla Moreno (Buyer):** And just so you know where we are, decision-wise it's me and our CISO, nobody else. We want to have picked something by the end of March, because that's when our next planning cycle locks.
+> **Keith:** That's really helpful, thanks.
+> **Keith:** So how do you check the search assistant's answers today?
+> **Priscilla Moreno (Buyer):** We sample about a hundred queries a week and a merchandiser grades them, relevant or not relevant. That goes into a sheet and we look at the trend once a month.
+> **Keith:** Got it, makes sense.
+> **Priscilla Moreno (Buyer):** It's simple, but it's been fine for us.
+
+**Good HELP would:**
+- explore process: Understand how a workflow, review or release process runs step by step.
+- confirm next step: Propose or confirm a concrete next step (who, what, when) when the conversation is ready for it.
+- Also fine: clarify desired state, clarify current state
+
+Example good lines:
+- "When the monthly trend moves, what happens next? Who looks into it?"
+- "Since you and your CISO want to pick by end of March, would it help to map out what you'd each want to see before then?"
+
+**Bad HELP would:**
+- Asks who is involved in the decision or when they want to decide (she volunteered both before Keith got to it)
+- Adds stakeholders she did not mention, or assumes the CISO is a blocker
+- Treats 'it's been fine for us' as dissatisfaction or pain
+- Suggests the weekly sample or the sheet is inadequate
+- Invents urgency around the end-of-March date
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 6. answered-06-no-review-is-an-answer
+
+**Call:** discovery. Goal: Understand how Kilnworth Home Insurance keeps an eye on its quoting agent's answers
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 5:05):
+> **Mira (Teammate):** Is anyone reviewing the agent's answers today, even a sample?
+> **Felipe Duarte (Buyer):** No. Nobody reviews them, honestly. We ship it and watch the support queue. If a customer writes in about a wrong quote, someone on my team digs into the logs.
+> **Mira (Teammate):** Okay, got it.
+> **Keith:** Thanks, that's clear.
+> **Felipe Duarte (Buyer):** Yep.
+
+**Good HELP would:**
+- explore process: Understand how a workflow, review or release process runs step by step.
+- clarify desired state: What good would look like for them, in their words.
+- Also fine: clarify scale, clarify current state
+
+Example good lines:
+- "When a customer writes in about a wrong quote, what does digging into the logs look like for your team?"
+- "How often does a quote question come through the support queue in a typical month?"
+
+**Bad HELP would:**
+- Re-asks whether anyone reviews or samples the answers (the buyer said nobody does; a 'no' is an answer)
+- Treats 'nobody reviews them' as a problem, risk or gap the buyer has not voiced
+- Lectures about why they should review outputs
+- Pitches review or eval features in response
+- Talks over the SA's thread instead of building on it
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 7. competitor-01-neutral-langfuse-mention
 
 **Call:** discovery. Goal: Understand Orchard Lane Software's current tracing and eval workflow for its HR policy assistant
 **Docs HELP has:** Competitive positioning: general guidance (review by 2027-01-15)
@@ -97,7 +215,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 4. competitor-02-direct-comparison-braintrust
+## 8. competitor-02-direct-comparison-braintrust
 
 **Call:** demo. Goal: Demo experiments and evals for Stratus Payments' dispute-resolution assistant and earn a place in their written evaluation
 **Docs HELP has:** Competitive positioning: general guidance (review by 2027-01-15)
@@ -128,7 +246,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 5. competitor-03-incorrect-claim-arize-traditional-ml
+## 9. competitor-03-incorrect-claim-arize-traditional-ml
 
 **Call:** follow_up. Goal: Resolve open questions from Ashgrove Insurance's internal review and confirm fit for their LLM use cases
 **Docs HELP has:** Product scope: LLM and agent applications (review by 2027-01-01); Competitive positioning: general guidance (review by 2027-01-15)
@@ -158,7 +276,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 6. competitor-04-datadog-consolidation-unknown-gap
+## 10. competitor-04-datadog-consolidation-unknown-gap
 
 **Call:** negotiation. Goal: Finalize order-form structure with Harborview Telecom and surface anything that could stall signature
 **Docs HELP has:** Competitive positioning: general guidance (review by 2027-01-15)
@@ -190,7 +308,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 7. competitor-05-mlflow-local-evals
+## 11. competitor-05-mlflow-local-evals
 
 **Call:** discovery. Goal: Understand how Brightwater Analytics evaluates its support agent today
 **Docs HELP has:** none
@@ -217,7 +335,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 8. neutral-discovery-01-datadog-otel-current-stack
+## 12. neutral-discovery-01-datadog-otel-current-stack
 
 **Call:** discovery. Goal: Understand how Helio Health observes its patient-intake assistant today and who relies on that view
 **Docs HELP has:** none
@@ -248,7 +366,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 9. neutral-discovery-02-weekly-rubric-review
+## 13. neutral-discovery-02-weekly-rubric-review
 
 **Call:** discovery. Goal: Learn how Northwind Logistics judges the quality of its shipper help assistant today
 **Docs HELP has:** none
@@ -278,7 +396,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 10. neutral-discovery-03-shared-ownership-unknown-speaker
+## 14. neutral-discovery-03-shared-ownership-unknown-speaker
 
 **Call:** discovery. Goal: Understand who shapes and judges the quality of Brightwater Mutual's claims-summary assistant
 **Docs HELP has:** none
@@ -308,7 +426,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 11. neutral-discovery-04-rambling-buried-agent-signoff
+## 15. neutral-discovery-04-rambling-buried-agent-signoff
 
 **Call:** discovery. Goal: Understand Larkspur Financial's agent roadmap and what it will take to put agents into production
 **Docs HELP has:** none
@@ -340,7 +458,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 12. neutral-discovery-05-vpc-bedrock-unknown-infra
+## 16. neutral-discovery-05-vpc-bedrock-unknown-infra
 
 **Call:** follow_up. Goal: Understand Meridian Retail Group's hosting and network setup for the shopping assistant
 **Docs HELP has:** Deployment options overview (applies to: saas, self_hosted) (review by 2027-01-31)
@@ -370,7 +488,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 13. neutral-discovery-06-internal-dashboard-during-demo
+## 17. neutral-discovery-06-internal-dashboard-during-demo
 
 **Call:** demo. Goal: Show Quillfeather tracing and evals mapped to how their team works today
 **Docs HELP has:** none
@@ -400,7 +518,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 14. neutral-discovery-07-why-now-planning-cycle
+## 18. neutral-discovery-07-why-now-planning-cycle
 
 **Call:** follow_up. Goal: Understand why Saltmarsh Media is looking now and what a useful outcome is for them
 **Docs HELP has:** none
@@ -430,7 +548,37 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 15. objection-01-budget-next-fiscal
+## 19. neutral-discovery-08-buyer-corrects-premise
+
+**Call:** discovery. Goal: Understand how Lindenmark Analytics' ML team looks at its research assistant's conversations
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 5:59):
+> **Ingrid Solberg (Buyer):** We built some dashboards in-house last year. Latency, error rates, token spend per team. The SRE folks live in them.
+> **Keith:** Got it. And since you're looking to replace those dashboards, what would you want the new setup to cover first?
+> **Ingrid Solberg (Buyer):** Oh, no, we're not replacing them. The dashboards stay, the SREs are happy with them. This would be for the ML team, to look at individual conversations and score them. Different audience, different job.
+> **Keith:** Ah, okay, thanks for correcting me.
+> **Ingrid Solberg (Buyer):** No worries.
+
+**Good HELP would:**
+- clarify current state: They mentioned how things are today; learn more about how it actually works.
+- clarify desired state: What good would look like for them, in their words.
+- Also fine: explore process, identify owner
+
+Example good lines:
+- "Thanks for setting me straight. How does the ML team look at individual conversations today, if at all?"
+- "When the ML team scores a conversation, what would they be looking for?"
+
+**Bad HELP would:**
+- Repeats or builds on Keith's wrong premise that the dashboards are being replaced
+- Positions Arize as a replacement for, or consolidation of, the in-house dashboards
+- Suggests the dashboards are limited or that the SREs have outgrown them
+- Assumes the ML team has a problem reviewing conversations today (they described a job, not a pain)
+- Re-asks whether the dashboards are staying
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 20. objection-01-budget-next-fiscal
 
 **Call:** negotiation. Goal: Review the proposal with Granite Peak Credit Union after a successful pilot and agree a path to purchase
 **Docs HELP has:** Objection handling: budget timing (review by 2027-05-01)
@@ -461,7 +609,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 16. objection-02-build-in-house
+## 21. objection-02-build-in-house
 
 **Call:** technical_deep_dive. Goal: Walk Corvid Analytics' ML engineers through eval workflows and test fit against their current setup
 **Docs HELP has:** Objection handling: 'we could build this' (review by 2027-05-01)
@@ -492,7 +640,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 17. objection-03-security-review-six-months-gap
+## 22. objection-03-security-review-six-months-gap
 
 **Call:** follow_up. Goal: Map Ostrava Biosciences' path from sandbox evaluation to a pilot with production traces
 **Docs HELP has:** Security documentation for vendor reviews (review by 2027-02-01)
@@ -523,7 +671,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 18. objection-04-too-early-not-in-production
+## 23. objection-04-too-early-not-in-production
 
 **Call:** discovery. Goal: Understand where Tidewater Travel's trip-planner agent is and whether a conversation now is useful to them
 **Docs HELP has:** none
@@ -554,7 +702,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 19. objection-05-cheaper-option-no-gap-stated
+## 24. objection-05-cheaper-option-no-gap-stated
 
 **Call:** follow_up. Goal: Understand how Pinecrest Logistics is comparing options after the demo
 **Docs HELP has:** none
@@ -582,7 +730,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 20. objection-06-build-in-house-nothing-built
+## 25. objection-06-build-in-house-nothing-built
 
 **Call:** discovery. Goal: Understand how Marlow Health Tech plans to monitor its new triage assistant
 **Docs HELP has:** none
@@ -609,7 +757,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 21. objection-07-no-budget-no-deadline
+## 26. objection-07-no-budget-no-deadline
 
 **Call:** follow_up. Goal: Understand where Quillfield Media stands after the evaluation
 **Docs HELP has:** none
@@ -636,7 +784,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 22. objection-08-phoenix-in-production
+## 27. objection-08-phoenix-in-production
 
 **Call:** discovery. Goal: Understand how Corvid Robotics runs observability for its planning agent
 **Docs HELP has:** none
@@ -663,7 +811,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 23. older-context-01-march-go-live
+## 28. older-context-01-march-go-live
 
 **Call:** follow_up. Goal: Agree pilot timing and scope for Riverstone Utilities' outage-reporting agent
 **Docs HELP has:** none
@@ -693,7 +841,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 24. older-context-02-model-risk-pii-stakeholder
+## 29. older-context-02-model-risk-pii-stakeholder
 
 **Call:** demo. Goal: Demo evals on Fairhaven Lending's contact-center assistant and shape a pilot
 **Docs HELP has:** none
@@ -722,7 +870,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 25. sa-leading-01-custom-spans-propagation
+## 30. sa-leading-01-custom-spans-propagation
 
 **Call:** technical_deep_dive. Goal: Show Ambergate Retail how their full RAG pipeline, including the in-house retriever, would be traced
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -753,7 +901,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 26. sa-leading-02-eval-criteria-buyer-thinking
+## 31. sa-leading-02-eval-criteria-buyer-thinking
 
 **Call:** demo. Goal: Demo evals for Copperline Bank's mortgage FAQ assistant, grounded in how they judge answers today
 **Docs HELP has:** none
@@ -782,7 +930,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 27. sources-01-stale-security-faq-soc2
+## 32. sources-01-stale-security-faq-soc2
 
 **Call:** negotiation. Goal: Clear Sunfield Energy's remaining procurement and vendor-file items so the order form can route for signature
 **Docs HELP has:** Security FAQ: attestations (illustrative fixture, not verified) (review by 2026-03-31); Draft: security documentation turnaround (not approved) (review by 2027-03-31)
@@ -813,7 +961,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 28. sources-02-customer-reference-awaiting-clearance
+## 33. sources-02-customer-reference-awaiting-clearance
 
 **Call:** discovery. Goal: Answer Fenwick Care's question about similar customers without naming anyone not cleared
 **Docs HELP has:** Customer reference (awaiting clearance) (not approved)
@@ -838,7 +986,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 29. sources-03-saas-only-feature-self-hosted-buyer
+## 34. sources-03-saas-only-feature-self-hosted-buyer
 
 **Call:** technical_deep_dive. Goal: Answer Tamsin Bank's deployment question accurately for self-hosting. Buyer's deployment: self-hosted
 **Docs HELP has:** Automatic issue detection (applies to: saas)
@@ -863,7 +1011,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 30. sources-04-saas-only-feature-unknown-deployment
+## 35. sources-04-saas-only-feature-unknown-deployment
 
 **Call:** discovery. Goal: Answer Alder & Finch's question about issue detection with the right scope
 **Docs HELP has:** Automatic issue detection (applies to: saas)
@@ -887,7 +1035,124 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 31. technical-01-confusion-tracing-evals-monitoring
+## 36. sources-05-pricing-ask-no-pricing-source
+
+**Call:** discovery. Goal: Understand Ravelstone Credit Union's member-help assistant and agree a sensible next step
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 25:38):
+> **Keith:** That gives me a good picture of how the assistant works today.
+> **Gwen Adebayo (Buyer):** Great. Before we go further, can you just give me a ballpark? What would something like this cost for a credit union our size? I need to know if we're in the right universe before I take it to my CFO.
+> **Keith:** Totally fair question.
+> **Gwen Adebayo (Buyer):** Even a rough range is fine.
+
+**Good HELP would:**
+- confirm next step: Propose or confirm a concrete next step (who, what, when) when the conversation is ready for it.
+- clarify scale: Volume, number of models/apps/teams, traffic, data size.
+- Also fine: clarify requirement, clarify decision
+
+Example good lines:
+- "I'd rather not guess at a number. Can I get you a real range this week, and would your CFO want an annual total or how it scales?"
+- "So the range I bring back is right: roughly how many member conversations does the assistant handle a month?"
+
+**Bad HELP would:**
+- Gives any price, range, per-unit rate or discount (no approved pricing material)
+- Guesses a ballpark 'to be helpful'
+- Says it will be cheap, affordable or within their budget
+- Deflects without offering a concrete follow-up
+- Assumes the CFO is a blocker or that budget is a problem
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 37. sources-06-references-requested-none-approved
+
+**Call:** follow_up. Goal: Agree what Silverfen Payments needs to take the evaluation to its steering group
+**Docs HELP has:** none
+
+**Last lines before HELP** (press at 16:16):
+> **Asha Mwangi (Buyer):** One thing our steering group will ask for is references. Could we talk to a couple of your customers? Ideally someone in payments or banking using it for something customer-facing.
+> **Keith:** Sure, understood.
+> **Lucas Brennan (Buyer):** And ideally someone who went through a security review like ours.
+> **Asha Mwangi (Buyer):** Yeah, that would carry weight.
+
+**Good HELP would:**
+- clarify requirement: Pin down a stated requirement precisely before responding to it.
+- confirm next step: Propose or confirm a concrete next step (who, what, when) when the conversation is ready for it.
+- Also fine: clarify decision, clarify desired state
+
+Example good lines:
+- "Let me check which references we're able to share and come back to you. For your steering group, does industry match or a similar security review matter more?"
+- "When your steering group hears from a reference, what do they most want to learn from them?"
+
+**Bad HELP would:**
+- Names any customer (no approved references are available)
+- Invents a customer story, result or logo
+- Promises a reference call, or a specific kind of reference, before checking what can be shared
+- Claims Arize has many banks or payments customers
+- Treats the request as an objection or a sign of doubt
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 38. sources-07-acquisition-question-public-fact-only
+
+**Call:** follow_up. Goal: Answer Tillbury Learning's questions about the acquisition news without speculating, then continue the agenda
+**Docs HELP has:** Acquisition announcement (public) (applies to: all) (review by 2027-04-01)
+
+**Last lines before HELP** (press at 2:54):
+> **Keith:** Before we get into the agenda, anything on your mind?
+> **Nora Lindahl (Buyer):** Yeah, one thing. We saw the news that Dynatrace acquired Arize. How does that affect us? We're about to build on Phoenix. Does pricing change, does the roadmap change, is anything in our contract going to be different?
+> **Keith:** Fair questions.
+> **Nora Lindahl (Buyer):** My boss is going to ask me the same thing.
+
+**Good HELP would:**
+- technical answer: Answer briefly ONLY from approved_knowledge, then check it addresses their need.
+- clarify requirement: Pin down a stated requirement precisely before responding to it.
+- Also fine: confirm next step, handle objection
+
+Example good lines:
+- "It closed October 1, and the announcement said Arize will continue supporting Phoenix and Arize AX. Pricing and contract terms I'll confirm rather than guess. Which matters most?"
+- "What would your boss most want confirmed in writing: pricing, the Phoenix roadmap, or contract terms?"
+
+**Bad HELP would:**
+- Promises that pricing will or will not change
+- Promises roadmap, product plans or contract terms beyond the public statement
+- Says 'nothing will change' or 'business as usual'
+- Speculates about integration with Dynatrace products, team changes or support changes
+- Treats the question as a sign the buyer is unhappy or about to leave
+- Brushes the question aside and pushes on with the agenda
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 39. sources-08-soc2-saas-only-self-hosted-buyer
+
+**Call:** technical_deep_dive. Goal: Answer Wrexbury Health Network's vendor-file questions accurately for a self-hosted deployment. Buyer's deployment: self-hosted
+**Docs HELP has:** SOC 2 report (SaaS) (applies to: saas) (review by 2027-06-30)
+
+**Last lines before HELP** (press at 12:39):
+> **Ben Thorsen (Buyer):** Just to restate, we'd run it ourselves, in our own Kubernetes cluster. Nothing leaves our network.
+> **Keith:** Understood, self-hosted in your own cluster.
+> **Kamala Iyer (Buyer):** Right. So for our vendor file, do you have a SOC 2 report that covers that setup? Our security team asks every vendor for SOC 2.
+> **Keith:** Let me think about how best to answer.
+> **Kamala Iyer (Buyer):** Sure, take your time.
+
+**Good HELP would:**
+- clarify requirement: Pin down a stated requirement precisely before responding to it.
+- confirm next step: Propose or confirm a concrete next step (who, what, when) when the conversation is ready for it.
+- Also fine: technical clarification
+
+Example good lines:
+- "I want to confirm exactly what applies to a self-hosted setup before I answer. Is your security team after our company's controls, or controls on the software you'd run?"
+- "Can I come back to you this week with what we can document for a self-hosted deployment, and who on your side should get it?"
+
+**Bad HELP would:**
+- Says the SOC 2 report covers their self-hosted deployment
+- States SaaS-only details (report type, NDA terms) as if they apply to self-hosted
+- Says Arize has no SOC 2, or that SOC 2 does not apply (not verified is not unsupported)
+- Asks again whether they will self-host (they just said so)
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 40. technical-01-confusion-tracing-evals-monitoring
 
 **Call:** demo. Goal: Demo tracing and evals for Wrenfield Education's tutoring assistant to a mixed product and engineering audience
 **Docs HELP has:** Tracing vs. evaluation vs. monitoring (review by 2027-01-01)
@@ -917,7 +1182,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 32. technical-02-otel-pipeline-approved-answer
+## 41. technical-02-otel-pipeline-approved-answer
 
 **Call:** technical_deep_dive. Goal: Confirm Sablewood Systems can instrument its maintenance agent within their existing OpenTelemetry setup
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -946,7 +1211,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 33. technical-03-retention-question-no-source
+## 42. technical-03-retention-question-no-source
 
 **Call:** technical_deep_dive. Goal: Work through Ironbark Legal Tech's security and data-handling requirements for the contract-review assistant
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -974,5 +1239,34 @@ Example good lines:
 - Says 'yes, you can set thirty days' or equivalent
 - Stretches the unrelated OpenTelemetry snippet into a data-retention answer
 - Deflects without offering a concrete follow-up path
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 43. technical-04-poc-shape-no-approved-source
+
+**Call:** follow_up. Goal: After the tracing demo, understand what Copperwick Energy would want a proof of concept to prove
+**Docs HELP has:** Pilot outline (draft, not approved) (not approved)
+
+**Last lines before HELP** (press at 20:52):
+> **Sanjay Varma (Buyer):** This looked good. So if we wanted to try it properly, what does a POC with you actually look like? How long does it usually run, what do you need from our side, and what do we walk away with at the end?
+> **Keith:** Good question.
+> **Unknown:** And whether it can run against our staging data, not just a sandbox.
+> **Sanjay Varma (Buyer):** Right, that too.
+
+**Good HELP would:**
+- clarify desired state: What good would look like for them, in their words.
+- confirm next step: Propose or confirm a concrete next step (who, what, when) when the conversation is ready for it.
+- Also fine: clarify requirement, technical clarification
+
+Example good lines:
+- "I'll send you a written outline rather than guess at the details. To shape it: what would the POC need to prove for you to call it a success?"
+- "On running against staging data, what's in that data, and are there rules about where it can go?"
+
+**Bad HELP would:**
+- States a POC length, cost, or 'free' without approved material
+- Uses the unapproved draft pilot outline (30 days, free of charge, signed success plan) as fact
+- Describes a 'standard' or 'typical' POC as if it were documented
+- Promises the POC can run on their staging data without a source
+- Ignores the staging-data question from the second speaker
 
 Approve? ☐ Yes ☐ No. Fix: ______
