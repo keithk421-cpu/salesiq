@@ -187,10 +187,11 @@ const CAPABILITY_CLAIM_SOURCE =
 /** A subordinate lead right before the claim ("if that is supported", "which languages are supported"). */
 const CLAIM_LEAD = /\b(?:if|what|which|once|when|until|before|after|suggest|propose|maybe|perhaps)\s+(?:[\w-]+\s+)?$/i
 /**
- * A question: the clause opens with the helper verb, before any subject ("can we provide", "so would
- * we offer", "which of these would we support"). "You can see we support SSO" is not a question.
+ * A question: the clause, or its part after the last comma, opens with the helper verb, before any
+ * subject ("can we provide", "got it, can we offer", "which of these teams would we support").
+ * "You can see we support SSO" is not a question.
  */
-const CLAIM_QUESTION = /^\W*(?:(?:and|but|so|or|then|also|now|okay|ok|well|yes|no|great|sure)\W+)*(?:(?:how|what|which|where|why|who)(?:\s+[\w-]+){0,2}\s+)?(?:do|does|did|can|could|should|would|will|shall)\s+(?:[\w-]+\s+)?$/i
+const CLAIM_QUESTION = /^\W*(?:(?:and|but|so|or|then|also|now|okay|ok|well|yes|no|great|sure)\W+)*(?:(?:how|what|which|where|why|who)(?:\s+[\w-]+){0,3}\s+)?(?:do|does|did|can|could|should|would|will|shall)\s+(?:[\w-]+\s+)?$/i
 /** A hedge earlier in the same clause: the line is checking, not claiming ("let me confirm we support that"). */
 const CLAIM_HEDGE = /\b(?:confirm|check|verify|whether|not sure|unsure|not certain|find out|look into|double-check|ask)\b/i
 /** Where a new clause starts: a sentence end, ';', ':', a dash between words, or ", but". */
@@ -211,7 +212,9 @@ function clauseBefore(text: string, at: number): string {
 export function findCapabilityClaim(text: string): string | null {
   for (const m of text.matchAll(new RegExp(CAPABILITY_CLAIM_SOURCE, 'gi'))) {
     const clause = clauseBefore(text, m.index)
-    if (CLAIM_LEAD.test(clause) || CLAIM_QUESTION.test(clause) || CLAIM_HEDGE.test(clause)) continue
+    // A comma opener ("On self-hosted, do we support SAML?") doesn't stop it being a question.
+    const question = CLAIM_QUESTION.test(clause) || CLAIM_QUESTION.test(clause.slice(clause.lastIndexOf(',') + 1))
+    if (CLAIM_LEAD.test(clause) || question || CLAIM_HEDGE.test(clause)) continue
     // "Which languages are supported in your stack?" is about the buyer's side.
     if (/^(?:is|are)\b/i.test(m[0]) && /^\s+(?:in|on|by|across|within)\s+(?:your|their)\b/i.test(text.slice(m.index + m[0].length))) continue
     return m[0]

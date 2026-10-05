@@ -17,6 +17,7 @@ describe('capability claims (live "check before saying" note and Level 1)', () =
       'Good that you ask — we support self-hosted on Kubernetes.',
       'Let me verify one thing: we support SSO on every plan.',
       'You can see we support SSO out of the box.',
+      'Honestly, you can see we support SSO.',
     ]) {
       expect(findCapabilityClaim(line), line).not.toBeNull()
       expect(cardChecks(card({ primary: line }), [], turnOnly), line).toEqual([CLAIM_CHECK])
@@ -38,6 +39,25 @@ describe('capability claims (live "check before saying" note and Level 1)', () =
       'Self-hosted is a common ask - what does your security team prefer?',
     ]) {
       expect(findCapabilityClaim(line), line).toBeNull()
+    }
+  })
+
+  it('a question with a comma opener before "can we" / "would we" is still a question', () => {
+    for (const line of [
+      'Got it, can we provide the questionnaire answers next week?',
+      'On self-hosted, do we support SAML?',
+      'Right, so can we offer that?',
+      'Hmm, can we support that?',
+      'Totally fair, could we offer a security review session?',
+      'For the security review, can we provide the SOC 2 report?',
+      'Given your timeline, can we offer a two-week trial?',
+      'If that is a blocker, could we offer a short pilot on SaaS?',
+      'Before the pilot, would we provide a sandbox?',
+      'Thanks for that. For your team, would we support both regions?',
+      'Which of these teams would we support first?',
+    ]) {
+      expect(findCapabilityClaim(line), line).toBeNull()
+      expect(cardChecks(card({ move: 'clarify_requirement', primary_kind: 'ask', primary: line }), [], turnOnly), line).toEqual([])
     }
   })
 

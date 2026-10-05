@@ -87,6 +87,12 @@ describe('Level 1 (hard gate)', () => {
       // Questions that open with the helper verb, after a filler word or a "which/how" phrase.
       'So can we provide that in the pilot?',
       'Which of these would we support first, in your view?',
+      'Which of these teams would we support first?',
+      // A comma opener before the helper verb is still a question.
+      'Got it, can we provide the questionnaire answers next week?',
+      'On self-hosted, do we support SAML?',
+      'Given your timeline, can we offer a two-week trial?',
+      'Thanks for that. For your team, would we support both regions?',
     ]
     for (const primary of lines) {
       expect(findCapabilityClaim(primary), primary).toBeNull()
@@ -113,8 +119,9 @@ describe('Level 1 (hard gate)', () => {
       'Let me check the details, but we support SAML SSO on SaaS.',
       "I'll confirm pricing later, but Arize supports SCIM provisioning today.",
       'Good that you ask - we support self-hosted on Kubernetes.',
-      // "can" with a subject before it is not a question.
+      // "can" with a subject before it is not a question, even after a comma opener.
       'You can see we support SSO out of the box.',
+      'Honestly, you can see we support SSO.',
     ]
     for (const primary of claims) {
       expect(findCapabilityClaim(primary), primary).not.toBeNull()
