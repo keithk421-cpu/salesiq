@@ -204,10 +204,15 @@ function registerIpc(): void {
   ipcMain.handle('app:openFolder', () => shell.openPath(app.getPath('userData')))
   ipcMain.handle('app:build', () => BUILD)
   ipcMain.handle('app:supportFiles', () => {
-    const out = saveSupportFiles(storage.root, app.getPath('downloads'))
-    log('support_files_saved', { files: out.files.length })
-    shell.showItemInFolder(path.join(out.dir, 'README.txt'))
-    return { ok: true, dir: out.dir, files: out.files.length }
+    try {
+      const out = saveSupportFiles(storage.root, app.getPath('downloads'))
+      log('support_files_saved', { files: out.files.length, skipped: out.skipped.length })
+      shell.showItemInFolder(path.join(out.dir, 'README.txt'))
+      return { ok: true, dir: out.dir, files: out.files.length, skipped: out.skipped.length }
+    } catch (err) {
+      log('support_files_failed', { error: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      return { ok: false, error: (err as Error).message }
+    }
   })
 
   // ---- M1 HELP ----

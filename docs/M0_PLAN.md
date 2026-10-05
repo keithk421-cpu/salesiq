@@ -41,7 +41,7 @@ Diarization ≠ identity: clusters are Deepgram's "which voice group", scoped to
 | `src/renderer/*` | Diagnostic UI |
 | `src/main/mockNative.ts` | Test/demo stand-in. **Not** evidence of Windows behaviour. |
 | `tests/*` | Vitest suites (logic against the mock + one real-provider replay fixture) |
-| `.github/workflows/m0.yml` | Linux tests; Windows native build + smoke + installer artifact |
+| `.github/workflows/m0.yml` | Linux tests; Windows native build + smoke + installer, published to the "Latest build" release |
 
 ## Dependencies (pinned in lockfiles)
 Node 22, Electron 44.5.1, electron-builder 26.15.3, esbuild 0.28.2, TypeScript 5.9.3 (strict), Vitest 3.2.7, ws 8.22.0.
@@ -93,6 +93,6 @@ Legend: **T** = covered by automated test against the mock/fake provider · **CI
 | 21 | Secrets kept out of renderer/source/logs | DPAPI storage; key never logged or sent to renderer; repo grep in CI checklist | code review (see note 7) |
 
 ## Remaining M0 work
-1. Keith installs the CI artifact and runs `KEITH_TEST_GUIDE.md`.
+1. Keith installs the newest build from https://github.com/keithk421-cpu/salesiq/releases/tag/latest and runs `KEITH_TEST_GUIDE.md`.
 2. Fix whatever the hardware run shows. Do not proceed to M1 before review.
 3. Fill in `m0_test_report.md` from the real sessions.

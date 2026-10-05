@@ -490,8 +490,10 @@ void (api.buildInfo() as Promise<{ version: string; build: string; sha: string; 
   $('buildTag').textContent = `· build ${b.build} (${b.sha}${b.date ? `, ${b.date}` : ''})`
 })
 $('supportFiles').addEventListener('click', async () => {
-  const r = (await api.supportFiles()) as { ok: boolean; dir: string; files: number }
-  $('snapMsg').textContent = r.ok ? `Saved ${r.files} support file(s) to ${r.dir} (no conversation text). Zip that folder and send it.` : 'Could not save support files.'
+  const r = (await api.supportFiles()) as { ok: boolean; dir?: string; files?: number; skipped?: number; error?: string }
+  $('snapMsg').textContent = r.ok
+    ? `Saved ${r.files} support file(s) to ${r.dir} (no conversation text).${r.skipped ? ` ${r.skipped} couldn't be copied (listed in README.txt).` : ''} Zip that folder and send it.`
+    : `Could not save support files: ${r.error ?? 'unknown error'}.`
 })
 
 setInterval(() => { if (sessionState === 'live' || sessionState === 'paused') setPill() }, 500)

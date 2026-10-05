@@ -57,6 +57,14 @@ export class Db {
     // Databases created before chunks kept their "Source:" reference separately.
     const cols = this.sql.prepare('PRAGMA table_info(knowledge_chunks)').all() as Array<{ name: string }>
     if (!cols.some((c) => c.name === 'source_ref')) this.sql.exec("ALTER TABLE knowledge_chunks ADD COLUMN source_ref TEXT NOT NULL DEFAULT ''")
+    // Builds before Oct 5 kept the text of background requests Keith never saw. Drop it, and compact
+    // the file so the removed text doesn't linger in free pages.
+    const unseen = this.sql.prepare(
+      `UPDATE help_requests SET request_text = NULL, output_raw = NULL, card_json = NULL
+       WHERE prefetch = 1 AND COALESCE(json_extract(timing_json, '$.served_from_prefetch'), 0) = 0
+         AND (request_text IS NOT NULL OR output_raw IS NOT NULL OR card_json IS NOT NULL)`,
+    ).run()
+    if (Number(unseen.changes) > 0 && path !== ':memory:') this.sql.exec('VACUUM')
     this.sql.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
   }
 
@@ -86,33 +94,62 @@ export function ftsQuery(text: string, aliases: Map<string, string[]> = new Map(
   return list.length ? ftsAny(list) : null
 }
 
+/** Synonyms of the newest few things said get their own room, outside the cap on spoken words. */
+const ALIAS_NEWEST = 4
+const ALIAS_EXTRA = 12
+
 /**
- * What was said, as concepts: each spoken content word with its aliases, newest first. The words
- * actually said fill the cap before any alias, so the cap never drops the buyer's latest question in
- * favour of earlier talk or synonyms.
+ * What was said, as concepts: each spoken content word with its aliases, newest first. Words from the
+ * same synonym group ("pricing" and "budget") are one concept, and a multi-word synonym said as a
+ * phrase ("proof of concept") counts as that phrase, not as its words. The words actually said fill
+ * the cap before any alias, so the cap never drops the buyer's latest question in favour of earlier
+ * talk or synonyms; the newest few concepts still get their synonyms from a small separate allowance.
  */
 export function ftsConcepts(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string[][] {
+  if (maxTerms <= 0) return []
   const lower = text.toLowerCase()
-  const said: Array<{ at: number; term: string }> = []
-  for (const m of lower.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu)) {
-    const t = m[0].replace(/'s$/, '').replace(/[^\p{L}\p{N}-]/gu, '')
-    if (t.length < 3 || STOPWORDS.has(t)) continue
-    said.push({ at: m.index ?? 0, term: t })
+  const phrases: Array<{ at: number; end: number; term: string }> = []
+  for (const [key] of aliases) {
+    if (!key.includes(' ')) continue
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'gu')
+    for (const m of lower.matchAll(re)) phrases.push({ at: m.index ?? 0, end: (m.index ?? 0) + key.length, term: key })
   }
-  for (const [key] of aliases) if (key.includes(' ') && lower.includes(key)) said.push({ at: lower.lastIndexOf(key), term: key })
+  const said: Array<{ at: number; term: string }> = phrases.map(({ at, term }) => ({ at, term }))
+  for (const m of lower.matchAll(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu)) {
+    const at = m.index ?? 0
+    const t = m[0].replace(/'s$/, '').replace(/[^\p{L}\p{N}-]/gu, '')
+    if (t.length < 3 || STOPWORDS.has(t) || phrases.some((p) => at >= p.at && at < p.end)) continue
+    said.push({ at, term: t })
+  }
   said.sort((a, b) => b.at - a.at)
+  const group = (t: string) => [t, ...(aliases.get(t) ?? [])].sort()[0]
   const concepts: string[][] = []
+  const byGroup = new Map<string, string[]>()
   const used = new Set<string>()
   for (const { term } of said) {
-    if (used.has(term) || used.size >= maxTerms) continue
+    if (used.size >= maxTerms) break
+    if (used.has(term)) continue
     used.add(term)
-    concepts.push([term])
+    const g = group(term)
+    const c = byGroup.get(g)
+    if (c) c.push(term)
+    else {
+      byGroup.set(g, [term])
+      concepts.push(byGroup.get(g)!)
+    }
   }
-  // Aliases fill whatever room is left, newest concept first.
-  for (const c of concepts) for (const a of aliases.get(c[0]) ?? []) if (used.size < maxTerms && !used.has(a.toLowerCase())) {
-    used.add(a.toLowerCase())
-    c.push(a.toLowerCase())
-  }
+  let room = maxTerms - used.size
+  let extra = ALIAS_EXTRA
+  concepts.forEach((c, i) => {
+    for (const a of new Set(c.flatMap((t) => aliases.get(t) ?? []))) {
+      if (used.has(a)) continue
+      if (i < ALIAS_NEWEST && extra > 0) extra--
+      else if (room > 0) room--
+      else break
+      used.add(a)
+      c.push(a)
+    }
+  })
   return concepts
 }
 

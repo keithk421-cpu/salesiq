@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveSupportFiles } from '../src/main/support'
 
 describe('Save support files', () => {
+  afterEach(() => vi.restoreAllMocks())
+
   it('copies logs, per-call diagnostics, reports and safe settings; never conversations, call notes or keys', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'))
     const put = (rel: string, body = 'x') => {
@@ -31,5 +33,21 @@ describe('Save support files', () => {
     const all = fs.readdirSync(out.dir, { recursive: true }).map(String).join(' ')
     expect(all).not.toMatch(/transcript|copilot\.db|key\.bin|call-setup|knowledge/)
     expect(path.basename(out.dir)).toBe('SalesCopilot-support-2026-10-05-12-00-00')
+  })
+
+  it('a file that cannot be copied (locked log) is skipped and noted, the rest is still saved', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'))
+    fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'logs', 'app.jsonl'), 'x')
+    fs.writeFileSync(path.join(root, 'help-settings.json'), '{}')
+    const real = fs.copyFileSync
+    vi.spyOn(fs, 'copyFileSync').mockImplementation((src, dest, mode) => {
+      if (String(src).endsWith('app.jsonl')) throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+      return real(src, dest, mode)
+    })
+    const out = saveSupportFiles(root, fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')))
+    expect(out.files).toEqual(['help-settings.json'])
+    expect(out.skipped.map((f) => f.split(path.sep).join('/'))).toEqual(['logs/app.jsonl'])
+    expect(fs.readFileSync(path.join(out.dir, 'README.txt'), 'utf8')).toMatch(/Could not copy: logs.app\.jsonl/)
   })
 })

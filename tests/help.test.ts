@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { HelpCardEvent, HelpModelConfig } from '../src/shared/help'
-import { Db } from '../src/main/db'
-import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom, importKnowledgeFiles, removeKnowledgeFile } from '../src/main/knowledge'
+import { Db, ftsConcepts } from '../src/main/db'
+import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, loadAliases, parseFrontMatter, docMetaFrom, importKnowledgeFiles, removeKnowledgeFile } from '../src/main/knowledge'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
 import { HelpEngine } from '../src/main/help/engine'
@@ -264,6 +264,31 @@ describe('knowledge import', () => {
     kb.approve('news', true)
     kb.approve('obj', true)
     expect(kb.search('Is Dynatrace going to change our pricing?', 2).usable[0].doc_id).toBe('news')
+    // Two words from the same synonym group are still one concept.
+    expect(kb.search('Is Dynatrace going to change our pricing? What will it cost?', 2).usable[0].doc_id).toBe('news')
+    expect(kb.search('Does the Dynatrace deal change our pricing or budget?', 2).usable[0].doc_id).toBe('news')
+  })
+
+  it('a multi-word synonym said as a phrase is one concept, not its words', () => {
+    const aliases = loadAliases(fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
+    expect(ftsConcepts('Does Dynatrace change our proof of concept?', aliases)).toEqual([
+      ['proof of concept', 'poc', 'pilot', 'trial'],
+      ['change'],
+      ['dynatrace'],
+    ])
+    // Only a whole-word phrase counts: "open testing" is not "pen test".
+    expect(ftsConcepts('we are open testing it', aliases).flat()).not.toContain('pen test')
+  })
+
+  it('the latest question keeps its synonyms after a long stretch of other talk', () => {
+    const kb = new KnowledgeBase(new Db(':memory:'), fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
+    kb.addDoc(docMetaFrom('/k/otel.md', {}, 'x'), '## OpenTelemetry ingestion\n\nArize accepts OpenTelemetry data from any SDK.\n\nSource: x')
+    kb.addDoc(docMetaFrom('/k/demo.md', {}, 'x'), '## Dashboards and charts\n\nDashboards show latency charts and colors.\n\nSource: x')
+    kb.approve('otel', true)
+    kb.approve('demo', true)
+    const preamble = 'So this dashboard shows latency charts for every project and the colors change when requests slow down, ' +
+      'then we drill into steps, filter by model, compare prompt variants, export results and share views with teammates across workspaces. '
+    expect(kb.search(`${preamble.repeat(2)}Quick one: do you support OTel?`, 1).usable[0]?.heading).toBe('OpenTelemetry ingestion')
   })
 
   it('aliases widen search (FTS5, no embeddings)', () => {
@@ -536,6 +561,26 @@ describe('HELP engine', () => {
     expect(shown.card_json).not.toBeNull()
   })
 
+
+  it('opening a database from an older build drops the text of background requests Keith never saw', () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'db-')), 'copilot.db')
+    const old = new Db(file)
+    const ins = old.sql.prepare(
+      `INSERT INTO help_requests (id, origin, created_at, status, model_json, request_text, output_raw, card_json, timing_json, prefetch) VALUES (?, 'help_requested', 't', 'complete', '{}', 'BUYER WORDS', 'raw', '{}', ?, ?)`,
+    )
+    ins.run('unseen', JSON.stringify({ served_from_prefetch: false }), 1)
+    ins.run('adopted', JSON.stringify({ served_from_prefetch: true }), 1)
+    ins.run('pressed', JSON.stringify({ served_from_prefetch: false }), 0)
+    old.close()
+    const db = new Db(file)
+    const rows = db.sql.prepare('SELECT id, request_text, output_raw, card_json FROM help_requests ORDER BY id').all()
+    expect(rows).toEqual([
+      { id: 'adopted', request_text: 'BUYER WORDS', output_raw: 'raw', card_json: '{}' },
+      { id: 'pressed', request_text: 'BUYER WORDS', output_raw: 'raw', card_json: '{}' },
+      { id: 'unseen', request_text: null, output_raw: null, card_json: null },
+    ])
+    db.close()
+  })
   it('times out cleanly and records it', async () => {
     const m = new ScriptedModel()
     const s = engineSetup(m, { timeout: 3000 })

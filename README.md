@@ -23,4 +23,4 @@ npm run dev                        # on non-Windows runs a labelled DEMO with sy
 npm run package:win                # Windows installer in release/
 npm run doctor                     # read-only environment check
 ```
-CI (`.github/workflows/m0.yml`) builds the Windows installer on every push and uploads it as an artifact.
+CI (`.github/workflows/m0.yml`) runs the tests on every push and, when code changed since the last published build, builds the Windows installer and puts it on the "Latest build" release: https://github.com/keithk421-cpu/salesiq/releases/tag/latest

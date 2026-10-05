@@ -221,6 +221,8 @@ export class HelpService {
         break
       case 'gap_open':
       case 'gap_close':
+        // Words left mid-transcription when a stream drops will never be finished; don't keep treating them as live speech.
+        if (ev.type === 'gap_open') m.setInterim(ev.gap.stream, '', now)
         m.upsertGap({ id: ev.gap.gap_id, stream: ev.gap.stream, cause: ev.gap.cause, start_ms: ev.gap.start_ms, end_ms: ev.gap.end_ms })
         break
       case 'timing':
