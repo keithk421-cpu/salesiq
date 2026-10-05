@@ -134,6 +134,19 @@ describe('knowledge import', () => {
     expect(kb.search('do you support otel').usable).toHaveLength(1)
   })
 
+  it("a doc's tags do not drown out the section that names the subject", () => {
+    const db = new Db(':memory:')
+    const kb = new KnowledgeBase(db, null)
+    const sections = ['Braintrust', 'LangSmith', 'Langfuse', 'Weave'].map((c) => `## ${c} vs Arize\n\nWhere Arize differs from ${c}: tracing differs and evals differ.`)
+    const body = `# Competitive\n\n${sections.join('\n\n')}\n\n## Galileo strengths\n\nGalileo is strong on guardrails.`
+    // An untagged doc with an identical title and section is indexed first, so without the tag boost it wins the tie.
+    kb.addDoc({ ...docMetaFrom('/k/other.md', { title: 'Competitive' }, 'x'), approved: true }, '## Galileo strengths\n\nGalileo is strong on guardrails.')
+    kb.addDoc({ ...docMetaFrom('/k/competitive.md', { tags: 'braintrust, langsmith, langfuse, galileo, weave' }, body), approved: true }, body)
+    expect(kb.search('how is this different from Galileo').usable.map((c) => c.heading).slice(0, 2)).toEqual(['Galileo strengths', 'Galileo strengths'])
+    // Tags still break ties between documents.
+    expect(kb.search('Galileo guardrails').usable[0].meta.doc_id).toBe('competitive')
+  })
+
   it('chunks by headings', () => {
     const c = chunkBody('# Title\n\nIntro.\n\n## Deploy\n\nSelf-hosted notes.\n\n## Security\n\nSSO notes.')
     expect(c.map((x) => x.heading)).toEqual(['Title', 'Deploy', 'Security'])

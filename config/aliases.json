@@ -21,6 +21,23 @@
     ["gdpr"],
     ["pii", "personal data", "sensitive data"],
     ["pricing", "price", "cost", "budget", "license", "licensing"],
-    ["poc", "proof of concept", "pilot", "trial"]
+    ["poc", "proof of concept", "pilot", "trial"],
+    ["air-gapped", "airgapped", "air gap", "air-gap"],
+    ["baa", "business associate agreement"],
+    ["iso 27001", "iso27001", "iso/iec 27001"],
+    ["pci", "pci dss", "pci-dss"],
+    ["rbac", "role-based access", "role based access"],
+    ["audit log", "audit logs", "audit trail"],
+    ["data residency", "data region", "eu region"],
+    ["pentest", "penetration test", "pen test"],
+    ["entra", "entra id", "azure ad"],
+    ["redaction", "redact", "masking"],
+    ["galileo", "splunk agent observability"],
+    ["vertex", "vertex ai", "gemini enterprise agent platform"],
+    ["microsoft foundry", "azure ai foundry", "azure foundry"],
+    ["agentcore", "bedrock agentcore"],
+    ["in-house", "homegrown", "build it ourselves", "build vs buy"],
+    ["lock-in", "vendor lock-in"],
+    ["annotation", "annotations", "labeling", "human review"]
   ]
 }

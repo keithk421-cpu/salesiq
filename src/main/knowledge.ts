@@ -16,10 +16,12 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { KnowledgeCategory, KnowledgeChunk, KnowledgeDocMeta } from '../shared/help'
-import { Db, ftsQuery } from './db'
+import { Db, ftsQuery, ftsTerms } from './db'
 
 const CATEGORIES: KnowledgeCategory[] = ['product', 'deployment_security', 'competitive', 'objection_handling', 'other']
 const MAX_CHUNK_CHARS = 900
+/** Ranking boost per query term that matches one of the document's tags (max two counted). */
+const TAG_BOOST = 0.05
 
 export function loadAliases(file: string): Map<string, string[]> {
   const map = new Map<string, string[]>()
@@ -145,7 +147,7 @@ export class KnowledgeBase {
     chunkBody(body).forEach((c, i) => {
       const id = `k:${doc.doc_id}#${i + 1}`
       ins.run(id, doc.doc_id, doc.title, c.heading, c.text)
-      fts.run(c.text, `${doc.title} ${doc.tags.join(' ')} ${doc.category}`, c.heading, id, doc.doc_id)
+      fts.run(c.text, doc.title, c.heading, id, doc.doc_id)
     })
   }
 
@@ -185,22 +187,36 @@ export class KnowledgeBase {
    * Unapproved documents are never returned.
    */
   search(text: string, limit = 4, today = new Date()): { usable: KnowledgeChunk[]; staleTitles: string[] } {
+    const terms = ftsTerms(text, this.aliases)
     const q = ftsQuery(text, this.aliases)
     if (!q) return { usable: [], staleTitles: [] }
-    let rows: Array<{ chunk_id: string; doc_id: string; title: string; heading: string; text: string }>
+    let rows: Array<{ chunk_id: string; doc_id: string; title: string; heading: string; text: string; score: number }>
     try {
+      // Tags are not indexed per chunk: repeating them in every chunk of a doc would make the most
+      // telling words (a competitor's name, "HIPAA") look common and rank worse. They re-rank instead.
       rows = this.db.sql.prepare(
-        `SELECT c.chunk_id, c.doc_id, c.title, c.heading, c.text FROM knowledge_fts f
+        `SELECT c.chunk_id, c.doc_id, c.title, c.heading, c.text, bm25(knowledge_fts, 1.0, 0.5, 2.5) AS score FROM knowledge_fts f
          JOIN knowledge_chunks c ON c.chunk_id = f.chunk_id
-         WHERE knowledge_fts MATCH ? ORDER BY bm25(knowledge_fts, 1.0, 2.0, 1.5) LIMIT 30`,
+         WHERE knowledge_fts MATCH ? ORDER BY score LIMIT 30`,
       ).all(q) as typeof rows
     } catch {
       return { usable: [], staleTitles: [] }
     }
+    const docs = new Map<string, KnowledgeDocMeta | null>()
+    const docOf = (id: string) => {
+      if (!docs.has(id)) docs.set(id, this.getDoc(id))
+      return docs.get(id) ?? null
+    }
+    const tagHits = (meta: KnowledgeDocMeta | null) =>
+      meta ? Math.min(2, terms.filter((t) => meta.tags.some((tag) => tag.toLowerCase() === t)).length) : 0
+    // bm25 is negative (lower is better), so a boost multiplies it.
+    rows = rows
+      .map((r) => ({ ...r, score: r.score * (1 + TAG_BOOST * tagHits(docOf(r.doc_id))) }))
+      .sort((a, b) => a.score - b.score)
     const usable: KnowledgeChunk[] = []
     const staleTitles = new Set<string>()
-    for (const r of rows) {
-      const meta = this.getDoc(r.doc_id)
+    for (const { score: _score, ...r } of rows) {
+      const meta = docOf(r.doc_id)
       if (!meta || !meta.approved) continue
       const stale = isStale(meta, today)
       if (stale) {

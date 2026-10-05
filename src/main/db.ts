@@ -78,6 +78,13 @@ export class Db {
  * each quoted, OR-ed, plus alias expansions. Never passes raw user/transcript text as FTS syntax.
  */
 export function ftsQuery(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string | null {
+  const list = ftsTerms(text, aliases, maxTerms)
+  if (list.length === 0) return null
+  return list.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
+}
+
+/** The search terms ftsQuery uses: content words of `text` (no stopwords) plus their aliases. */
+export function ftsTerms(text: string, aliases: Map<string, string[]> = new Map(), maxTerms = 24): string[] {
   const terms = new Set<string>()
   for (const raw of text.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}'-]*/gu) ?? []) {
     const t = raw.replace(/'s$/, '').replace(/[^\p{L}\p{N}-]/gu, '')
@@ -88,9 +95,7 @@ export function ftsQuery(text: string, aliases: Map<string, string[]> = new Map(
   // Multi-word aliases (e.g. "weights & biases") are matched on the whole lowercased text.
   const lower = text.toLowerCase()
   for (const [key, group] of aliases) if (key.includes(' ') && lower.includes(key)) for (const a of group) terms.add(a.toLowerCase())
-  const list = [...terms].slice(0, maxTerms)
-  if (list.length === 0) return null
-  return list.map((t) => `"${t.replace(/"/g, '')}"`).join(' OR ')
+  return [...terms].slice(0, maxTerms)
 }
 
 const STOPWORDS = new Set(

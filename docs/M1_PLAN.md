@@ -26,7 +26,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - **Call setup**: type, goal, desired outcomes, account. **Participants**: manual labels; unlabeled is normal.
 - **Recent thread**: the few minutes before that, compact.
 - **Earlier in the call**: SQLite FTS5 search of older turns relevant to what's being discussed.
-- **Approved knowledge**: FTS5 + aliases + tags; no embeddings.
+- **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
 - **Transcript status**: gaps and lag, so HELP never pretends it heard something.
 
 ## Knowledge rules
