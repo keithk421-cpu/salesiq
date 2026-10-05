@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AudioEndpointConfig, AudioFrame } from '../src/shared/contracts'
 import { toEndpointRef } from '../src/main/endpoints'
 import { MOCK_IDS, MockNative } from '../src/main/mockNative'
-import { START_WAIT_MS, SessionController, type SessionEvent } from '../src/main/session'
+import { PAUSE_DETAIL, START_WAIT_MS, SessionController, type SessionEvent } from '../src/main/session'
 import { noise, tone, zeros } from './helpers/audio'
-import { dgResults, fakeWsFactory } from './helpers/fakeWs'
+import { dgResults, fakeWsFactory, type FakeWs } from './helpers/fakeWs'
 
-function setup(opts: { checkTimeoutMs?: number } = {}) {
+function setup(opts: { checkTimeoutMs?: number; autoOpen?: boolean } = {}) {
   const native = new MockNative({ now: () => Date.now() })
   const eps = native.listEndpoints()
   const config: AudioEndpointConfig = {
@@ -17,7 +17,7 @@ function setup(opts: { checkTimeoutMs?: number } = {}) {
     confirmed_by_test: true,
     last_verified_at: null,
   }
-  const ws = fakeWsFactory()
+  const ws = fakeWsFactory({ autoOpen: opts.autoOpen ?? true })
   const events: SessionEvent[] = []
   const logs: Array<{ event: string; data?: Record<string, unknown> }> = []
   const frames: AudioFrame[] = []
@@ -153,6 +153,162 @@ describe('session-start gate', () => {
   })
 })
 
+describe('session-start gate: both sides heard at about the same time', () => {
+  const lastCheck = (ctx: Ctx) => ctx.events.filter((e) => e.type === 'check').at(-1) as Extract<SessionEvent, { type: 'check' }>
+
+  it('stray sounds minutes apart while waiting do not start the call', async () => {
+    const ctx = setup({ checkTimeoutMs: START_WAIT_MS })
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 600, 'zero', 'audio') // an email notification sound on the headset
+    await feed(ctx, 15_000, 'zero', 'zero')
+    await vi.advanceTimersByTimeAsync(3 * 60_000)
+    await feed(ctx, 600, 'voice', 'zero') // Keith clears his throat
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ctx.session.state).toBe('checking')
+    expect(lastCheck(ctx)).toMatchObject({ micPassed: true, systemPassed: false, providersOpen: true })
+    await vi.advanceTimersByTimeAsync(4 * 60_000)
+    await feed(ctx, 600, 'zero', 'audio') // another notification
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(ctx.session.state).toBe('checking')
+    expect(lastCheck(ctx)).toMatchObject({ micPassed: false, systemPassed: true })
+    expect(ctx.ws.sockets.every((s) => s.audioChunks().length === 0)).toBe(true)
+    await ctx.session.stop()
+    expect(await p).toEqual({ ok: false, reason: 'Stopped by Keith' })
+  })
+
+  it('goes live when the buyer says hello and Keith answers a moment later', async () => {
+    const ctx = setup({ checkTimeoutMs: START_WAIT_MS })
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 60_000, 'zero', 'zero') // waiting for the buyer to join
+    await feed(ctx, 700, 'zero', 'audio') // "Hi Keith, can you hear me?"
+    await feed(ctx, 1500, 'zero', 'zero')
+    await feed(ctx, 700, 'voice', 'zero') // "Yes, hi!"
+    expect(await p).toEqual({ ok: true })
+    expect(ctx.session.state).toBe('live')
+    await ctx.session.stop()
+  })
+
+  it('says so plainly when both sides were heard, but never together, by the end of the wait', async () => {
+    const ctx = setup({ checkTimeoutMs: 40_000 })
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 600, 'zero', 'audio')
+    await vi.advanceTimersByTimeAsync(15_000)
+    await feed(ctx, 600, 'voice', 'zero')
+    await vi.advanceTimersByTimeAsync(30_000)
+    const r = await p
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/heard the meeting audio and your voice, but not at the same time/)
+    expect(r.reason).not.toMatch(/no meeting audio heard|no voice heard|speech service/)
+    expect(ctx.session.state).toBe('idle')
+  })
+})
+
+describe('session-start gate: speech service while waiting', () => {
+  const sysSockets = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=true'))
+  const micSockets = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=false'))
+
+  it.each([
+    ['a server error', (s: FakeWs) => s.reject(503)],
+    ['too many requests', (s: FakeWs) => s.reject(429)],
+    ['a network drop', (s: FakeWs) => s.serverClose(1006, '')],
+  ])('a failed first connect (%s) is retried instead of blocking Start', async (_what, fail) => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    fail(sysSockets(ctx)[0])
+    micSockets(ctx)[0].open()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(ctx.session.state).toBe('checking')
+    await vi.advanceTimersByTimeAsync(600) // first retry after 500 ms
+    expect(sysSockets(ctx)).toHaveLength(2)
+    sysSockets(ctx)[1].open()
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    expect(micSockets(ctx)).toHaveLength(1)
+    await ctx.session.stop()
+  })
+
+  it('a refusal that retrying cannot fix (e.g. no credit left) still blocks Start right away', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    sysSockets(ctx)[0].reject(402)
+    micSockets(ctx)[0].open()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(ctx.session.state).toBe('idle')
+    expect((await p).reason).toMatch(/speech service unavailable \(Deepgram HTTP 402\)/)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+  })
+
+  it('a key rejected on a retry while waiting still blocks Start', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    sysSockets(ctx)[0].serverClose(1006, '')
+    micSockets(ctx)[0].open()
+    await vi.advanceTimersByTimeAsync(600)
+    sysSockets(ctx)[1].reject(401)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(ctx.session.state).toBe('idle')
+    const r = await p
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/speech service unavailable \(Deepgram rejected the API key\)/)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+  })
+
+  it('if it never connects, the wait ends with "speech service not connected" and nothing left open', async () => {
+    const ctx = setup({ autoOpen: false, checkTimeoutMs: 3000 })
+    const p = ctx.session.start()
+    micSockets(ctx)[0].open()
+    for (let t = 0; t < 3600; t += 100) {
+      for (const s of sysSockets(ctx)) if (!s.closed) s.serverClose(1006, '') // offline
+      await feed(ctx, 100)
+    }
+    const r = await p
+    expect(r.ok).toBe(false)
+    expect(r.reason).toMatch(/speech service not connected/)
+    expect(r.reason).not.toMatch(/no meeting audio heard|no voice heard|not at the same time/)
+    expect(sysSockets(ctx).length).toBeGreaterThan(1)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+    const n = ctx.ws.sockets.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(ctx.ws.sockets).toHaveLength(n)
+  })
+
+  it('Stop while a retry is still connecting leaves no socket open', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    sysSockets(ctx)[0].serverClose(1006, '')
+    micSockets(ctx)[0].open()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(sysSockets(ctx)).toHaveLength(2) // the retry is connecting
+    await ctx.session.stop()
+    expect((await p).ok).toBe(false)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(ctx.ws.sockets).toHaveLength(3)
+  })
+
+  it('a retry waiting from a cancelled Start does not fire into the next Start', async () => {
+    const ctx = setup({ autoOpen: false })
+    const first = ctx.session.start()
+    sysSockets(ctx)[0].serverClose(1006, '')
+    micSockets(ctx)[0].open()
+    await vi.advanceTimersByTimeAsync(100) // retry due at 500 ms
+    await ctx.session.stop()
+    expect((await first).ok).toBe(false)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+    const second = ctx.session.start()
+    expect(ctx.ws.sockets).toHaveLength(4)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(ctx.ws.sockets).toHaveLength(4) // only the new Start's two connections
+    for (const s of ctx.ws.sockets.slice(2)) s.open()
+    await feed(ctx, 600)
+    expect(await second).toEqual({ ok: true })
+    await ctx.session.stop()
+  })
+})
+
 describe('device loss during a call', () => {
   it('surfaces, marks a gap, never switches, and recovers only on the same ID', async () => {
     const ctx = setup()
@@ -258,6 +414,20 @@ describe('pause / resume / stop', () => {
     await feed(ctx, 500) // emitAudio is a no-op without an active capture; also guards stale gens
     expect(ctx.ws.sockets.map((s) => s.audioChunks().length)).toEqual(sentBefore)
     expect(ctx.events.filter((e) => e.type === 'gap_open' && e.gap.cause === 'pause')).toHaveLength(2)
+    await ctx.session.stop()
+  })
+
+  it('a pause records why it happened: by Keith, or automatically (PC locked)', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    expect(ctx.session.pause(PAUSE_DETAIL.lock)).toEqual({ ok: true })
+    const details = () => ctx.events.flatMap((e) => (e.type === 'gap_open' && e.gap.cause === 'pause' ? [e.gap.detail] : []))
+    expect(details()).toEqual(['Paused automatically: the PC was locked', 'Paused automatically: the PC was locked'])
+    const r = ctx.session.resume()
+    await vi.advanceTimersByTimeAsync(10)
+    expect(await r).toEqual({ ok: true })
+    ctx.session.pause()
+    expect(details().slice(2)).toEqual(['Paused by Keith', 'Paused by Keith'])
     await ctx.session.stop()
   })
 

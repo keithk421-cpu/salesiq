@@ -24,7 +24,7 @@ import type {
 } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule, NativeCaptureEvent } from '../shared/nativeApi'
 import { MIC_THRESHOLDS, StreamActivity, SYSTEM_THRESHOLDS, type Level } from './activity'
-import { DeepgramStream, type ProviderState, type WsFactory } from './deepgram'
+import { DeepgramStream, isRefusal, type ProviderState, type WsFactory } from './deepgram'
 import { DuplicateGate, type Suppressed } from './duplicateGate'
 import { ResidualEchoGate } from './echoGate'
 import { resolveConfig } from './endpoints'
@@ -37,6 +37,14 @@ import { TurnBuilder, type TurnEvent } from './turnBuilder'
 
 /** How long Start keeps waiting to hear both sides before giving up (Stop cancels sooner). */
 export const START_WAIT_MS = 20 * 60_000
+
+/** What a pause gap says about why the call was paused. Automatic pauses say so. */
+export const PAUSE_DETAIL = {
+  keith: 'Paused by Keith',
+  lock: 'Paused automatically: the PC was locked',
+  sleep: 'Paused automatically: the PC went to sleep',
+  nobodyHeard: 'Paused automatically: nothing was heard from the call',
+} as const
 
 export type SessionState = 'idle' | 'checking' | 'live' | 'paused' | 'stopping' | 'stopped'
 export type CaptureState = 'off' | 'capturing' | 'lost' | 'recovering'
@@ -118,6 +126,8 @@ export class SessionController {
   private readonly dupGate = new DuplicateGate()
   private turnBuilder: TurnBuilder | null = null
   private closing = new Set<DeepgramStream>()
+  /** Speech-service connections still opening; aborted if Start is cancelled or the app exits meanwhile. */
+  private pendingConnects = new Set<DeepgramStream>()
   private timers: NodeJS.Timeout[] = []
   private checkResolve: ((r: { ok: boolean; reason?: string }) => void) | null = null
   private endpointsAtStart: EndpointInfo[] = []
@@ -204,6 +214,7 @@ export class SessionController {
     // Open both captures on the exact saved IDs.
     for (const rt of this.streams) {
       rt.activity.reset()
+      rt.providerAttempts = 0
       const res = this.openCapture(rt)
       if (!res.ok) {
         this.teardownCaptures()
@@ -215,35 +226,40 @@ export class SessionController {
     this.startMeters()
     this.emitStatuses()
 
-    // Connect STT while the activity check runs. No audio is sent until live.
-    const providers = Promise.all(this.streams.map((rt) => this.connectProvider(rt)))
-    providers.catch(() => undefined)
-
     // Keith often presses Start before the buyer joins: keep waiting for both sides (Stop cancels).
     const timeoutMs = this.deps.checkTimeoutMs ?? START_WAIT_MS
     const startedAt = Date.now()
     const result = await new Promise<{ ok: boolean; reason?: string }>((resolve) => {
       this.checkResolve = resolve
-      providers.then(
-        () => undefined,
-        (err: Error) => this.finishCheck({ ok: false, reason: `Start blocked: speech service unavailable (${err.message}).` }),
-      )
+      // Connect STT while the activity check runs. No audio is sent until live.
+      for (const rt of this.streams) {
+        this.connectProvider(rt).catch((err: Error) => {
+          if (this.state !== 'checking') return
+          this.deps.log('provider_connect_failed', { stream: rt.stream, message: err.message })
+          this.onWaitingConnectFailed(rt, err)
+        })
+      }
       const tick = setInterval(() => {
         if (this.state !== 'checking') return
         const sys = this.rt.system_remote.activity
         const mic = this.rt.local_mic.activity
+        // Both sides must be heard at about the same time, not two stray sounds minutes apart.
+        const now = this.now()
+        const sysNow = sys.passedRecently(now)
+        const micNow = mic.passedRecently(now)
         const providersOpen = this.streams.every((r) => r.dg?.state === 'open')
         const remainingMs = Math.max(0, timeoutMs - (Date.now() - startedAt))
         this.deps.emit({
-          type: 'check', micPassed: mic.passed, systemPassed: sys.passed,
-          micActiveMs: Math.round(mic.activeMs), systemActiveMs: Math.round(sys.activeMs), providersOpen, remainingMs,
+          type: 'check', micPassed: micNow, systemPassed: sysNow,
+          micActiveMs: Math.round(mic.recentActiveMs(now)), systemActiveMs: Math.round(sys.recentActiveMs(now)), providersOpen, remainingMs,
         })
-        if (sys.passed && mic.passed && providersOpen) {
+        if (sysNow && micNow && providersOpen) {
           this.finishCheck({ ok: true })
         } else if (remainingMs <= 0) {
           const missing: string[] = []
           if (!sys.passed) missing.push(`no meeting audio heard on "${this.rt.system_remote.friendlyName}" (play Zoom's Test Speaker sound or join the meeting audio)`)
           if (!mic.passed) missing.push(`no voice heard on "${this.rt.local_mic.friendlyName}" (say a few words)`)
+          if (sys.passed && mic.passed && !(sysNow && micNow)) missing.push('heard the meeting audio and your voice, but not at the same time (press Start again when the call begins)')
           if (!providersOpen) missing.push('speech service not connected')
           this.finishCheck({ ok: false, reason: `Start blocked: ${missing.join('; ')}.` })
         }
@@ -269,7 +285,11 @@ export class SessionController {
     this.deps.log('start_aborted', { reason })
     this.clearTimers()
     this.teardownCaptures()
+    for (const dg of this.pendingConnects) dg.abort()
+    this.pendingConnects.clear()
     for (const rt of this.streams) {
+      if (rt.providerRetryTimer) clearTimeout(rt.providerRetryTimer)
+      rt.providerRetryTimer = null
       rt.dg?.abort()
       rt.dg = null
     }
@@ -519,6 +539,7 @@ export class SessionController {
       onWords: (words, info) => this.onWords(rt, words, info.isFinal),
       onUnexpectedClose: (detail) => this.onProviderClosed(rt, dg, detail),
     })
+    this.pendingConnects.add(dg)
     try {
       await dg.connect()
     } catch (err) {
@@ -527,6 +548,7 @@ export class SessionController {
       throw err
     } finally {
       rt.connecting = false
+      this.pendingConnects.delete(dg)
     }
     if (this.state === 'stopping' || this.state === 'stopped' || this.state === 'idle') {
       dg.abort()
@@ -559,6 +581,19 @@ export class SessionController {
     this.scheduleProviderRetry(rt)
   }
 
+  /**
+   * While waiting for the call to begin, a failed connect is retried like a later drop: no audio has
+   * been sent, so nothing is missed. Only a refusal (e.g. the API key was rejected) blocks Start now.
+   */
+  private onWaitingConnectFailed(rt: StreamRt, err: Error): void {
+    if (this.state !== 'checking') return
+    if (isRefusal(err)) {
+      this.finishCheck({ ok: false, reason: `Start blocked: speech service unavailable (${err.message}).` })
+      return
+    }
+    this.scheduleProviderRetry(rt)
+  }
+
   private scheduleProviderRetry(rt: StreamRt): void {
     if (rt.providerRetryTimer) return
     const delay = Math.min(8000, 500 * 2 ** rt.providerAttempts)
@@ -574,7 +609,8 @@ export class SessionController {
         this.alert('info', `${rt.label}: speech service reconnected (new connection epoch ${rt.epoch}; speaker labels restart).`)
       } catch (err) {
         this.deps.log('provider_retry_failed', { stream: rt.stream, attempt: rt.providerAttempts, message: (err as Error).message })
-        if (this.state === 'live' || this.state === 'checking') this.scheduleProviderRetry(rt)
+        if (this.state === 'checking') this.onWaitingConnectFailed(rt, err as Error)
+        else if (this.state === 'live') this.scheduleProviderRetry(rt)
       }
     }, delay)
   }
@@ -692,7 +728,8 @@ export class SessionController {
 
   // ------------------------------------------------------------------ pause / resume / stop
 
-  pause(): { ok: boolean; reason?: string } {
+  /** `detail` is recorded on the pause gap; automatic pauses pass one of PAUSE_DETAIL's other entries. */
+  pause(detail: string = PAUSE_DETAIL.keith): { ok: boolean; reason?: string } {
     if (this.state !== 'live') return { ok: false, reason: `Cannot pause while ${this.state}` }
     this.setState('paused')
     this.clearTimers()
@@ -704,7 +741,7 @@ export class SessionController {
       rt.recoveryTimer = null
       rt.providerRetryTimer = null
       if (rt.openGap) this.closeGap(rt, this.sessionMs(), 'not_recovered')
-      this.openGap(rt, 'pause', 'Paused by Keith', 'active')
+      this.openGap(rt, 'pause', detail, 'active')
       this.retireProvider(rt)
     }
     this.echoGate.reset()
@@ -808,6 +845,7 @@ export class SessionController {
       rt.dg = null
     }
     for (const dg of this.closing) dg.abort()
+    for (const dg of this.pendingConnects) dg.abort()
     this.deps.native.stopAll()
     this.deps.log('shutdown_now', { stillCapturing: this.streams.filter((rt) => this.deps.native.isCapturing(rt.stream)).map((r) => r.stream) })
   }

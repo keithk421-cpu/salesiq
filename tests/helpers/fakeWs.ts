@@ -29,6 +29,7 @@ export class FakeWs implements WsLike {
   }
   // ---- test helpers ----
   open(): void {
+    if (this.closed) return // a real socket never opens after it has closed
     this.readyState = 1
     this.fire('open')
   }
