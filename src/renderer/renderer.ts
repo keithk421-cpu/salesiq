@@ -9,6 +9,7 @@ import type { CallNoteItem, CallNotesState } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
 import { passageLabel } from '../shared/passageLabel'
 import { HEALTH_LABEL } from '../shared/captureHealth'
+import { initAccountMemory } from './accountMemory'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -881,6 +882,7 @@ function saveSetup(): void {
   })
 }
 for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount', 'csDeploy']) $(id).addEventListener('change', saveSetup)
+initAccountMemory(api)
 
 // ---- tap-to-name speaker labels (per call; never required for HELP) ----
 let labelCluster: string | null = null

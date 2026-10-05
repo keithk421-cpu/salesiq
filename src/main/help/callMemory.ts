@@ -7,6 +7,7 @@
 import type { Stream } from '../../shared/contracts'
 import type { CallNotes, CallSetup, MemoryGap, MemoryTurn, SpeakerLabel } from '../../shared/help'
 import { Db, ftsQuery } from '../db'
+import type { EarlierCallItem } from './accountMemory'
 
 export const DEFAULT_SETUP: CallSetup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown' }
 
@@ -25,6 +26,8 @@ export class CallMemory {
   readonly lagMs = new Map<Stream, number>()
   /** Running call notes (live calls, set by the notes keeper) and the session time they cover up to. */
   callNotes: { notes: CallNotes; as_of_ms: number } | null = null
+  /** What earlier calls with this account left behind (account memory), set at call start; this call is never in it. */
+  earlierCalls: EarlierCallItem[] = []
 
   constructor(readonly sessionId: string, private readonly db: Db | null = null, private readonly aliases: Map<string, string[]> = new Map()) {}
 

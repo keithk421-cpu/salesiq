@@ -21,6 +21,8 @@ import { deleteCalls, listSavedCalls, olderThan } from './retention'
 import { PAUSE_DETAIL, SessionController, type SessionEvent, type SessionState } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
+import { accountMemory, listAccounts } from './help/accountMemory'
+import { accountKey } from '../shared/help'
 
 let win: BrowserWindow | null = null
 let native: NativeAudioModule
@@ -498,6 +500,12 @@ function registerIpc(): void {
     const r = help.exportFeedback(period, app.getPath('downloads'))
     if (r.ok && r.file) shell.showItemInFolder(r.file)
     return r
+  })
+  // ---- account memory: "Last time with <account>" (read only, from saved calls; the running call is left out) ----
+  ipcMain.handle('memory:accounts', () => (help ? listAccounts(help.db, activeCallId()) : []))
+  ipcMain.handle('memory:account', (_e, account: unknown) => {
+    if (!help || typeof account !== 'string' || account.length > 120 || !accountKey(account)) return null
+    return accountMemory(help.db, account, activeCallId())
   })
 }
 

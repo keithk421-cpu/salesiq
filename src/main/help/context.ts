@@ -11,6 +11,7 @@ import type { Stream } from '../../shared/contracts'
 import type { HelpContextRefs, KnowledgeChunk, KnowledgeDocMeta, MemoryTurn } from '../../shared/help'
 import { isCompetitor, vendorPattern, type KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
+import { earlierCallsBlock } from './accountMemory'
 import { callNotesBlock } from './callNotes'
 import { questionParts, retrieveKnowledge } from './retrieval'
 
@@ -180,6 +181,9 @@ export function buildHelpContext(opts: {
   const turnById = new Map(all.map((t) => [t.id, t]))
   const notes = callNotesBlock(memory.callNotes, atMs, { ref: (id) => { const t = turnById.get(id); return t ? ref(t) : null }, clock: fmtClock })
   if (notes) parts.push(notes)
+  // Earlier calls with this account (account memory): dated past statements, never current fact.
+  const earlierCalls = earlierCallsBlock(memory.earlierCalls)
+  if (earlierCalls) parts.push(earlierCalls.text)
   if (earlier.length) parts.push(`<earlier_in_call note="relevant moments from earlier; speaker statements, not verified facts">\n${earlier.map(line).join('\n')}\n</earlier_in_call>`)
   if (thread.length) parts.push(`<recent_thread>\n${thread.map(line).join('\n')}\n</recent_thread>`)
   const provisional = interims.map((i) => `(still being transcribed, may be inaccurate) ${i.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${i.text}`)
@@ -219,6 +223,8 @@ export function buildHelpContext(opts: {
     // As they were at the press: both can change later in the call (a saved practice moment replays these).
     call_setup: { ...s, desired_outcomes: [...s.desired_outcomes] },
     labels: [...memory.labels.values()].map((l) => ({ ...l })),
+    // Exactly what the block showed, so a practice moment saved from this press replays the same block.
+    ...(earlierCalls ? { earlier_calls: earlierCalls.used } : {}),
     gaps_noted: gapNotes,
     provisional_text: interims.length > 0,
     transcript_lag_ms: lag,

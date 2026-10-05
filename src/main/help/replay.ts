@@ -10,6 +10,7 @@ import type { Stream } from '../../shared/contracts'
 import type { CallSetup, CallType, Deployment, KnowledgeCategory, KnowledgeDocMeta, SpeakerLabel } from '../../shared/help'
 import { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
+import { cleanEarlierItems, type EarlierCallItem } from './accountMemory'
 import { CallMemory } from './callMemory'
 
 export const FINAL_DELAY_MS = 1000
@@ -61,6 +62,8 @@ export interface Scenario {
   unacceptable_moves?: string[]
   /** The card HELP gave on the call, and Keith's feedback on it. */
   observed?: ObservedCard
+  /** What earlier calls with this account left behind, as HELP saw it at the press (the <earlier_calls> block). Absent on older moments. */
+  earlier_calls?: EarlierCallItem[]
 }
 
 export interface ObservedCard {
@@ -108,6 +111,7 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   const memory = new CallMemory(`replay:${s.id}`, db)
   const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: s.account ?? '', deployment: s.deployment ?? 'unknown' }
   memory.setup = setup
+  memory.earlierCalls = cleanEarlierItems(s.earlier_calls)
   for (const [cluster, sp] of Object.entries(s.speakers)) {
     if (sp.role === 'unknown' && !sp.name) continue // unlabeled: Keith never tagged them
     const label: SpeakerLabel = { cluster, role: sp.role, name: sp.name }

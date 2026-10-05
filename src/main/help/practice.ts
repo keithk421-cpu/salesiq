@@ -10,6 +10,7 @@
  * - the knowledge sections the request used that are still approved and unchanged, copied in
  *   (approved, with source, version and scope) so later edits to the knowledge folder don't change
  *   the moment. Review dates are dropped: the moment replays as it was then.
+ * - what earlier calls with this account left behind, as the request showed it (<earlier_calls>).
  * Expected moves come only from Keith's own feedback, conservatively (see expectedFrom). Saving the
  * same card again refreshes only what his feedback decides (see refreshFeedback).
  *
@@ -23,6 +24,7 @@ import type { CallSetup, HelpCardContent, HelpContextRefs, HelpTiming, Knowledge
 import { CALL_TYPES, DEPLOYMENTS } from '../../shared/help'
 import type { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
+import { cleanEarlierItems } from './accountMemory'
 import { DEFAULT_SETUP } from './callMemory'
 import { fmtClock } from './context'
 import { localStamp } from './feedbackExport'
@@ -221,6 +223,10 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   if (missing) notes.push(`${missing} knowledge section(s) HELP used are no longer in the knowledge folder and are left out.`)
   if (revoked) notes.push(`${revoked} knowledge section(s) HELP used are no longer approved and are left out.`)
 
+  // What earlier calls with this account left behind, as the request showed it (older rows: none).
+  const earlierCalls = cleanEarlierItems(refs.earlier_calls)
+  if (earlierCalls.length) notes.push(`Earlier calls: the ${earlierCalls.length} item(s) from earlier calls with this account that HELP saw are copied in.`)
+
   // The card HELP gave, and Keith's feedback on it.
   const card = parse<HelpCardContent>(row.card_json)
   const fb = readFeedback(db, [row.id]).get(row.id)
@@ -272,6 +278,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     gaps,
     help_at_s: helpAtS,
     knowledge,
+    ...(earlierCalls.length ? { earlier_calls: earlierCalls } : {}),
     best_moves: [],
     acceptable_moves: expected.acceptable,
     ...(expected.unacceptable.length ? { unacceptable_moves: expected.unacceptable } : {}),
