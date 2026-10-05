@@ -723,8 +723,9 @@ function renderCard(): void {
   const usable = !!c.primary
   el.classList.toggle('pending', !usable)
   el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
-  // A WRAP card (or HELP while the call sounded like it was ending) is labelled "Wrapping up".
-  el.classList.toggle('wrap', card.origin === 'wrap_requested' || card.wrap === true)
+  // A WRAP card is labelled "Wrapping up"; a HELP press while the call sounded like it was ending only
+  // when the line is a next step (it may have answered a question they just asked instead).
+  el.classList.toggle('wrap', card.origin === 'wrap_requested' || (card.wrap === true && c.move === 'confirm_next_step'))
   $('hcBadge').hidden = !card.mock
   // An answer that never finished (failed, timed out, cancelled by Pause/Stop) is never advice.
   const cut = card.status === 'cancelled' || card.status === 'superseded'

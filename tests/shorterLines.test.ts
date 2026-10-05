@@ -37,14 +37,22 @@ describe('shorter lines', () => {
     expect(buildSystemPrompt(m1Draft1())).toMatch(/ASK\/SAY at most 30 words, natural spoken English/)
   })
 
-  it('a technical answer may run to its own limit; other lines are trimmed at the shorter one', () => {
-    // Limits have 20% slack before trimming: 15 -> 18 words, 30 -> 36.
-    expect(card('clarify_current_state', 'ASK', 18).issues).not.toContain('trimmed to card limits')
+  it('a technical answer may run to its own limit; other lines are held to the shorter one', () => {
+    // Limits have 20% slack: 15 -> 18 words, 30 -> 36.
+    expect(card('clarify_current_state', 'ASK', 18).issues).not.toContain('over card limits')
+    // A line Keith already saw while it streamed is kept whole when it runs a little over (noted, not cut)...
     const long = card('clarify_current_state', 'ASK', 25)
-    expect(long.issues).toContain('trimmed to card limits')
-    expect(long.card!.primary.split(' ')).toHaveLength(18)
-    expect(card('technical_answer', 'SAY', 30).issues).not.toContain('trimmed to card limits')
-    expect(card('technical_answer', 'SAY', 40).card!.primary.split(' ')).toHaveLength(36)
+    expect(long.issues).toContain('over card limits')
+    expect(long.issues).not.toContain('trimmed to card limits')
+    expect(long.card!.primary.split(' ')).toHaveLength(25)
+    expect(long.card!.primary).not.toMatch(/…/)
+    // ...and only a runaway line (over twice the limit) is cut.
+    const runaway = card('clarify_current_state', 'ASK', 40)
+    expect(runaway.issues).toContain('trimmed to card limits')
+    expect(runaway.card!.primary.split(' ')).toHaveLength(30)
+    expect(card('technical_answer', 'SAY', 30).issues).toEqual([])
+    expect(card('technical_answer', 'SAY', 40).issues).toContain('over card limits')
+    expect(card('technical_answer', 'SAY', 70).card!.primary.split(' ')).toHaveLength(60)
   })
 
   it('a playbook may leave the technical limit out, but not set it to nonsense', () => {

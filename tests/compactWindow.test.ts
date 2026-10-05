@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { loadAppSettings } from '../src/main/appRules'
+import { loadAppSettings, stripOnTop } from '../src/main/appRules'
 import { COMPACT_SIZE, cleanBounds, cleanRect, defaultCompactRect, defaultNormalRect, onScreen, placeFor } from '../src/main/compactWindow'
 
 const laptop = { x: 0, y: 0, width: 1920, height: 1040 }
 const second = { x: 1920, y: 0, width: 2560, height: 1400 }
 
 describe('compact window', () => {
-  it('a first compact strip is about 460 x 240, top right of the screen the window is on', () => {
-    expect(COMPACT_SIZE).toEqual({ width: 460, height: 240 })
-    expect(defaultCompactRect(laptop)).toEqual({ x: 1444, y: 16, width: 460, height: 240 })
-    expect(defaultCompactRect(second)).toEqual({ x: 1920 + 2560 - 476, y: 16, width: 460, height: 240 })
+  it('a first compact strip is 460 x 300, top right of the screen the window is on', () => {
+    expect(COMPACT_SIZE).toEqual({ width: 460, height: 300 })
+    expect(defaultCompactRect(laptop)).toEqual({ x: 1444, y: 16, width: 460, height: 300 })
+    expect(defaultCompactRect(second)).toEqual({ x: 1920 + 2560 - 476, y: 16, width: 460, height: 300 })
   })
 
   it('goes back to where it was in each mode, unless that place is no longer on a screen', () => {
@@ -48,5 +48,11 @@ describe('compact window', () => {
     expect(loadAppSettings({ settings_version: 2, window_bounds: { normal: 'oops' } as never }).settings.window_bounds).toBeUndefined()
     // Content protection and the other settings are untouched by it.
     expect(settings.hide_from_capture).toBe(true)
+  })
+
+  it('stays on top only during a call, never between calls (it would cover a shared screen)', () => {
+    for (const st of ['checking', 'live', 'paused', 'stopping'] as const) expect(stripOnTop(true, st), st).toBe(true)
+    for (const st of ['idle', 'stopped', null, undefined] as const) expect(stripOnTop(true, st), String(st)).toBe(false)
+    expect(stripOnTop(false, 'live')).toBe(false)
   })
 })

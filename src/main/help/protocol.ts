@@ -202,7 +202,10 @@ export function validateCard(
   const L = opts.limits
   // A technical answer has to carry the facts it states, so it gets the longer limit when the playbook sets one.
   const primaryMax = partial.move === 'technical_answer' && L.technical_max_words ? L.technical_max_words : L.primary_max_words
-  const p = capWords(partial.primary, Math.ceil(primaryMax * 1.2))
+  // Keith has already seen the ASK/SAY line while it streamed and may be reading it aloud, so a line a
+  // little over its limit is kept whole (and noted); only a runaway line is cut.
+  const p = capWords(partial.primary, primaryMax * 2)
+  if (!p.cut && words(p.text) > Math.ceil(primaryMax * 1.2)) issues.push('over card limits')
   const h = partial.happening ? capWords(partial.happening, Math.ceil(L.happening_max_words * 1.2)) : null
   const f = partial.follow_up ? capWords(partial.follow_up, Math.ceil(L.follow_up_max_words * 1.2)) : null
   if (p.cut || h?.cut || f?.cut) issues.push('trimmed to card limits')

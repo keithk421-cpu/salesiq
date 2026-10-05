@@ -22,6 +22,9 @@ describe('closing language', () => {
       'I need to hop off soon', "I'll let you go.", "It's nearly the top of the hour.", 'Before we wrap, can we agree on something?',
       'So what are the next steps?', "Let's wrap up here.", "I've got to run.", 'I have to run to another meeting', 'We’re at time.',
       'We are running short on time', "In terms of next steps, I'd suggest a demo.",
+      'I have to run to my next meeting', "We've only got five minutes left", 'I have another meeting in two minutes',
+      'I have another call at the top of the hour.', 'Okay, I need to drop off the call.', "Let's start wrapping up.",
+      "To wrap up, we'd love a demo.", "I'll let you get back to your day.", 'Next steps?', "I'm short on time, sorry",
     ]) expect(closingLanguage(t), t).toBe(true)
   })
 
@@ -32,6 +35,14 @@ describe('closing language', () => {
       "That's the top of the funnel for us.", 'Before we go live we need sign-off.', 'We should hop on a call with security next week.',
       'I need to jump into the demo now.', 'The next step in the chain is the reranker.', 'We need to go through procurement first.',
       'Go ahead, next step of the process is review.', '',
+      // Heard mid-call in practice runs: none of these mean the call is ending.
+      "I'll let you go ahead and share your screen", "Sure, I'll let you go first", 'We want to wrap up the evaluation by end of Q3',
+      "we're tight on time with the launch so we need something fast", "honestly we're running out of time to pick a vendor",
+      "we're short on time for this project", 'the batch job kicks off at the top of the hour',
+      'Our next steps are to migrate everything to Snowflake.', 'Next steps for us internally are a POC with Datadog.',
+      'the next steps after ingestion are labeling', 'The job runs at the top of the hour.', "We'll need to drop support for the old SDK.",
+      'I have to drop the old tables first.', 'We wrap it up in a Docker image.', "we're tight on time to market",
+      'What are your next steps for evaluating vendors?', 'We need to hop on a call next week with security.',
     ]) expect(closingLanguage(t), t).toBe(false)
   })
 
@@ -42,9 +53,18 @@ describe('closing language', () => {
     expect(u).toMatch(/MOVE: confirm_next_step/)
     expect(u).toMatch(/A step that was only proposed is not agreed/)
     expect(u).toMatch(/never pick a date, a name or a commitment nobody said/)
-    expect(u).toMatch(/FOLLOW: what Keith still owes them/)
+    expect(u).toMatch(/FOLLOW: what Keith still owes them from this call, as a short line in Keith's voice/)
+    // No timeframe nobody said, and no pushing for a meeting after "not now".
+    expect(u).not.toMatch(/next week/)
+    expect(u).toMatch(/Keep to any timeframe they named/)
+    expect(u).toMatch(/If they said not now or not interested, don't push for a meeting/)
     expect(isWrapRequest(u)).toBe(true)
-    expect(wrapUserMessage('x', 'closing')).toMatch(/last 30 seconds sound like the call is ending/)
+    // WRAP is strict; closing words heard before HELP let a question they just asked come first.
+    expect(u).not.toMatch(/answer or handle that first/)
+    const closing = wrapUserMessage('x', 'closing')
+    expect(closing).toMatch(/last 30 seconds sound like the call may be ending/)
+    expect(closing).toMatch(/If they just asked a question or raised a concern, answer or handle that first/)
+    expect(closing).toMatch(/If the call is not actually ending, ignore this block/)
   })
 })
 
@@ -90,7 +110,7 @@ describe('WRAP card', () => {
     await prefetched(s, m)
     const id = s.engine.press()
     expect(m.calls).toHaveLength(2)
-    expect(m.calls[1].user).toMatch(/last 30 seconds sound like the call is ending/)
+    expect(m.calls[1].user).toMatch(/last 30 seconds sound like the call may be ending/)
     m.calls[1].send(CARD)
     m.calls[1].finish()
     await vi.advanceTimersByTimeAsync(0)

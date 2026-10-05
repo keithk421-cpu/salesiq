@@ -278,9 +278,9 @@ export class MockHelpModel implements HelpModel {
     const wrap = isWrapRequest(req.user)
     const lines = [
       wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
-      wrap ? 'ASK: [MOCK] What day next week works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
+      wrap ? 'ASK: [MOCK] What day works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
       'HAPPENING: [MOCK] Placeholder read - no model was called.',
-      wrap ? 'FOLLOW: [MOCK] Send what you promised on the call.' : 'FOLLOW: -',
+      wrap ? "FOLLOW: [MOCK] I'll send over what I promised." : 'FOLLOW: -',
       `SOURCES: ${last ?? '-'}`,
       'NOTE: MOCK output for offline testing',
     ]

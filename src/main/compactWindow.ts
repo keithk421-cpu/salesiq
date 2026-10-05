@@ -1,5 +1,5 @@
 /**
- * Compact window: a small strip (about 460 x 240) that stays on top of Zoom with just HELP, WRAP, a
+ * Compact window: a small strip (460 x 300) that stays on top of Zoom with just HELP, WRAP, a
  * status dot, the card's line with its checks and the approved note's first line. Where the window
  * sits is remembered for each mode (app settings), and a remembered place is only used again while
  * it's still on a screen (a monitor unplugged since would otherwise put the window out of reach).
@@ -19,7 +19,11 @@ export interface WindowBounds {
   compact?: Rect
 }
 
-export const COMPACT_SIZE = { width: 460, height: 240 }
+/**
+ * The plan said about 460 x 240; Windows' title bar takes about 30 px of that, which left a 30-word
+ * technical line with two checks only a line or so. 300 keeps three to four lines of it in view.
+ */
+export const COMPACT_SIZE = { width: 460, height: 300 }
 /** Gap from the screen's edge for a first-time compact strip (top right, clear of Zoom's own controls). */
 const EDGE = 16
 /** At least this much of the window's top (where it can be dragged) must be on a screen. */

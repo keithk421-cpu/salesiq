@@ -55,6 +55,14 @@ export function protectWindow(setting: boolean, state: SessionState | null | und
 }
 
 /**
+ * The compact strip stays on top of Zoom only during a call, when it is also hidden from screen
+ * sharing (if that's on). Between calls it would sit on top of a shared screen with the last call's card.
+ */
+export function stripOnTop(compact: boolean, state: SessionState | null | undefined): boolean {
+  return compact && callActive(state)
+}
+
+/**
  * Hide/show hotkey. Windows can't tell us whether the window is behind Zoom, so the hotkey goes by
  * the last time the window was brought up or tucked away: the first press always shows; a press
  * after the window was brought up (by the hotkey or by the app itself) minimizes.
