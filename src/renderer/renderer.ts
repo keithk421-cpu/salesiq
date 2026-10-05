@@ -694,7 +694,7 @@ const DEPLOY_LABEL: Record<string, string> = { saas: 'SaaS', self_hosted: 'self-
 function renderReady(r: ReadyState | undefined): void {
   const el = $('helpReady')
   const state = r?.readiness ?? 'checking'
-  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' ? 'warn' : 'bad'}`
+  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' || state === 'busy' ? 'warn' : 'bad'}`
   $('helpReadyText').textContent = r?.message ?? 'Checking HELP…'
 }
 api.onHelpReady((r) => renderReady(r))

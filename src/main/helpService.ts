@@ -11,7 +11,7 @@ import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
-import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
+import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
@@ -51,6 +51,7 @@ const READY_TEXT: Record<HelpReadiness, string> = {
   key_rejected: 'Claude key not working: check Setup, step 3',
   no_credit: 'Anthropic account is out of credit',
   offline: "Can't reach Claude: check the internet",
+  busy: 'Claude is busy right now; press HELP again',
   unavailable: "HELP's Claude model isn't available to this key",
   checking: 'Checking HELP…',
 }
@@ -226,13 +227,17 @@ export class HelpService {
   }
 
   private setReady(readiness: HelpReadiness): void {
+    if (this.ready.readiness !== readiness) this.log('help_readiness', { readiness })
     this.ready = { readiness, message: READY_TEXT[readiness] }
-    this.log('help_readiness', { readiness })
     this.onReadiness?.(this.ready)
   }
 
+  /** Bumped by every check and every finished request: only the newest news reaches the light. */
+  private readySeq = 0
+
   /** HELP-ready light: a free check that Claude accepts the saved key (no tokens used). */
   async checkReady(): Promise<HelpReadyState> {
+    const seq = ++this.readySeq
     const model = this.createModel()
     if (model.mock) {
       this.setReady('practice')
@@ -240,13 +245,17 @@ export class HelpService {
     }
     this.setReady('checking')
     const r = await model.check(this.modelConfig())
-    this.setReady(r.readiness)
+    // A newer check or a request that finished meanwhile knows better.
+    if (seq === this.readySeq) this.setReady(r.readiness)
     return this.ready
   }
 
-  private onBlocked(e: HelpError | null): void {
-    if (!e) this.setReady('ready')
-    else this.setReady(e.code === 'no_credit' ? 'no_credit' : e.code === 'model_unavailable' ? 'unavailable' : 'key_rejected')
+  /** Every finished request updates the light, so it never disagrees with what HELP presses see. */
+  private onRequestResult(e: HelpError | null): void {
+    const readiness = e ? readinessFor(e) : 'ready'
+    if (!readiness) return
+    this.readySeq++
+    this.setReady(readiness)
   }
 
   // ---------------------------------------------------------------- settings / setup / knowledge
@@ -372,7 +381,8 @@ export class HelpService {
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
       sessionNowMs: () => this.sessionNow(), emit: this.emit, log: this.log, prefetch: this.settings.prefetch,
-      onBlocked: (e) => this.onBlocked(e),
+      // Practice mode (no key) stays "Practice mode" whatever the MOCK cards do.
+      onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
     })
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
     void this.checkReady()
