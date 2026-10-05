@@ -5,7 +5,7 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
 ```jsonc
 {
   "id": "objection-01-budget-next-year",        // unique, kebab-case, matches file name
-  "category": "neutral_discovery | objection | competitor | technical | answered | sa_leading | older_context | sources",
+  "category": "neutral_discovery | objection | competitor | technical | answered | sa_leading | older_context | sources | real_call",
   "tags": ["unknown_speaker", "technical_confusion", "fully_answered", "older_context", "missing_source", "stale_source", "sa_handling", "buyer_claim"],
   "golden_approved": false,
   "synthetic": true,                             // fictional company/people; no real customer data
@@ -54,6 +54,28 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
 ```
 
 SalesMove values: `no_move`, `clarify_current_state`, `explore_process`, `test_for_friction`, `quantify_impact`, `clarify_scale`, `identify_owner`, `clarify_desired_state`, `clarify_requirement`, `clarify_decision`, `handle_objection`, `handle_competitor`, `technical_clarification`, `technical_answer`, `confirm_next_step`, `call_control`.
+
+**Practice moments saved from Keith's real calls** (after-call review → "Save as practice moment") use the same format with
+`"category": "real_call"`, `"synthetic": false`, `"source": "real_call"` and `"golden_approved": false`. They live only in the app's data
+folder (`practice/`), never in this repo. Extra fields:
+
+```jsonc
+{
+  "title": "Account · 2026-10-05 14:32",          // account, date and time of the press
+  "account": "...",                               // sent in the call setup on replay, like a live request
+  "request_id": "...",                            // the HELP request it was saved from (one moment per card)
+  "observed": { "move", "primary_kind", "primary", "follow_up", "model", "rating", "bad_reasons", "used", "note" },
+  "unacceptable_moves": ["..."]                   // optional: moves Keith rated Bad: wrong move (a move listed here never agrees)
+}
+```
+
+Only what HELP could see at the press is saved: turns available by then (a line still being spoken is cut at the press), the
+labels and call setup the request was built with, and the knowledge sections the request used that are still approved and
+unchanged (copied in, review dates left out). Expected moves come only
+from Keith's feedback: Useful or "I used this line" makes the call's move acceptable, Bad with "wrong move" puts it in
+`unacceptable_moves`; otherwise none. With no `best_moves`, any other move is not judged. The speed test runs them only when
+Keith ticks "Include my saved moments", reports them in their own section, and writes that report to `reports/mine/` as `-mine`
+(never in support files). A moment that can't be replayed is reported as failed without stopping the run.
 
 Rules every scenario encodes:
 - A neutral answer is not an objection or a problem. Never invent pain, urgency, dissatisfaction or ownership.

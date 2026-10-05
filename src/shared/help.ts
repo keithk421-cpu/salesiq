@@ -150,6 +150,12 @@ export interface HelpContextRefs {
   thread_turn_ids: string[]
   earlier_turn_ids: string[]
   knowledge_chunk_ids: string[]
+  /** Content hash of each knowledge chunk's document then (same order), so a saved practice moment can tell if it changed since. Absent on older rows. */
+  knowledge_hashes?: string[]
+  /** The call setup the request was built with (it can be edited mid-call). Absent on older rows. */
+  call_setup?: CallSetup
+  /** Speaker labels the request was built with (they can be renamed later). Absent on older rows. */
+  labels?: SpeakerLabel[]
   gaps_noted: string[]
   provisional_text: boolean
   transcript_lag_ms: number | null

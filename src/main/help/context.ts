@@ -178,6 +178,10 @@ export function buildHelpContext(opts: {
     thread_turn_ids: thread.map((t) => t.id),
     earlier_turn_ids: earlier.map((t) => t.id),
     knowledge_chunk_ids: usable.map((c) => c.chunk_id),
+    knowledge_hashes: usable.map((c) => c.meta.content_hash),
+    // As they were at the press: both can change later in the call (a saved practice moment replays these).
+    call_setup: { ...s, desired_outcomes: [...s.desired_outcomes] },
+    labels: [...memory.labels.values()].map((l) => ({ ...l })),
     gaps_noted: gapNotes,
     provisional_text: interims.length > 0,
     transcript_lag_ms: lag,

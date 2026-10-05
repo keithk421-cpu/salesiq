@@ -297,7 +297,22 @@
           <button id="benchOpen" class="btn btn-ghost btn-sm" hidden>Open report</button>
         </div>
         <p class="muted small">Replays the test scenarios through both models on this PC and network, measuring time to a usable line, failures and cost (roughly $1-2 per run). Not during a call.</p>
+        <div class="row small">
+          <label class="inline check"><input type="checkbox" id="benchMine" /> <span id="benchMineLabel">Include my saved moments (0)</span></label>
+          <span>My practice moments: <b id="practiceCount">0</b></span>
+          <button id="practiceOpen" class="btn btn-ghost btn-sm">Open folder</button>
+          <span id="practiceMsg" class="muted"></span>
+        </div>
+        <p class="muted small">Your saved moments come from your calls (save one from "Review this call's cards"). They're replayed too and reported in their own section; they never decide which model wins. That report stays on this PC: Save support files leaves it out.</p>
         <pre id="benchSummary" class="bench-summary" hidden></pre>
+      </div>
+      <div class="bench">
+        <div class="row">
+          <button id="fbExport" class="btn btn-secondary btn-sm">Export HELP feedback</button>
+          <select id="fbPeriod" class="input"><option value="7d" selected>Last 7 days</option><option value="30d">Last 30 days</option><option value="all">Everything</option></select>
+          <span id="fbExportMsg" class="muted small"></span>
+        </div>
+        <p class="muted small">Saves one file to your Downloads folder with every HELP card from your calls in that period: the lines, your ratings, the lines you used and your notes. Send it to me to improve HELP.</p>
       </div>
       <div id="activity" class="activity"></div>
     </details>

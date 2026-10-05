@@ -48,6 +48,31 @@ export interface Scenario {
   silence_preferred?: boolean
   acceptable_questions?: string[]
   keith_notes?: string
+  // ---- Saved from one of Keith's real calls (practice/ in his data folder; never in the repo) ----
+  /** 'real_call' for a moment Keith saved from a call; absent for the built-in, made-up scenarios. */
+  source?: 'real_call'
+  /** Readable name: account, date and time of the press. */
+  title?: string
+  /** Who the call was with, as set for the call (sent in the call setup like a live request). */
+  account?: string
+  /** The HELP request it was saved from (one practice moment per card). */
+  request_id?: string
+  /** Moves Keith's feedback says were wrong here (a card he rated Bad: wrong move). */
+  unacceptable_moves?: string[]
+  /** The card HELP gave on the call, and Keith's feedback on it. */
+  observed?: ObservedCard
+}
+
+export interface ObservedCard {
+  move: string | null
+  primary_kind: 'ask' | 'say' | null
+  primary: string | null
+  follow_up: string | null
+  model: string | null
+  rating: string | null
+  bad_reasons: string[]
+  used: boolean
+  note: string | null
 }
 
 export function loadScenario(file: string): Scenario {
@@ -81,7 +106,7 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
     if (k.approved ?? true) kb.approve(k.id, true)
   }
   const memory = new CallMemory(`replay:${s.id}`, db)
-  const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: '', deployment: s.deployment ?? 'unknown' }
+  const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: s.account ?? '', deployment: s.deployment ?? 'unknown' }
   memory.setup = setup
   for (const [cluster, sp] of Object.entries(s.speakers)) {
     if (sp.role === 'unknown' && !sp.name) continue // unlabeled: Keith never tagged them

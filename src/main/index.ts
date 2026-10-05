@@ -427,6 +427,21 @@ function registerIpc(): void {
     help ? help.runBenchmark(raw, (p) => send('benchmark-progress', p)) : { ok: false, reason: 'HELP unavailable' })
   ipcMain.handle('help:openReport', (_e, file: unknown) =>
     typeof file === 'string' && help && file.startsWith(path.join(app.getPath('userData'), 'reports')) ? shell.openPath(file) : '')
+  // ---- practice moments from real calls (data folder only) and the HELP feedback export (Downloads) ----
+  ipcMain.handle('help:saveMoment', (_e, cardId: unknown) => help?.saveMoment(cardId) ?? { ok: false, reason: 'HELP unavailable' })
+  ipcMain.handle('practice:info', () => help?.practiceInfo() ?? { count: 0, saved: [] })
+  ipcMain.handle('practice:openFolder', async () => {
+    if (!help) return { ok: false, error: 'HELP did not start. Send the app log.' }
+    fs.mkdirSync(help.practiceDir, { recursive: true })
+    const error = await shell.openPath(help.practiceDir)
+    return { ok: !error, error }
+  })
+  ipcMain.handle('help:exportFeedback', (_e, period: unknown) => {
+    if (!help) return { ok: false, reason: 'HELP unavailable' }
+    const r = help.exportFeedback(period, app.getPath('downloads'))
+    if (r.ok && r.file) shell.showItemInFolder(r.file)
+    return r
+  })
 }
 
 function createWindow(): void {

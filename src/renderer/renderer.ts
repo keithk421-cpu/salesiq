@@ -548,6 +548,97 @@ $('rvList').addEventListener('change', async (e) => {
 })
 $('rvDone').addEventListener('click', () => { $('reviewModal').hidden = true })
 
+// ---- after the call: keep a card's moment as a practice moment (stays on this PC) ----
+type PracticeInfo = { count: number; saved: string[] }
+type SaveResult = { ok: boolean; already?: boolean; updated?: boolean; title?: string; reason?: string }
+const SAVE_TEXT = { idle: 'Save as practice moment', saving: 'Saving…', saved: 'Saved as a practice moment' }
+function setSaveState(btn: HTMLButtonElement, state: keyof typeof SAVE_TEXT): void {
+  btn.textContent = SAVE_TEXT[state]
+  btn.disabled = state !== 'idle'
+  btn.dataset.state = state
+}
+// Each card the review lists gets its own button (added as the list is drawn), showing whether it's saved.
+async function addSaveButtons(): Promise<void> {
+  const fresh = [...$('rvList').querySelectorAll<HTMLElement>('.rv-card')].filter((c) => !c.querySelector('[data-save]'))
+  if (!fresh.length) return
+  const buttons = fresh.map((c) => {
+    const row = document.createElement('div')
+    row.className = 'row rv-save'
+    row.innerHTML = '<button class="btn btn-ghost btn-sm" data-save disabled></button><span class="muted small" data-save-msg></span>'
+    c.append(row)
+    const btn = row.querySelector<HTMLButtonElement>('[data-save]')!
+    btn.textContent = SAVE_TEXT.idle // enabled once we know whether it's already saved
+    return { id: c.dataset.id ?? '', btn }
+  })
+  const info = (await api.practiceInfo()) as PracticeInfo
+  const saved = new Set(info.saved)
+  for (const b of buttons) setSaveState(b.btn, saved.has(b.id) ? 'saved' : 'idle')
+}
+new MutationObserver(() => void addSaveButtons()).observe($('rvList'), { childList: true })
+$('rvList').addEventListener('click', async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-save]')
+  const cardEl = btn?.closest<HTMLElement>('.rv-card')
+  const id = cardEl?.dataset.id
+  if (!btn || !id) return
+  const msg = cardEl.querySelector<HTMLElement>('[data-save-msg]')!
+  setSaveState(btn, 'saving')
+  msg.textContent = ''
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
+  if (!r.ok) {
+    setSaveState(btn, 'idle')
+    msg.textContent = r.reason ?? "Couldn't save it."
+    return
+  }
+  setSaveState(btn, 'saved')
+  msg.textContent = r.updated ? 'Already saved; your rating is updated in it.' : r.already ? 'Already saved as a practice moment.' : 'The speed test can replay it now.'
+  void refreshPractice()
+})
+// A saved card whose rating, tick or note changes: write the new feedback into its moment. These
+// listeners run after the ones above that store the feedback (same order in the main process).
+async function refreshSavedMoment(target: EventTarget | null): Promise<void> {
+  const cardEl = (target as HTMLElement | null)?.closest<HTMLElement>('.rv-card')
+  const btn = cardEl?.querySelector<HTMLButtonElement>('button[data-save]')
+  const id = cardEl?.dataset.id
+  if (!cardEl || !id || btn?.dataset.state !== 'saved') return
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
+  cardEl.querySelector<HTMLElement>('[data-save-msg]')!.textContent = r.ok ? 'Practice moment updated with your rating.' : "Couldn't update the practice moment."
+}
+$('rvList').addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('button[data-rate]')) void refreshSavedMoment(e.target)
+})
+$('rvList').addEventListener('change', (e) => {
+  if ((e.target as HTMLElement).matches('[data-used], .rv-note')) void refreshSavedMoment(e.target)
+})
+
+// ---- Diagnostics: my practice moments in the speed test, and the HELP feedback export ----
+let benchMineTouched = false
+async function refreshPractice(): Promise<void> {
+  const i = (await api.practiceInfo()) as PracticeInfo
+  $('practiceCount').textContent = String(i.count)
+  $('benchMineLabel').textContent = `Include my saved moments (${i.count})`
+  const box = $<HTMLInputElement>('benchMine')
+  box.disabled = i.count === 0
+  // On whenever there are any, unless Keith unticked it.
+  if (!benchMineTouched || i.count === 0) box.checked = i.count > 0
+}
+$('benchMine').addEventListener('change', () => { benchMineTouched = true })
+document.querySelector('details.diag')?.addEventListener('toggle', () => void refreshPractice())
+$('practiceOpen').addEventListener('click', async () => {
+  const r = (await api.practiceOpenFolder()) as { ok: boolean; error?: string }
+  $('practiceMsg').textContent = r.ok ? '' : r.error ?? "Couldn't open the folder."
+})
+$('fbExport').addEventListener('click', async () => {
+  const btn = $<HTMLButtonElement>('fbExport')
+  btn.disabled = true
+  $('fbExportMsg').textContent = 'Saving…'
+  const r = (await api.helpExportFeedback($<HTMLSelectElement>('fbPeriod').value).catch(() => ({ ok: false }))) as { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string }
+  btn.disabled = false
+  $('fbExportMsg').textContent = r.ok
+    ? `Saved ${r.cards} card${r.cards === 1 ? '' : 's'} from ${r.calls} call${r.calls === 1 ? '' : 's'} to ${r.file}. It has lines and notes from your calls: send me that file.`
+    : r.reason ?? "Couldn't export."
+})
+void refreshPractice()
+
 // ---- saved calls: delete this call, retention ----
 function clearCallView(): void {
   turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0
@@ -911,7 +1002,7 @@ $('benchRun').addEventListener('click', async () => {
   $<HTMLButtonElement>('benchRun').disabled = true
   $('benchOpen').hidden = true
   $('benchStatus').textContent = 'Starting…'
-  const r = await api.helpBenchmark({ repeats: Number($<HTMLSelectElement>('benchRepeats').value) })
+  const r = await api.helpBenchmark({ repeats: Number($<HTMLSelectElement>('benchRepeats').value), includeMine: $<HTMLInputElement>('benchMine').checked })
   $<HTMLButtonElement>('benchRun').disabled = false
   if (!r.ok) {
     $('benchStatus').textContent = r.reason
