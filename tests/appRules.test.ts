@@ -38,6 +38,17 @@ describe('hide/show hotkey', () => {
     expect(t.next({ minimized: true, visible: true })).toBe('show')
     expect(t.next({ minimized: true, visible: true })).toBe('show')
   })
+
+  it('after the app brings the window up itself (Ctrl+Alt+H, "Still on a call?", unlock), one press tucks it away', () => {
+    const t = new HideToggle()
+    const behindZoom = { minimized: false, visible: true }
+    expect(t.next(behindZoom)).toBe('show')
+    expect(t.next(behindZoom)).toBe('minimize')
+    // Ctrl+Alt+H: the window comes up on top without the hotkey.
+    t.markShown()
+    expect(t.next(behindZoom)).toBe('minimize')
+    expect(t.next({ minimized: true, visible: true })).toBe('show')
+  })
 })
 
 describe('hidden from screen sharing only during a call', () => {

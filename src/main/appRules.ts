@@ -1,10 +1,10 @@
 /**
  * Main-process decisions that don't need Electron (index.ts wires them up), so they can be tested:
- * app settings on load, the hide/show hotkey, when the window hides from screen sharing, and a
- * call's log files.
+ * app settings on load, the hide/show hotkey, when the window hides from screen sharing, a Start
+ * wait cancelled by locking the PC, and a call's log files.
  */
 import path from 'node:path'
-import type { SessionState } from './session'
+import type { SessionEvent, SessionState } from './session'
 import { JsonlWriter } from './storage'
 
 export interface AppSettings {
@@ -51,7 +51,8 @@ export function protectWindow(setting: boolean, state: SessionState | null | und
 
 /**
  * Hide/show hotkey. Windows can't tell us whether the window is behind Zoom, so the hotkey goes by
- * its own last action: the first press always shows; a press after it showed the window minimizes.
+ * the last time the window was brought up or tucked away: the first press always shows; a press
+ * after the window was brought up (by the hotkey or by the app itself) minimizes.
  */
 export class HideToggle {
   private shown = false
@@ -63,6 +64,53 @@ export class HideToggle {
     }
     this.shown = false
     return 'minimize'
+  }
+
+  /** The app brought the window up itself (Ctrl+Alt+H, "Still on a call?", after unlocking). */
+  markShown(): void {
+    this.shown = true
+  }
+}
+
+export type AwayReason = 'lock' | 'sleep'
+
+/** Shown when locking the PC or sleep cancelled Start's wait for the call. */
+export function startCancelText(why: AwayReason): string {
+  return `Stopped waiting for the call because the PC ${why === 'lock' ? 'was locked' : 'went to sleep'}. Press Start when you're back.`
+}
+
+/**
+ * Locking the PC or sleep while Start waits for the call cancels the wait, which the session
+ * reports as "Stopped by Keith". This keeps the real reason for Keith to see, both on the session's
+ * own 'idle' event and in Start's result (the banner he sees last). If the call went live in the
+ * same moment, Start's caller pauses it like any call on a locked PC.
+ */
+export class StartWait {
+  private cancelledFor: AwayReason | null = null
+
+  /** A new Start: nothing cancelled yet. */
+  begin(): void {
+    this.cancelledFor = null
+  }
+
+  /** Just before the session is told to stop waiting. */
+  cancel(why: AwayReason): void {
+    this.cancelledFor = why
+  }
+
+  /** A session event as Keith should see it. */
+  shown(ev: SessionEvent): SessionEvent {
+    if (!this.cancelledFor || ev.type !== 'state' || ev.state !== 'idle') return ev
+    return { ...ev, detail: startCancelText(this.cancelledFor) }
+  }
+
+  /** Start has finished: its result as Keith should see it, and whether the call that went live needs pausing. */
+  finish(r: { ok: boolean; reason?: string }): { result: { ok: boolean; reason?: string }; pauseFor: AwayReason | null } {
+    const why = this.cancelledFor
+    this.cancelledFor = null
+    if (!why) return { result: r, pauseFor: null }
+    if (!r.ok) return { result: { ok: false, reason: startCancelText(why) }, pauseFor: null }
+    return { result: r, pauseFor: why }
   }
 }
 

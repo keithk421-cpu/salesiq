@@ -16,7 +16,7 @@ import { saveSupportFiles } from './support'
 import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
 import { IdleWatch } from './idleWatch'
-import { CallLogs, DEFAULT_APP_SETTINGS, HideToggle, RETENTION_CHOICES, callActive, loadAppSettings, protectWindow, type AppSettings } from './appRules'
+import { CallLogs, DEFAULT_APP_SETTINGS, HideToggle, RETENTION_CHOICES, StartWait, callActive, loadAppSettings, protectWindow, type AppSettings, type AwayReason } from './appRules'
 import { deleteCalls, listSavedCalls, olderThan } from './retention'
 import { SessionController, type SessionEvent, type SessionState } from './session'
 import { JsonlWriter, Storage } from './storage'
@@ -36,9 +36,9 @@ let idle: IdleWatch | null = null
 let hideHotkeyRegistered = false
 const hideToggle = new HideToggle()
 /** Why the call was paused automatically, until it goes live again or ends. */
-let autoPausedFor: 'lock' | 'sleep' | null = null
-/** Locking or sleep cancelled the start wait; the notice follows the session's own "idle" event. */
-let startCancelledFor: 'lock' | 'sleep' | null = null
+let autoPausedFor: AwayReason | null = null
+/** Locking or sleep cancelled Start's wait: Keith sees why, not "Stopped by Keith". */
+const startWait = new StartWait()
 
 /**
  * Show/hide the window without taking focus from Zoom. Registering only fails if another program
@@ -97,7 +97,7 @@ function snapshotDevices(label: string): string {
 }
 
 function onSessionEvent(ev: SessionEvent): void {
-  send('session-event', ev)
+  send('session-event', startWait.shown(ev))
   const s = session
   if (help && s) help.onSessionEvent(ev, s.sessionId, () => s.nowSessionMs())
   watchIdle(ev)
@@ -108,8 +108,9 @@ function onSessionEvent(ev: SessionEvent): void {
     if (s && s.sessionId) {
       fs.writeFileSync(path.join(storage.sessionDir(s.sessionId), 'summary.json'), JSON.stringify({ sessionId: s.sessionId, endedAt: new Date().toISOString(), counters: s.counters }, null, 2))
     }
-    // Skipped during the call; old calls (if Keith set a limit) are cleared now it's over.
-    runRetention()
+    // Skipped during the call; old calls (if Keith set a limit) are cleared now it's over, once
+    // Stop itself has finished.
+    setImmediate(runRetention)
   }
 }
 
@@ -118,10 +119,6 @@ function onStateChange(state: SessionState): void {
   if (state === 'live' || state === 'idle' || state === 'stopped') {
     autoPausedFor = null
     win?.flashFrame(false)
-  }
-  if (state === 'idle' && startCancelledFor) {
-    send('app-notice', { level: 'warning', text: `Stopped waiting for the call because the PC ${startCancelledFor === 'lock' ? 'was locked' : 'went to sleep'}. Press Start when you're back.` })
-    startCancelledFor = null
   }
 }
 
@@ -179,10 +176,10 @@ function checkIdle(): void {
  * Locking the PC or sleep pauses a live call, so nothing is captured while Keith is away. While
  * Start is still waiting for the call, the wait is cancelled instead.
  */
-function autoPause(why: 'lock' | 'sleep'): void {
+function autoPause(why: AwayReason): void {
   if (session?.state === 'checking') {
     log('auto_cancel_start', { why })
-    startCancelledFor = why
+    startWait.cancel(why)
     void session.stop()
     return
   }
@@ -228,13 +225,18 @@ function runRetention(): void {
   // Never during a call: the preview would cover HELP and compacting the database holds up the app.
   // It runs again when the call stops. Without the database (HELP didn't start) it can't delete fully.
   if (callActive(session?.state) || !help) return
-  const due = dueForDeletion()
-  if (!due.length) return
-  if (!appSettings.retention_confirmed) {
-    send('retention-preview', { days: appSettings.retention_days, calls: due.map((c) => ({ started_at: c.started_at, account: c.account })) })
-    return
+  try {
+    const due = dueForDeletion()
+    if (!due.length) return
+    if (!appSettings.retention_confirmed) {
+      send('retention-preview', { days: appSettings.retention_days, calls: due.map((c) => ({ started_at: c.started_at, account: c.account })) })
+      return
+    }
+    purgeCalls(due.map((c) => c.id), 'retention')
+  } catch (err) {
+    // E.g. the database is busy. Clean-up never takes down Stop, Settings or the app; it tries again later.
+    log('retention_failed', { message: (err as Error).message })
   }
-  purgeCalls(due.map((c) => c.id), 'retention')
 }
 
 function callsInfo() {
@@ -365,6 +367,7 @@ function registerIpc(): void {
       send('app-settings', appSettings)
     }
     callLogs.begin()
+    startWait.begin()
     session = new SessionController({
       native,
       wsFactory,
@@ -376,12 +379,14 @@ function registerIpc(): void {
         log(`session.${event}`, event === 'alert' || event === 'state' || event.startsWith('gap') || event.startsWith('start') ? data : undefined)
       },
     })
-    const r = await session.start()
-    if (r.ok) {
+    const done = startWait.finish(await session.start())
+    if (done.result.ok) {
       config.last_verified_at = new Date().toISOString()
       storage.saveConfig(config)
     }
-    return r
+    // Locked (or asleep) just as the call went live: pause it like any call on a locked PC.
+    if (done.pauseFor) autoPause(done.pauseFor)
+    return done.result
   })
 
   ipcMain.handle('session:pause', () => session?.pause() ?? { ok: false, reason: 'No session' })
@@ -504,6 +509,8 @@ function showWithoutFocus(): void {
   if (!win || win.isDestroyed()) return
   if (win.isMinimized() || !win.isVisible()) win.showInactive()
   win.moveTop()
+  // Up on top now, so the next hide/show press tucks it away.
+  hideToggle.markShown()
 }
 
 function tryRegister(accelerator: string, fn: () => void): boolean {
