@@ -49,6 +49,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
 CREATE TABLE IF NOT EXISTS call_notes (
   session_id TEXT PRIMARY KEY, notes_json TEXT, as_of_ms INTEGER, updated_at TEXT, stats_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS call_wrapups (
+  session_id TEXT PRIMARY KEY, wrapup_json TEXT NOT NULL, updated_at TEXT NOT NULL, stats_json TEXT NOT NULL DEFAULT '{}'
+);
 `
 
 export class Db {

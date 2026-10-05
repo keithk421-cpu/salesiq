@@ -113,7 +113,8 @@ export interface HelpCardContent {
   note: string | null
 }
 
-export type HelpOrigin = 'help_requested' | 'coach_proactive'
+/** help_requested: the HELP button; wrap_requested: the WRAP button (lock a dated next step before hanging up). */
+export type HelpOrigin = 'help_requested' | 'wrap_requested' | 'coach_proactive'
 
 export type HelpStatus = 'pending' | 'streaming' | 'complete' | 'failed' | 'timeout' | 'cancelled' | 'superseded'
 
@@ -277,9 +278,9 @@ export interface CallNotes {
   not_covered: NotCoveredTopic[]
 }
 
-/** What the call screen's notes panel shows. */
+/** What the call screen's notes panel shows. "finishing": the closing pass after Stop (the last minutes). */
 export interface CallNotesState {
-  status: 'off' | 'waiting' | 'updating' | 'paused' | 'stopped' | 'blocked'
+  status: 'off' | 'waiting' | 'updating' | 'paused' | 'finishing' | 'stopped' | 'blocked'
   notes: CallNotes | null
   /** Wall clock (epoch ms) of the last successful update, for "updated 40 s ago". */
   updated_at: number | null
@@ -289,4 +290,78 @@ export interface CallNotesState {
   mock: boolean
   /** Plain words when updates stopped because of the Claude key, credit or model access. */
   problem: string | null
+}
+
+// ---------------- wrap-up after Stop ----------------
+
+/**
+ * The wrap-up Keith confirms after a call: what Arize owes them, what they owe, the agreed next step,
+ * what was only proposed, and their questions still unanswered. Built once after the closing notes
+ * pass, only from what was said (each item cites the transcript lines it came from); Keith ticks,
+ * edits, removes or adds items. Nothing is sent anywhere: the follow-up is a draft he copies.
+ */
+export const WRAPUP_SECTIONS = ['we_owe', 'they_owe', 'agreed', 'proposed', 'open_questions'] as const
+export type WrapupSection = (typeof WRAPUP_SECTIONS)[number]
+
+export interface WrapupItem {
+  /** Stable within the call's wrap-up ("w1", "w2", ...; Keith's own items "k1", ...). */
+  id: string
+  section: WrapupSection
+  /** Keith can edit it. */
+  text: string
+  /** Who will do it / who was asked, and when, only as said on the call (null when not said). */
+  who: string | null
+  when: string | null
+  /** The transcript turns it came from (empty for an item Keith added). */
+  turn_ids: string[]
+  /** A short word-for-word quote from the first of those turns ('' for an item Keith added). */
+  quote: string
+  /** Keith's decision. Items he adds start confirmed. */
+  state: 'pending' | 'confirmed' | 'removed'
+  added_by_keith: boolean
+}
+
+/** The follow-up email draft (Keith copies it; nothing is sent). */
+export interface FollowupDraft {
+  subject: string
+  body: string
+  created_at: string
+  /** Plain-language "check before sending" warnings (a number or Arize claim without an approved source). */
+  checks: string[]
+  /** Approved knowledge sections the draft was allowed to use. */
+  knowledge_chunk_ids: string[]
+  mock: boolean
+}
+
+export interface CallWrapup {
+  session_id: string
+  /** building: closing notes pass / wrap-up request running; drafting: the email is being written. */
+  status: 'building' | 'ready' | 'drafting' | 'failed' | 'off'
+  account: string
+  started_at: string
+  items: WrapupItem[]
+  email: FollowupDraft | null
+  /** Plain words when building or drafting failed. */
+  error: string | null
+  mock: boolean
+}
+
+// ---------------- account memory ----------------
+
+/** Calls are grouped by account: the name Keith typed, trimmed, lower case, single spaces. */
+export function accountKey(account: string): string {
+  return account.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export type AccountMemoryKind = 'wants' | 'promised' | 'they_owe' | 'agreed' | 'open' | 'fact'
+
+/** "Last time with <account>": what earlier calls with this account left behind, newest first. */
+export interface AccountMemory {
+  /** As Keith last typed it. */
+  account: string
+  calls: number
+  last_call_at: string | null
+  /** The last call's setup, for "Reuse last setup". */
+  last_setup: CallSetup | null
+  items: Array<{ kind: AccountMemoryKind; text: string; date: string; session_id: string }>
 }

@@ -10,6 +10,7 @@ Do not reopen these unless implementation evidence shows failure.
 - Per-call tap-to-name roles through M3. WeSpeaker identity is M4, after Coach.
 - Unknown speaker never blocks HELP. Role gating applies only to automatic Coach.
 - Live UI frozen: topic tracker + Deeper + Coach + HELP. Discovery ladder hidden.
+- M2 (Keith, 2026-10-05): approved UI additions: wrap-up after Stop with a follow-up draft (copied by Keith, never sent), account memory ("Last time with..."), the WRAP button, shorter card lines, compact window. See docs/M2_PLAN.md.
 - HELP is manual, immediate, unrestricted by speaker identity, and can use all recent speakers.
 - Deeper quietly refreshes after team inquiry -> buyer answer. Team = Keith or recognized/manually labeled SA. Inquiry detection is semantic, not punctuation-based.
 - Deeper surfaces friction; never presumes it. Unsupported pain/urgency/dissatisfaction/ownership/desire-to-change is a failure.

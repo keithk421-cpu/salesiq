@@ -1,6 +1,6 @@
 /**
  * Saved calls: list, delete one, and delete those older than the retention setting. A call's
- * transcript, speaker labels, HELP requests/cards and feedback are removed from the database, and its
+ * transcript, speaker labels, HELP requests/cards, feedback, notes and wrap-up are removed from the database, and its
  * session folder (transcript.jsonl, diagnostics) is deleted. Numbers-only scorecards in reports/ stay.
  */
 import fs from 'node:fs'
@@ -61,7 +61,7 @@ export function deleteCall(root: string, db: Db | null, id: string): boolean {
   if (db) {
     db.tx(() => {
       db.sql.prepare('DELETE FROM feedback WHERE card_id IN (SELECT id FROM help_requests WHERE session_id = ?)').run(id)
-      for (const t of ['help_requests', 'turns', 'turns_fts', 'speaker_labels', 'call_notes']) db.sql.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(id)
+      for (const t of ['help_requests', 'turns', 'turns_fts', 'speaker_labels', 'call_notes', 'call_wrapups']) db.sql.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(id)
       db.sql.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     })
   }

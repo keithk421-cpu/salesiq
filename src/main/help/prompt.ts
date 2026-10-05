@@ -14,7 +14,8 @@ export interface Playbook {
   principles: string[]
   moves: Record<string, string>
   call_types: Record<string, string>
-  card_limits: { primary_max_words: number; happening_max_words: number; follow_up_max_words: number }
+  /** technical_max_words (optional): a longer ASK/SAY allowed for a technical answer from approved knowledge. */
+  card_limits: { primary_max_words: number; happening_max_words: number; follow_up_max_words: number; technical_max_words?: number }
 }
 
 export function loadPlaybook(file: string): Playbook {
