@@ -44,6 +44,8 @@ export function playbookProblem(raw: unknown): string | null {
   if (!Object.keys(p.moves as object).includes('no_move')) return '"moves" must keep "no_move" (HELP uses it when there is nothing useful to add)'
   const L = p.card_limits as Record<string, unknown> | undefined
   if (!L || !['primary_max_words', 'happening_max_words', 'follow_up_max_words'].every((k) => typeof L[k] === 'number' && (L[k] as number) > 0)) return '"card_limits" needs three word counts above zero'
+  // Optional: a longer limit for a technical answer from approved knowledge.
+  if (L.technical_max_words !== undefined && !(typeof L.technical_max_words === 'number' && L.technical_max_words > 0)) return '"card_limits" "technical_max_words" must be a word count above zero (or leave it out)'
   return null
 }
 
@@ -94,7 +96,7 @@ FOLLOW: <one optional follow-up line, only if it adds something, else ->
 SOURCES: <comma-separated ids like T3, K1 that support your line, or ->
 NOTE: <only if needed, e.g. "No approved source on SSO - offer to follow up", else ->
 
-Limits: ASK/SAY at most ${L.primary_max_words} words, natural spoken English, in Keith's voice. HAPPENING at most ${L.happening_max_words} words. FOLLOW at most ${L.follow_up_max_words} words. Use "-" for anything that adds nothing. Exactly one of ASK or SAY.`
+Limits: ASK/SAY at most ${L.primary_max_words} words${L.technical_max_words ? ` (a technical_answer stated from approved knowledge: at most ${L.technical_max_words})` : ''}, natural spoken English, in Keith's voice. Short enough to say at a glance. HAPPENING at most ${L.happening_max_words} words. FOLLOW at most ${L.follow_up_max_words} words. Use "-" for anything that adds nothing. Exactly one of ASK or SAY.`
 }
 
 export function buildUserMessage(contextText: string): string {

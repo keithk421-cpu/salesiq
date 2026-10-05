@@ -9,6 +9,7 @@ import type { CallNoteItem, CallNotesState } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
 import { passageLabel } from '../shared/passageLabel'
 import { HEALTH_LABEL } from '../shared/captureHealth'
+import { initCompact } from './compact'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -208,6 +209,7 @@ function setButtons(): void {
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
   $<HTMLButtonElement>('helpBtn').disabled = s !== 'live'
+  $<HTMLButtonElement>('wrapBtn').disabled = s !== 'live'
   setPill()
 }
 
@@ -703,6 +705,7 @@ $('supportFiles').addEventListener('click', async () => {
 })
 
 setInterval(() => { if (sessionState === 'live' || sessionState === 'paused') setPill() }, 500)
+initCompact(api)
 
 // ------------------------------------------------------------------ M1: HELP card
 const PENDING_TEXT: Record<string, string> = { pending: 'Working…', streaming: 'Working…' }
@@ -720,6 +723,8 @@ function renderCard(): void {
   const usable = !!c.primary
   el.classList.toggle('pending', !usable)
   el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
+  // A WRAP card (or HELP while the call sounded like it was ending) is labelled "Wrapping up".
+  el.classList.toggle('wrap', card.origin === 'wrap_requested' || card.wrap === true)
   $('hcBadge').hidden = !card.mock
   // An answer that never finished (failed, timed out, cancelled by Pause/Stop) is never advice.
   const cut = card.status === 'cancelled' || card.status === 'superseded'
@@ -749,7 +754,8 @@ function renderCard(): void {
   const fol = $('hcFollow')
   fol.hidden = !c.follow_up || broken
   fol.textContent = c.follow_up ?? ''
-  const checks = done ? card.checks ?? [] : []
+  // Shown as soon as they're certain, while the line still streams; the finished card's checks replace them.
+  const checks = broken ? [] : card.checks ?? []
   $('hcChecks').hidden = checks.length === 0
   $('hcChecks').textContent = checks.join(' ')
   const warns = [...card.warnings]
@@ -850,6 +856,10 @@ async function pressHelp(): Promise<void> {
 }
 
 $('helpBtn').addEventListener('click', () => void pressHelp())
+$('wrapBtn').addEventListener('click', async () => {
+  const r = await api.helpWrap()
+  if (!r.ok) showBanner('info', r.reason)
+})
 $('helpCard').querySelectorAll<HTMLButtonElement>('.fb').forEach((b) =>
   b.addEventListener('click', async () => {
     if (!card) return
@@ -1008,6 +1018,7 @@ async function refreshHelpInfo(): Promise<void> {
   $<HTMLSelectElement>('csDeploy').value = su.deployment ?? 'unknown'
   $('kbPath').textContent = helpInfo.knowledgeDir ? `Knowledge folder: ${helpInfo.knowledgeDir}` : ''
   $('hotkeyHint').textContent = (helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button') +
+    ((helpInfo as { wrapHotkeyRegistered?: boolean }).wrapHotkeyRegistered ? ' · WRAP: Ctrl+Alt+W' : ' · Ctrl+Alt+W unavailable - use the WRAP button') +
     (hideHotkey ? ` · hide/show: ${hideHotkey}` : '')
   renderReady(helpInfo.ready)
   renderPlaybook(helpInfo.playbook ?? null)

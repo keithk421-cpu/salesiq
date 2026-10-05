@@ -6,6 +6,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk'
 import type { HelpModelConfig, HelpUsage } from '../../shared/help'
+import { isWrapRequest } from './wrap'
 
 export interface HelpModelRun {
   system: string
@@ -273,11 +274,13 @@ export class MockHelpModel implements HelpModel {
 
   async run(req: HelpModelRun): Promise<HelpModelResult> {
     const last = /\[(T\d+)\][^\n]*$/m.exec(req.user.split('<last_30_seconds>')[1] ?? '')?.[1]
+    // A WRAP press gets a next-step placeholder, so Practice mode shows what that card looks like.
+    const wrap = isWrapRequest(req.user)
     const lines = [
-      'MOVE: clarify_current_state',
-      'ASK: [MOCK] How does that work in practice today?',
+      wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
+      wrap ? 'ASK: [MOCK] What day next week works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
       'HAPPENING: [MOCK] Placeholder read - no model was called.',
-      'FOLLOW: -',
+      wrap ? 'FOLLOW: [MOCK] Send what you promised on the call.' : 'FOLLOW: -',
       `SOURCES: ${last ?? '-'}`,
       'NOTE: MOCK output for offline testing',
     ]

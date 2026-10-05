@@ -216,6 +216,8 @@ export interface HelpCardEvent {
   sources: Array<{ id: string; kind: 'turn' | 'knowledge'; label: string; detail: string }>
   /** The approved passage found at the press, carried on every event for this request (null or absent: none). */
   passage?: ApprovedPassage | null
+  /** Asked for a wrap card (the WRAP button, or a HELP press while the call sounded like it was ending): labelled "Wrapping up". */
+  wrap?: boolean
 }
 
 // ---------------- feedback ----------------

@@ -6,6 +6,7 @@
 import path from 'node:path'
 import type { SessionEvent, SessionState } from './session'
 import { JsonlWriter } from './storage'
+import { cleanBounds, type WindowBounds } from './compactWindow'
 
 export interface AppSettings {
   /** Keep this window out of screen shares, recordings and screenshots during calls (Windows 10 2004 and later). */
@@ -16,6 +17,8 @@ export interface AppSettings {
   retention_confirmed: boolean
   /** Which one-time fixes have been applied to the saved file. */
   settings_version?: number
+  /** Where the window was last time, normal and compact (M2 compact window). */
+  window_bounds?: WindowBounds
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true, retention_days: null, retention_confirmed: false }
@@ -34,6 +37,8 @@ export function loadAppSettings(saved: Partial<AppSettings>): { settings: AppSet
     retention_confirmed: saved.retention_confirmed === true,
     settings_version: SETTINGS_VERSION,
   }
+  const bounds = cleanBounds(saved.window_bounds)
+  if (bounds) settings.window_bounds = bounds
   const old = (saved.settings_version ?? 1) < SETTINGS_VERSION
   if (old && settings.retention_days === 30 && !settings.retention_confirmed) settings.retention_days = null
   return { settings, changed: old }
