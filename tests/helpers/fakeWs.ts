@@ -7,6 +7,7 @@ export class FakeWs implements WsLike {
   bufferedAmount = 0
   sent: Array<Buffer | string> = []
   closed = false
+  private refused = false
   private handlers = new Map<string, Handler[]>()
   constructor(readonly url: string, readonly headers: Record<string, string>) {}
   on(event: string, cb: Handler): void {
@@ -29,13 +30,22 @@ export class FakeWs implements WsLike {
   }
   // ---- test helpers ----
   open(): void {
-    if (this.closed) return // a real socket never opens after it has closed
+    if (this.closed || this.refused) return // a real socket never opens after it has closed or been refused
     this.readyState = 1
     this.fire('open')
   }
+  /** Refuse the connect with an HTTP status AND drop the connection (real ws does not drop it; see rejectKeepOpen). */
   reject(status: number): void {
     this.fire('unexpected-response', {}, { statusCode: status })
     this.serverClose(1006, '')
+  }
+  /**
+   * Refuse the connect with an HTTP status the way real ws does when an 'unexpected-response'
+   * listener exists: the socket stays connecting (never opens, never closes) until our side closes it.
+   */
+  rejectKeepOpen(status: number): void {
+    this.refused = true
+    this.fire('unexpected-response', {}, { statusCode: status })
   }
   message(obj: unknown): void {
     this.fire('message', Buffer.from(JSON.stringify(obj)))

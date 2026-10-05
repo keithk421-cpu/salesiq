@@ -128,11 +128,12 @@ describe('session-start gate', () => {
     }
     // Replace the auto-open with a rejection.
     const p = ctx.session.start()
-    for (const s of ctx.ws.sockets) s.reject(401)
+    for (const s of ctx.ws.sockets) s.rejectKeepOpen(401)
     await vi.advanceTimersByTimeAsync(10)
     const r = await p
     expect(r.ok).toBe(false)
     expect(r.reason).toMatch(/speech service unavailable/)
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
   })
 
   it('goes live only on the saved IDs, with no audio sent during the check', async () => {
@@ -211,8 +212,8 @@ describe('session-start gate: speech service while waiting', () => {
   const micSockets = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=false'))
 
   it.each([
-    ['a server error', (s: FakeWs) => s.reject(503)],
-    ['too many requests', (s: FakeWs) => s.reject(429)],
+    ['a server error', (s: FakeWs) => s.rejectKeepOpen(503)],
+    ['too many requests', (s: FakeWs) => s.rejectKeepOpen(429)],
     ['a network drop', (s: FakeWs) => s.serverClose(1006, '')],
   ])('a failed first connect (%s) is retried instead of blocking Start', async (_what, fail) => {
     const ctx = setup({ autoOpen: false })
@@ -227,13 +228,15 @@ describe('session-start gate: speech service while waiting', () => {
     await feed(ctx, 600)
     expect(await p).toEqual({ ok: true })
     expect(micSockets(ctx)).toHaveLength(1)
+    expect(sysSockets(ctx)[0].closed).toBe(true) // the failed attempt is not left half-open
     await ctx.session.stop()
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
   })
 
   it('a refusal that retrying cannot fix (e.g. no credit left) still blocks Start right away', async () => {
     const ctx = setup({ autoOpen: false })
     const p = ctx.session.start()
-    sysSockets(ctx)[0].reject(402)
+    sysSockets(ctx)[0].rejectKeepOpen(402)
     micSockets(ctx)[0].open()
     await vi.advanceTimersByTimeAsync(10)
     expect(ctx.session.state).toBe('idle')
@@ -247,7 +250,7 @@ describe('session-start gate: speech service while waiting', () => {
     sysSockets(ctx)[0].serverClose(1006, '')
     micSockets(ctx)[0].open()
     await vi.advanceTimersByTimeAsync(600)
-    sysSockets(ctx)[1].reject(401)
+    sysSockets(ctx)[1].rejectKeepOpen(401)
     await vi.advanceTimersByTimeAsync(10)
     expect(ctx.session.state).toBe('idle')
     const r = await p
@@ -513,6 +516,30 @@ describe('provider disconnect', () => {
     const close = ctx.events.find((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect')
     expect(close && close.type === 'gap_close' && close.gap.recovery).toBe('recovered')
     await ctx.session.stop()
+  })
+
+  it('a reconnect the speech service turns away (busy) is closed, not left half-open, and the next try connects', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    for (const s of ctx.ws.sockets) s.open()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    const sys = () => ctx.ws.sockets.filter((s) => s.url.includes('diarize=true'))
+    sys()[0].serverClose(1011, 'internal')
+    await feed(ctx, 600) // first retry after 500 ms
+    expect(sys()).toHaveLength(2)
+    sys()[1].rejectKeepOpen(503)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(sys()[1].closed).toBe(true)
+    await feed(ctx, 1100) // next retry after 1 s
+    expect(sys()).toHaveLength(3)
+    sys()[2].open()
+    await feed(ctx, 200)
+    expect(ctx.session.state).toBe('live')
+    expect(sys()[2].audioChunks().length).toBeGreaterThan(0)
+    await ctx.session.stop()
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
   })
 })
 

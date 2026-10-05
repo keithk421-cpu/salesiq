@@ -543,6 +543,8 @@ export class SessionController {
     try {
       await dg.connect()
     } catch (err) {
+      // A refused connect (e.g. HTTP 503 or 429) leaves the socket half-open: close it so nothing lingers.
+      dg.abort()
       rt.connecting = false
       this.emitStatuses()
       throw err
