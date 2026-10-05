@@ -9,9 +9,9 @@ import type { Turn } from '../src/shared/contracts'
 import { Db } from '../src/main/db'
 import { CallMemory } from '../src/main/help/callMemory'
 import { CallNotesKeeper, NOTES_CLOSING_BUDGET_MS, NOTES_MIN_GAP_MS } from '../src/main/help/callNotesKeeper'
-import { FOLLOWUP_SCHEMA, FOLLOWUP_SYSTEM_PROMPT, buildFollowupInput, draftItems, followupUserMessage, validateFollowup, type FollowupInput } from '../src/main/help/followup'
+import { FOLLOWUP_SCHEMA, FOLLOWUP_SYSTEM_PROMPT, buildFollowupInput, draftItems, followupUserMessage, mockFollowup, validateFollowup, type FollowupInput } from '../src/main/help/followup'
 import { DEFAULT_HELP_CONFIG, MockHelpModel, type HelpModel, type HelpModelResult, type HelpModelRun, type HelpNotesResult, type HelpNotesRun } from '../src/main/help/models'
-import { WRAPUP_ITEMS_MAX, WRAPUP_MAX_TRANSCRIPT_CHARS, WRAPUP_SCHEMA, WRAPUP_SYSTEM_PROMPT, quoteFrom, validateWrapup, wrapupUserMessage } from '../src/main/help/wrapup'
+import { WRAPUP_ITEMS_MAX, WRAPUP_MAX_TRANSCRIPT_CHARS, WRAPUP_SCHEMA, WRAPUP_SYSTEM_PROMPT, afterCallText, quoteFrom, validateWrapup, wrapupUserMessage } from '../src/main/help/wrapup'
 import { KnowledgeBase, docMetaFrom } from '../src/main/knowledge'
 import { deleteCall } from '../src/main/retention'
 import { HelpService } from '../src/main/helpService'
@@ -61,8 +61,9 @@ function app(model: HelpModel = new Scripted(), settings: Record<string, unknown
   help.onNotes = (s) => panel.push(s)
   let t = 0
   let n = 0
-  const ev = (e: SessionEvent, call = CALL_ID) => help.onSessionEvent(e, call, () => t)
-  const state = (st: 'checking' | 'live' | 'paused' | 'stopping' | 'stopped' | 'idle', call = CALL_ID) => ev({ type: 'state', state: st, sessionId: call } as SessionEvent, call)
+  const ev = (e: SessionEvent, call = CALL_ID, clock = () => t) => help.onSessionEvent(e, call, clock)
+  /** `clock`: that call's own session clock (a new call's starts again near 0). */
+  const state = (st: 'checking' | 'live' | 'paused' | 'stopping' | 'stopped' | 'idle', call = CALL_ID, clock = () => t) => ev({ type: 'state', state: st, sessionId: call } as SessionEvent, call, clock)
   /** One finished line, `secs` long. */
   const say = (who: 'buyer' | 'keith', text: string, secs = 5, call = CALL_ID): string => {
     const start = t
@@ -221,23 +222,144 @@ describe('Stop: the closing notes pass, then the wrap-up', () => {
     b.help.shutdown()
   })
 
-  it('a new call starting stops the last call\'s wrap-up; its saved state stays as it was', async () => {
+  it("a new Start doesn't stop the last call's closing pass or wrap-up: they finish and save, and its notes stay off the new call's panel", async () => {
     const a = app()
+    a.help.setSetup({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: 'Larkspur Health', deployment: 'unknown' })
+    a.state('checking')
+    a.state('live')
+    // A regular update is in flight at Stop, and one more line comes after it.
+    for (const w of ['first', 'second', 'third']) a.say('buyer', `The ${w} thing is we review chatbot answers by hand every Friday`, 21)
+    expect(a.model.of('notes')).toHaveLength(1)
+    a.say('buyer', 'Could you send the trial checklist by Thursday?', 5)
+    a.state('stopping')
+    a.state('stopped')
+    // Start for the next call right away; its session clock starts again near 0.
+    const next = 's-2026-10-05T11-00-00-000Z-def456'
+    a.state('checking', next, () => 500)
+    expect(a.model.of('notes')[0].req.signal.aborted).toBe(false)
+    const panelAtStart = a.panel.length
+    expect(a.panel.at(-1)).toMatchObject({ status: 'waiting', notes: null })
+    a.model.of('notes')[0].release(notesAnswer({ buyer_wants: [{ text: 'Fewer reviews by hand', lines: ['L1'] }] }))
+    await flush()
+    // The closing pass reads the ended call's own clock: the last line is covered.
+    const closing = a.model.of('notes')[1]
+    expect(closing.req.user).toContain('trial checklist')
+    closing.release(notesAnswer({ buyer_wants: [{ text: 'Fewer reviews by hand', lines: ['L1'] }], open_questions: [{ text: 'Trial checklist by Thursday', lines: ['L4'] }] }))
+    await flush()
+    // Saved to the ended call; nothing of it reached the new call's notes panel.
+    const saved = a.help.db.sql.prepare('SELECT notes_json FROM call_notes WHERE session_id = ?').get(CALL_ID) as { notes_json: string }
+    expect(saved.notes_json).toContain('Trial checklist by Thursday')
+    expect(a.panel.length).toBe(panelAtStart)
+    expect(a.help.callNotes()).toMatchObject({ status: 'waiting', notes: null })
+    // The next call goes live while the last call's wrap-up is still being built.
+    a.state('live', next, () => 500)
+    a.model.of('wrapup')[0].release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [{ text: 'Trial checklist by Thursday', who: null, when: 'by Thursday', lines: ['L4'] }] }))
+    await flush()
+    expect(JSON.parse(a.row()!.wrapup_json)).toMatchObject({ status: 'ready', items: [{ id: 'w1', section: 'open_questions' }] })
+    expect(a.scorecard()).toMatchObject({ call_notes: { closing: 1 }, wrapup: { requests: 1, items: { open_questions: 1 } } })
+    expect(a.row(next)).toBeUndefined()
+    a.help.shutdown()
+  })
+
+  it("the next call ending doesn't stop the last call's wrap-up either; deleting that call stops it", async () => {
+    const a = app(new Scripted(), { call_notes: false })
     a.state('checking')
     a.state('live')
     a.say('buyer', 'What does the trial include?', 4)
     a.state('stopping')
     a.state('stopped')
-    a.model.calls[0].release(notesAnswer())
     await flush()
-    const wr = a.model.of('wrapup')[0]
+    const first = a.model.of('wrapup')[0]
+    // A short next call, over before the first call's wrap-up is back.
     const next = 's-2026-10-05T11-00-00-000Z-def456'
     a.state('checking', next)
-    expect(wr.req.signal.aborted).toBe(true)
-    expect(a.wraps.at(-1)).toBeNull()
+    a.state('live', next)
+    a.say('buyer', 'Can we start with one team?', 4, next)
+    a.state('stopping', next)
+    a.state('stopped', next)
     await flush()
-    expect(JSON.parse(a.row()!.wrapup_json).status).toBe('building')
-    expect(a.row(next)).toBeUndefined()
+    expect(first.req.signal.aborted).toBe(false)
+    expect(a.help.wrapup()?.session_id).toBe(next)
+    const shown = a.wraps.length
+    first.release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [{ text: 'What the trial includes', who: null, when: null, lines: ['L1'] }] }))
+    await flush()
+    // Saved for the first call, out of sight: the window keeps showing the call that ended last.
+    expect(JSON.parse(a.row()!.wrapup_json).status).toBe('ready')
+    expect(a.wraps.length).toBe(shown)
+    expect(a.help.wrapup()?.session_id).toBe(next)
+
+    // Deleting a call whose wrap-up is still running out of sight stops it; the other call's is untouched.
+    const b = app(new Scripted(), { call_notes: false })
+    b.state('checking')
+    b.state('live')
+    b.say('buyer', 'Can you send pricing?', 4)
+    b.state('stopping')
+    b.state('stopped')
+    await flush()
+    const old = b.model.of('wrapup')[0]
+    b.state('checking', next)
+    b.state('live', next)
+    b.say('buyer', 'Is there a sandbox?', 4, next)
+    b.state('stopping', next)
+    b.state('stopped', next)
+    await flush()
+    b.help.forgetCall(CALL_ID)
+    deleteCall(b.dir, b.help.db, CALL_ID)
+    expect(old.req.signal.aborted).toBe(true)
+    expect(b.row()).toBeUndefined()
+    expect(b.model.of('wrapup')[1].req.signal.aborted).toBe(false)
+    expect(b.help.wrapup()?.session_id).toBe(next)
+    // Quitting with the next call's wrap-up still running: saved as not finished, never "building".
+    b.help.shutdown()
+    const db = new Db(path.join(b.dir, 'copilot.db'))
+    const row = db.sql.prepare('SELECT wrapup_json FROM call_wrapups WHERE session_id = ?').get(next) as { wrapup_json: string }
+    expect(JSON.parse(row.wrapup_json)).toMatchObject({ status: 'failed', error: 'The app closed before the wrap-up was ready.' })
+    db.close()
+    a.help.shutdown()
+  })
+
+  it('quitting with the last call\'s wrap-up still running out of sight: saved as not finished, never "building"', async () => {
+    const a = app(new Scripted(), { call_notes: false })
+    a.state('checking')
+    a.state('live')
+    a.say('buyer', 'What does the trial include?', 4)
+    a.state('stopping')
+    a.state('stopped')
+    await flush()
+    const next = 's-2026-10-05T11-00-00-000Z-def456'
+    a.state('checking', next)
+    a.state('live', next)
+    a.say('buyer', 'Can we start with one team?', 4, next)
+    a.state('stopping', next)
+    a.state('stopped', next)
+    await flush()
+    a.help.shutdown()
+    expect(a.model.of('wrapup').every((c) => c.req.signal.aborted)).toBe(true)
+    const db = new Db(path.join(a.dir, 'copilot.db'))
+    for (const id of [CALL_ID, next]) {
+      const row = db.sql.prepare('SELECT wrapup_json, stats_json FROM call_wrapups WHERE session_id = ?').get(id) as { wrapup_json: string; stats_json: string }
+      expect(JSON.parse(row.wrapup_json).status).toBe('failed')
+      expect(JSON.parse(row.stats_json).errors).toEqual({ quit: 1 })
+    }
+    db.close()
+    // Its scorecard was brought up to date at quit.
+    expect(a.scorecard().wrapup).toMatchObject({ status: 'failed', errors: { quit: 1 } })
+  })
+
+  it('a call where nothing was transcribed: no wrap-up request, and the window has nothing to open for', async () => {
+    const a = app()
+    a.state('checking')
+    a.state('live')
+    a.state('stopping')
+    a.state('stopped')
+    await flush()
+    expect(a.model.calls).toHaveLength(0)
+    expect(a.wraps).toHaveLength(1)
+    expect(a.wraps[0]).toMatchObject({ status: 'ready', items: [], error: null })
+    expect(a.scorecard().wrapup).toMatchObject({ requests: 0, errors: { empty_call: 1 } })
+    expect(a.logs.find((l) => l.e === 'wrapup_skipped')?.d).toEqual({ reason: 'empty_call' })
+    // Keith can still add his own items and draft from them.
+    expect(a.help.addWrapupItem({ section: 'we_owe', text: 'Send the calendar invite again' }).ok).toBe(true)
     a.help.shutdown()
   })
 
@@ -321,13 +443,23 @@ describe('Stop: the closing notes pass, then the wrap-up', () => {
     await flush()
     expect(a.help.wrapup()).toMatchObject({ status: 'failed', error: "Couldn't build the wrap-up this time. Try again, or add the items yourself." })
     expect(a.help.addWrapupItem({ section: 'we_owe', text: 'Send the SOC 2 report' })).toMatchObject({ ok: true, wrapup: { items: [{ id: 'k1', state: 'confirmed', added_by_keith: true, quote: '' }] } })
+    // The email fails too: its problem goes to the draft button, and the build's stays next to "Try again".
+    const draft = a.help.draftFollowup()
+    await flush()
+    a.model.of('followup')[0].fail(new Anthropic.APIError(402, { type: 'error', error: { type: 'invalid_request_error', message: 'Your credit balance is too low' } }, 'Your credit balance is too low', new Headers()))
+    const dr = await draft
+    expect(dr).toMatchObject({ ok: false, reason: "Couldn't write the email. The Anthropic account is out of credit. Add credit, then draft the email again." })
+    expect(dr.wrapup).toMatchObject({ status: 'failed', error: "Couldn't build the wrap-up this time. Try again, or add the items yourself." })
     const retry = a.help.retryWrapup()
     await flush()
-    a.model.calls[1].release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [{ text: 'SOC 2 report', who: null, when: null, lines: ['L1'] }] }))
+    a.model.of('wrapup')[1].release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [{ text: 'SOC 2 report', who: null, when: null, lines: ['L1'] }] }))
     expect((await retry).ok).toBe(true)
     // Keith's own item stays, after the call's.
     expect(a.help.wrapup()?.items.map((i) => i.id)).toEqual(['w1', 'k1'])
-    expect(a.scorecard().wrapup).toMatchObject({ requests: 2, errors: { not_json: 1 }, added: 1 })
+    expect(a.scorecard().wrapup).toMatchObject({ requests: 2, errors: { not_json: 1, draft_no_credit: 1 }, added: 1, draft_failed: 1 })
+    // Shared error texts name HELP's button; after the call they name the button that's there.
+    expect(afterCallText('The Anthropic account is out of credit. Add credit, then press HELP again.', 'click Try again')).toBe('The Anthropic account is out of credit. Add credit, then click Try again.')
+    expect(afterCallText('Claude is busy right now. Press HELP again.', 'click Try again')).toBe('Claude is busy right now. Click Try again.')
     a.help.shutdown()
   })
 })
@@ -652,12 +784,38 @@ describe('the follow-up checks', () => {
   kb.approve('arize-sso', true)
   kb.approve('rival', true)
 
-  it('confirmed items, or every item not removed when none is confirmed', () => {
+  it("the items Keith ticked plus his own; when he ticked none of the call's, every item not removed", () => {
     const a = item('we_owe', 'Send guide')
     const b = item('agreed', 'Pilot', 'removed')
     expect(draftItems([a, b])).toEqual([a])
     const c = item('they_owe', 'Share data', 'confirmed')
     expect(draftItems([a, b, c])).toEqual([c])
+    // Adding one missing item (it starts ticked) doesn't leave out everything he didn't tick.
+    const mine: WrapupItem = { ...item('agreed', 'Pilot on their support bot next month', 'confirmed'), id: 'k1', added_by_keith: true, turn_ids: [] }
+    expect(draftItems([a, b, mine])).toEqual([a, mine])
+    // Once he ticks one of the call's items, his own items go with the ticked ones.
+    expect(draftItems([a, b, c, mine])).toEqual([c, mine])
+  })
+
+  it("each quote says whose words it is: Keith's promise isn't something the buyer said", () => {
+    const memory = new CallMemory('sess-1')
+    memory.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown' }
+    memory.setLabel({ cluster: 'e1:s0', role: 'buyer', name: 'Dana Whitfield' })
+    memory.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 4000, text: 'Could you send the tracing overview?', available_ms: 4000 }, true)
+    memory.upsertTurn({ id: 't2', stream: 'local_mic', cluster: null, start_ms: 4000, end_ms: 8000, text: "Yes, I'll send it by Friday.", available_ms: 8000 }, true)
+    const owe: WrapupItem = { ...item('we_owe', 'Send the tracing overview', 'pending', "Yes, I'll send it by Friday."), turn_ids: ['t2'] }
+    const ask: WrapupItem = { ...item('open_questions', 'How tracing works on their servers', 'pending', 'Could you send the tracing overview?'), turn_ids: ['t1'] }
+    const u = followupUserMessage(buildFollowupInput(memory, [owe, ask], null))
+    expect(u).toContain(`Keith said: "Yes, I'll send it by Friday."`)
+    expect(u).toContain('Dana Whitfield (buyer) said: "Could you send the tracing overview?"')
+    expect(u).not.toContain('they said:')
+    expect(FOLLOWUP_SYSTEM_PROMPT).toMatch(/Keith's own words are never the buyer's/)
+    expect(FOLLOWUP_SYSTEM_PROMPT).toMatch(/say it once/)
+    expect(FOLLOWUP_SYSTEM_PROMPT).toMatch(/pain, urgency, interest or enthusiasm they didn't express/)
+    // Practice mode says a promise once too.
+    const body = JSON.parse(mockFollowup({ ...buildFollowupInput(memory, [owe, ask], null) })).body as string
+    expect(body).toContain('From me: Send the tracing overview.')
+    expect(body).not.toContain("I'll come back to you on")
   })
 
   it("searches each open question and promise; a competitor's section only when it was named", () => {

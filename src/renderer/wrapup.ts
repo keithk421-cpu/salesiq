@@ -53,6 +53,8 @@ export function initWrapup(api: CopilotApi): void {
   let dirty = false
   /** The window was closed to show the card review; it comes back when the review closes. */
   let backAfterReview = false
+  /** Start was pressed and the call hasn't gone live yet. */
+  let starting = false
   /** When each line of this call was said (for the quotes). */
   const said = new Map<string, number>()
 
@@ -149,7 +151,7 @@ export function initWrapup(api: CopilotApi): void {
     const draft = $<HTMLButtonElement>('wuDraft')
     draft.disabled = !usable || w.status === 'building' || w.status === 'drafting'
     draft.textContent = w.status === 'drafting' ? 'Writing the email…' : w.email ? 'Draft the email again' : 'Draft follow-up email'
-    draft.title = usable ? 'Uses the items you ticked (or all of them if none is ticked)' : 'Tick or add an item first'
+    draft.title = usable ? 'Uses the items you ticked and the ones you added (or all of them if you ticked none)' : 'Tick or add an item first'
     const e = w.email
     $('wuEmail').hidden = !e
     if (e && e.created_at !== emailShown) {
@@ -158,6 +160,7 @@ export function initWrapup(api: CopilotApi): void {
       $<HTMLTextAreaElement>('wuBody').value = e.body
       $('wuEmailBadge').hidden = !e.mock
       $('wuChecks').hidden = !e.checks.length
+      delete $('wuChecks').dataset.edited
       $('wuChecks').innerHTML = e.checks.map((c) => `<div>${esc(c)}</div>`).join('')
       $('wuCopyMsg').textContent = ''
     }
@@ -239,7 +242,15 @@ export function initWrapup(api: CopilotApi): void {
         el.blur()
         renderList()
       }
-    } else if (el.classList.contains('wu-text') && e.key === 'Enter') el.blur()
+    } else if (el.classList.contains('wu-text')) {
+      if (e.key === 'Enter') el.blur()
+      if (e.key === 'Escape') {
+        // Cancels the edit, and the window stays open: the saved text comes back, so leaving the box saves nothing.
+        e.stopPropagation()
+        el.value = el.defaultValue
+        el.blur()
+      }
+    }
   })
   $('wuList').addEventListener('focusout', () => {
     // Moving from one box to the next keeps the cursor; leaving the list draws what arrived meanwhile.
@@ -257,6 +268,15 @@ export function initWrapup(api: CopilotApi): void {
     if (!r.ok && r.reason) $('wuMsg').textContent = r.reason
     take(r.wrapup)
   })
+  // The warnings are about the draft as written: once Keith edits it, say so (he checks the email as it is now).
+  const editedSinceDraft = () => {
+    const c = $('wuChecks')
+    if (c.hidden || c.dataset.edited) return
+    c.dataset.edited = '1'
+    c.insertAdjacentHTML('afterbegin', '<div class="wu-checks-note">From the draft before your edits. Check the email as it is now.</div>')
+  }
+  $('wuBody').addEventListener('input', editedSinceDraft)
+  $('wuSubject').addEventListener('input', editedSinceDraft)
   $('wuCopy').addEventListener('click', () => void copy($<HTMLTextAreaElement>('wuBody').value, 'Email'))
   $('wuCopySubject').addEventListener('click', () => void copy($<HTMLInputElement>('wuSubject').value, 'Subject'))
   $('wuReview').addEventListener('click', () => {
@@ -268,21 +288,27 @@ export function initWrapup(api: CopilotApi): void {
   new MutationObserver(() => {
     if (!backAfterReview || !$('reviewModal').hidden) return
     backAfterReview = false
-    if (wrap) open()
+    // After this event: the Escape that closed the review mustn't close the wrap-up as well.
+    setTimeout(() => { if (wrap) open() }, 0)
   }).observe($('reviewModal'), { attributes: true, attributeFilter: ['hidden'] })
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && isOpen()) close() })
 
-  // ---- the call: a new Start clears it; lines on screen give the quotes their time ----
+  // ---- the call: a new Start closes it; lines on screen give the quotes their time ----
   api.onSession((raw) => {
     const ev = raw as SessionEvent
     if (ev.type === 'state') {
       sessionState = ev.state
+      // The last call's wrap-up stays until the next call's arrives: a Start the buyer never joins
+      // (back to idle) brings its button back. The button is hidden while the next call runs.
       if (ev.state === 'checking') {
-        said.clear()
-        emailShown = null
         backAfterReview = false
-        wrap = null
+        starting = true
         close()
+      }
+      // The next call's lines start (not after a Pause): the last call's quote times go.
+      if (ev.state === 'live' && starting) {
+        starting = false
+        said.clear()
       }
       render()
     } else if (ev.type === 'turn') said.set(ev.event.turn.turn_id, ev.event.turn.start_ms)

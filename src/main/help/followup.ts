@@ -1,8 +1,8 @@
 /**
  * The follow-up email draft, made only when Keith clicks "Draft follow-up email" in the wrap-up.
  *
- * - Input: the wrap-up items he confirmed (or every item not removed, when none is confirmed), the call
- *   setup, buyer names from his speaker labels, up to 3 "what they want" from the call notes, and
+ * - Input: the wrap-up items he ticked plus the ones he added (or every item not removed, when he ticked
+ *   none of the call's), the call setup, buyer names from his speaker labels, who said each quote, up to 3 "what they want" from the call notes, and
  *   approved knowledge: each open question and promise is searched in the approved, current, in-scope
  *   knowledge for the ended call's deployment (at most FOLLOWUP_KNOWLEDGE_MAX sections, K1..K5, each
  *   labelled with whose product it describes). The model never sees a document Keith hasn't approved.
@@ -13,7 +13,7 @@
 import type { CallSetup, FollowupDraft, KnowledgeChunk, WrapupItem, WrapupSection } from '../../shared/help'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
-import { aboutLabel } from './context'
+import { aboutLabel, speakerName } from './context'
 import { findCapabilityClaim, numbersIn } from './protocol'
 
 export const FOLLOWUP_MAX_TOKENS = 2000
@@ -42,16 +42,17 @@ What you receive:
 - call_setup: what Keith typed about the call (type, goal, outcomes, account, deployment). Context, not something anyone said.
 - buyer_names: the names of the buyer's people, as Keith labelled them (may be empty).
 - what_they_want: up to three things the buyer's side said they want, from the call notes.
-- wrapup: what Keith confirmed after the call, in sections: what Arize owes them, what they said they'd do, the agreed next steps, steps only proposed, and their questions not answered on the call. Each item may carry who and when (only as said) and a short quote of their own words.
+- wrapup: what Keith confirmed after the call, in sections: what Arize owes them, what they said they'd do, the agreed next steps, steps only proposed, and their questions not answered on the call. Each item may carry who and when (only as said) and a short quote with who said it ("Keith said", "Dana Whitfield (buyer) said"). A quote is the words of whoever is named: Keith's own words are never the buyer's.
 - approved_knowledge: sections from documents Keith approved, each with an id like [K2], whose product it describes, and which deployment it applies to. It may be "(none)".
 
 Write the email:
 - Under about 180 words in the body. No headings, no bold, no emoji. Short paragraphs or a few bullets.
 - Greet the buyer by first name when one is given ("Hi Dana,"), otherwise "Hi there,".
 - Thanks in one line.
-- What Keith heard, in their words: two or three short bullets from what_they_want and the wrapup.
+- What Keith heard, in their words: two or three short bullets from what_they_want and what the buyer's side said, never from Keith's own words.
 - The agreed next step with who and when, exactly as agreed. A step that was only proposed is offered as a suggestion ("Would a deep-dive with your platform lead next week work?"), never presented as agreed.
 - What Keith will send or do (the items Arize owes them).
+- When something Arize owes them already covers one of their questions, say it once (not "I'll send X" and then "I'll come back to you on X").
 - Their open questions: answer one ONLY from an approved_knowledge section that clearly answers it, keeping that section's qualifiers and its product (a competitor's section describes the competitor, never Arize; a section for another deployment doesn't apply). Otherwise write "I'll come back to you on <the question>." Never answer from general knowledge.
 - What they said they would do, mentioned gently ("When you get a chance to share the eval set, ...").
 - Sign off with "Keith" on its own line.
@@ -59,7 +60,7 @@ Write the email:
 - sources: the ids of the approved_knowledge sections the email used, for example ["K2"]; [] when none.
 
 Rules:
-- Only what is in the inputs. Never invent facts, numbers, dates, names, owners, features or commitments.
+- Only what is in the inputs. Never invent facts, numbers, dates, names, owners, features, commitments, or pain, urgency, interest or enthusiasm they didn't express.
 - No pricing, discount, contract terms or roadmap promises, even if the buyer asked: offer to follow up instead.
 - No figures that aren't in the inputs.
 - Don't mention this draft, the notes, the transcript or any tool.
@@ -73,12 +74,17 @@ export interface FollowupInput {
   buyers: string[]
   wants: string[]
   knowledge: KnowledgeChunk[]
+  /** Who said each item's quote (by item id), as HELP names speakers: "Keith", "Dana Whitfield (buyer)". */
+  saidBy?: Record<string, string>
 }
 
-/** The items Keith confirmed; when none is confirmed, every item he didn't remove. */
+/**
+ * The items Keith ticked (his own added items start ticked, so they go too). When he ticked none of the
+ * call's own items, every item he didn't remove: adding one missing item must not leave out the rest.
+ */
 export function draftItems(items: WrapupItem[]): WrapupItem[] {
-  const confirmed = items.filter((i) => i.state === 'confirmed')
-  return confirmed.length ? confirmed : items.filter((i) => i.state !== 'removed')
+  const ticked = items.some((i) => i.state === 'confirmed' && !i.added_by_keith)
+  return ticked ? items.filter((i) => i.state === 'confirmed') : items.filter((i) => i.state !== 'removed')
 }
 
 /**
@@ -106,7 +112,14 @@ export function buildFollowupInput(memory: CallMemory, items: WrapupItem[], kb: 
   const chosen = draftItems(items)
   const buyers = [...memory.labels.values()].filter((l) => l.role === 'buyer' && l.name).map((l) => l.name!)
   const wants = (memory.callNotes?.notes.buyer_wants ?? []).slice(0, WANTS_MAX).map((w) => w.text)
-  return { setup: memory.setup, items: chosen, buyers: [...new Set(buyers)], wants, knowledge: followupKnowledge(kb, chosen, memory.setup, today) }
+  // A promise's quote is often Keith's own line: the draft must know whose words each quote is.
+  const turns = new Map(memory.turnsAsOf(Number.POSITIVE_INFINITY).map((t) => [t.id, t]))
+  const saidBy: Record<string, string> = {}
+  for (const i of chosen) {
+    const t = i.quote ? turns.get(i.turn_ids[0] ?? '') : undefined
+    if (t) saidBy[i.id] = speakerName(memory, t)
+  }
+  return { setup: memory.setup, items: chosen, buyers: [...new Set(buyers)], wants, knowledge: followupKnowledge(kb, chosen, memory.setup, today), saidBy }
 }
 
 const SECTION_HEAD: Record<WrapupSection, string> = {
@@ -126,7 +139,8 @@ export function followupUserMessage(input: FollowupInput): string {
   const s = input.setup
   const dep = s.deployment === 'saas' ? "Arize's SaaS" : s.deployment === 'self_hosted' ? 'self-hosted' : 'not known (SaaS or self-hosted)'
   const item = (i: WrapupItem) => {
-    const extra = [i.who ? `who: ${i.who}` : '', i.when ? `when: ${i.when}` : '', i.quote ? `they said: "${i.quote}"` : ''].filter(Boolean).join('; ')
+    const by = input.saidBy?.[i.id]
+    const extra = [i.who ? `who: ${i.who}` : '', i.when ? `when: ${i.when}` : '', i.quote ? `${by ?? 'someone on the call'} said: "${i.quote}"` : ''].filter(Boolean).join('; ')
     return `- ${i.text}${extra ? ` (${extra})` : ''}`
   }
   const sections = (Object.keys(SECTION_HEAD) as WrapupSection[])
@@ -201,6 +215,11 @@ export function mockFollowup(input: FollowupInput): string {
   const of = (s: WrapupSection) => input.items.filter((i) => i.section === s)
   const first = input.buyers[0]?.split(/\s+/)[0]
   const heard = [...input.wants, ...of('open_questions').map((q) => q.text)].slice(0, 3)
+  // Said once: a question that something Keith will send already covers gets no "I'll come back to you".
+  const common = new Set(['about', 'their', 'there', 'these', 'those', 'which', 'would', 'could', 'should', 'other', 'after', 'before', 'works', 'thing', 'things', 'share'])
+  const words = (t: string) => new Set((t.toLowerCase().match(/[a-z][a-z-]{4,}/g) ?? []).filter((w) => !common.has(w)))
+  const owed = of('we_owe').map((i) => words(i.text))
+  const covered = (q: WrapupItem) => [...words(q.text)].some((w) => owed.some((o) => o.has(w)))
   const step = of('agreed')[0]
   const bare = (t: string) => t.replace(/[.!?]+$/, '')
   const lines = [
@@ -208,7 +227,7 @@ export function mockFollowup(input: FollowupInput): string {
     ...(heard.length ? ['', 'What I heard:', ...heard.map((h) => `- ${h}`)] : []),
     '', step ? `Next step: ${bare(step.text)}${step.who ? ` (${step.who}${step.when ? `, ${step.when}` : ''})` : step.when ? ` (${step.when})` : ''}.` : 'Happy to find a time for the next step.',
     ...of('we_owe').map((i) => `From me: ${bare(i.text)}.`),
-    ...of('open_questions').map((q) => `I'll come back to you on: ${q.text}`),
+    ...of('open_questions').filter((q) => !covered(q)).map((q) => `I'll come back to you on: ${q.text}`),
     ...of('they_owe').map((i) => `From your side: ${bare(i.text)}.`),
     '', 'Keith',
   ]

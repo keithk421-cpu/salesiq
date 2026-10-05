@@ -284,6 +284,14 @@ export interface WrapupDeps {
 
 const ITEM_ID = /^[wk]\d{1,3}$/
 
+/**
+ * A shared error text names HELP's own button ("press HELP again"); after the call the button is
+ * "Try again" (the wrap-up) or the draft button (the email).
+ */
+export function afterCallText(message: string, again: string): string {
+  return message.replace(/press HELP again/i, (m) => (m[0] === 'P' ? again[0].toUpperCase() + again.slice(1) : again))
+}
+
 /** The wrap-up of one ended call: built once, then Keith's ticks, edits, additions and the email draft. */
 export class WrapupKeeper {
   private w: CallWrapup
@@ -291,6 +299,10 @@ export class WrapupKeeper {
   private disposed = false
   private edited = new Set<string>()
   private dropped = 0
+  /** What the wrap-up was before the email draft started (a failed build stays failed). */
+  private beforeDraft: CallWrapup['status'] | null = null
+  /** Nothing was transcribed: no wrap-up request is sent. */
+  private empty = false
   readonly stats: Omit<WrapupStats, 'status' | 'items' | 'confirmed' | 'removed' | 'added' | 'edited' | 'dropped'> = {
     requests: 0, build_ms: null, cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
     drafts: 0, draft_failed: 0, draft_checks: 0, draft_ms: null, draft_cost_usd: 0, errors: {},
@@ -310,21 +322,36 @@ export class WrapupKeeper {
     return this.w.session_id
   }
 
+  /** A request (the wrap-up or the email) is still running. */
+  get busy(): boolean {
+    return !this.disposed && (this.w.status === 'building' || this.w.status === 'drafting')
+  }
+
   /** A copy, so nothing outside changes it. */
   state(): CallWrapup {
     return { ...this.w, items: this.w.items.map((i) => ({ ...i, turn_ids: [...i.turn_ids] })), email: this.w.email ? { ...this.w.email, checks: [...this.w.email.checks] } : null }
   }
 
-  /** "Finishing notes and wrap-up…": shown (and saved) as soon as Stop is done. */
+  /**
+   * "Finishing notes and wrap-up…": shown (and saved) as soon as Stop is done. A call where nothing was
+   * transcribed (Stop right after Start) has nothing to wrap up: no request, and it's ready (empty)
+   * straight away, so the window doesn't open by itself. Keith can still add items from the button.
+   */
   begin(): void {
-    this.w.status = 'building'
+    // The transcript is final at Stop; with no line there are no notes either.
+    this.empty = !this.d.memory.turnsAsOf(Number.POSITIVE_INFINITY).some((t) => t.text.trim())
+    this.w.status = this.empty ? 'ready' : 'building'
     this.w.error = null
+    if (this.empty) {
+      this.stats.errors.empty_call = (this.stats.errors.empty_call ?? 0) + 1
+      this.d.log('wrapup_skipped', { reason: 'empty_call' })
+    }
     this.changed()
   }
 
   /** The one wrap-up request (after the closing notes pass). Keith's own items, added meanwhile, are kept. */
   async build(): Promise<void> {
-    if (this.disposed) return
+    if (this.disposed || this.empty) return
     const m = this.d.memory
     const notes = m.callNotes?.notes ?? null
     const input = wrapupUserMessage(m, notes)
@@ -381,7 +408,7 @@ export class WrapupKeeper {
     if (code) {
       this.stats.errors[code] = (this.stats.errors[code] ?? 0) + 1
       this.w.status = 'failed'
-      this.w.error = error?.blocking ? `Couldn't build the wrap-up. ${error.message}` : code === 'timeout'
+      this.w.error = error?.blocking ? `Couldn't build the wrap-up. ${afterCallText(error.message, 'click Try again')}` : code === 'timeout'
         ? "Couldn't build the wrap-up: Claude took too long. Try again, or add the items yourself."
         : "Couldn't build the wrap-up this time. Try again, or add the items yourself."
     } else {
@@ -431,7 +458,7 @@ export class WrapupKeeper {
     return true
   }
 
-  /** "+ Add": Keith's own item starts confirmed. */
+  /** "+ Add": Keith's own item starts confirmed (it goes in the email with the items he ticked). */
   addItem(raw: unknown): WrapupItem | null {
     const r = (raw ?? {}) as Record<string, unknown>
     if (this.disposed || !(WRAPUP_SECTIONS as readonly unknown[]).includes(r.section) || typeof r.text !== 'string') return null
@@ -450,10 +477,11 @@ export class WrapupKeeper {
     if (this.disposed) return { ok: false, reason: 'This call is gone.' }
     if (this.w.status === 'building' || this.w.status === 'drafting') return { ok: false, reason: 'Still working on it.' }
     const before = this.w.status
+    this.beforeDraft = before
     const input = buildFollowupInput(this.d.memory, this.w.items, this.d.kb)
     if (!input.items.length) return { ok: false, reason: 'Tick or add at least one item first.' }
+    // The email's own problems go back to the button that asked (w.error stays the wrap-up's, next to "Try again").
     this.w.status = 'drafting'
-    this.w.error = null
     this.changed()
     const t0 = this.now()
     this.stats.drafts++
@@ -492,6 +520,7 @@ export class WrapupKeeper {
       else if (error) this.d.onResult?.(error)
     }
     let email: FollowupDraft | null = null
+    let reason: string | undefined
     if (!code) {
       const v = validateFollowup(text, input)
       if (v.ok) email = { ...v.draft, created_at: new Date(this.now()).toISOString(), mock: this.d.model.mock }
@@ -505,22 +534,26 @@ export class WrapupKeeper {
     } else {
       this.stats.draft_failed++
       this.stats.errors[`draft_${code}`] = (this.stats.errors[`draft_${code}`] ?? 0) + 1
-      this.w.error = error?.blocking ? `Couldn't write the email. ${error.message}` : "Couldn't write the email this time. Try again."
+      reason = error?.blocking ? `Couldn't write the email. ${afterCallText(error.message, 'draft the email again')}` : "Couldn't write the email this time. Draft it again in a moment."
     }
     this.d.log('followup_done', {
       status: email ? 'ok' : 'failed', error: code, ms: this.stats.draft_ms, checks: email?.checks.length ?? null, words: email ? email.body.split(/\s+/).filter(Boolean).length : null,
       knowledge: input.knowledge.length, input_tokens: usage?.input_tokens, output_tokens: usage?.output_tokens, cost_usd: usage?.cost_usd,
     })
     this.changed()
-    return email ? { ok: true } : { ok: false, reason: this.w.error ?? undefined }
+    return email ? { ok: true } : { ok: false, reason }
   }
 
   /** The app is closing: a wrap-up still being built or drafted is saved as not finished (never left "building"). */
   abandon(): void {
     if (this.disposed) return
-    if (this.w.status === 'building' || this.w.status === 'drafting') {
-      this.w.status = this.w.status === 'drafting' ? 'ready' : 'failed'
-      this.w.error = this.w.status === 'failed' ? 'The app closed before the wrap-up was ready.' : null
+    if (this.busy) {
+      // A draft that didn't finish leaves the wrap-up as it was before (a failed build stays failed).
+      if (this.w.status === 'drafting') this.w.status = this.beforeDraft ?? 'ready'
+      else {
+        this.w.status = 'failed'
+        this.w.error = 'The app closed before the wrap-up was ready.'
+      }
       this.stats.errors.quit = (this.stats.errors.quit ?? 0) + 1
       this.persist()
     }

@@ -37,6 +37,17 @@ export interface HelpSettings {
 
 const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true, call_notes: true, wrapup: true }
 
+/** One ended call's after-call work: its closing notes pass, then its wrap-up. */
+interface AfterCall {
+  sessionId: string
+  callMs: number
+  notes: CallNotesKeeper | null
+  wrap: WrapupKeeper | null
+  /** Deleted, or the app is quitting: nothing more is written for it. */
+  cancelled: boolean
+  done: boolean
+}
+
 /** Which playbook HELP is using, and whether Keith needs to decide anything about it. */
 export interface PlaybookInfo {
   using: 'yours' | 'built_in'
@@ -115,11 +126,17 @@ export class HelpService {
   private sessionNow: () => number = () => 0
   /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
   private endedCall: { sessionId: string; callMs: number } | null = null
-  /** The wrap-up of the call that just ended (null with the setting off, after a delete or a new Start). */
+  /** The wrap-up of the call that ended last (null with the setting off, or after a delete). */
   wrap: WrapupKeeper | null = null
   onWrapup: ((w: CallWrapup | null) => void) | null = null
-  /** The ended call's after-call work (closing notes pass, then the wrap-up); cancelled by a new call, a delete or quitting. */
-  private after: { sessionId: string; cancelled: boolean; done: boolean } | null = null
+  /**
+   * The last ended call's after-call work (closing notes pass, then the wrap-up). A new Start doesn't
+   * stop it: it reads only that call's own memory, so it finishes and saves while the next call runs.
+   * Only deleting that call or quitting stops it.
+   */
+  private after: AfterCall | null = null
+  /** Earlier ended calls whose after-call work was still running when the next call ended: it finishes out of sight. */
+  private background = new Set<AfterCall>()
   private quitting = false
   hotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
@@ -401,8 +418,8 @@ export class HelpService {
   }
 
   private startCall(sessionId: string, nowSessionMs: () => number): void {
-    // The last call's closing pass or wrap-up still running stops here; what it saved stays saved.
-    this.cancelAfterCall()
+    // The last call's closing pass or wrap-up, if still running, carries on: it reads only that call's
+    // own memory and saves to it (startNotes leaves its notes keeper running).
     this.engine?.dispose()
     // Playbook edits made since the last call apply now, without restarting the app.
     this.playbook = this.loadPlaybook()
@@ -427,14 +444,21 @@ export class HelpService {
   private startNotes(model: HelpModel): void {
     const memory = this.memory
     if (!memory) return
-    this.notes?.dispose()
-    this.notes = new CallNotesKeeper({
-      memory, model, config: this.modelConfig(), db: this.db, sessionNowMs: () => this.sessionNow(),
-      helpBusy: () => this.engine?.pressInFlight ?? false, emit: (s) => this.onNotes?.(s), log: this.log,
+    // The ended call's keeper may still be running its closing pass: its after-call work holds it, and
+    // it finishes out of sight. Any other keeper is dropped.
+    const prev = this.notes
+    if (prev && prev !== this.after?.notes) prev.dispose()
+    // Its own clock: the next Start replaces this.sessionNow, and a closing pass still running reads this one.
+    const clock = this.sessionNow
+    const keeper: CallNotesKeeper = new CallNotesKeeper({
+      memory, model, config: this.modelConfig(), db: this.db, sessionNowMs: () => clock(),
+      // Only the current call's notes reach the panel.
+      helpBusy: () => this.engine?.pressInFlight ?? false, emit: (s) => { if (this.notes === keeper) this.onNotes?.(s) }, log: this.log,
       enabled: this.settings.call_notes,
       // Practice mode (no key) stays "Practice mode" whatever the MOCK notes do.
       onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
     })
+    this.notes = keeper
     this.log('call_notes_ready', { enabled: this.settings.call_notes, mock: model.mock })
     this.onNotes?.(this.notes.state())
   }
@@ -447,7 +471,8 @@ export class HelpService {
   /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
   forgetCall(sessionId: string): void {
     if (this.endedCall?.sessionId === sessionId) this.endedCall = null
-    if (this.after?.sessionId === sessionId || this.wrap?.sessionId === sessionId) this.cancelAfterCall()
+    // Its after-call work stops, whether it's the last call's or still finishing out of sight.
+    for (const a of [this.after, ...this.background]) if (a?.sessionId === sessionId) this.cancelAfterCall(a)
     if (this.memory?.sessionId !== sessionId) return
     this.engine?.dispose()
     this.engine = null
@@ -467,7 +492,7 @@ export class HelpService {
       // The closing notes pass starts now (with nothing left to cover, the notes are saved at once).
       const closing = this.quitting ? undefined : this.notes?.finish()
       this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
-      if (!this.quitting) this.startAfterCall(m, this.endedCall.callMs, closing)
+      if (!this.quitting) this.startAfterCall(m, this.endedCall.callMs, this.notes, closing)
     }
     // Account, goal, outcomes and deployment are per call; the call type often repeats. The finished
     // call's own record keeps what it was.
@@ -482,21 +507,30 @@ export class HelpService {
    * memory (its setup, labels, transcript and final notes; the setup strip is already cleared for the
    * next call). The scorecard is written again after each step so their counts and cost land in it.
    */
-  private startAfterCall(m: CallMemory, callMs: number, closing: Promise<void> | undefined): void {
-    const run = { sessionId: m.sessionId, cancelled: false, done: false }
+  private startAfterCall(m: CallMemory, callMs: number, notes: CallNotesKeeper | null, closing: Promise<void> | undefined): void {
+    const prev = this.after
+    if (prev) {
+      // A short call right after the last one: the last call's work, still running, finishes out of sight.
+      if (!prev.done || prev.wrap?.busy) this.background.add(prev)
+      else prev.wrap?.dispose()
+    }
+    const run: AfterCall = { sessionId: m.sessionId, callMs, notes, wrap: null, cancelled: false, done: false }
     this.after = run
-    this.wrap?.dispose()
     this.wrap = null
     if (this.settings.wrapup) {
       const model = this.createModel()
-      this.wrap = new WrapupKeeper({
-        memory: m, model, config: this.modelConfig(), db: this.db, kb: this.kb, emit: (w) => this.onWrapup?.(w), log: this.log,
+      const wrap: WrapupKeeper = new WrapupKeeper({
+        memory: m, model, config: this.modelConfig(), db: this.db, kb: this.kb, log: this.log,
+        // Only the wrap-up of the call that ended last reaches the window.
+        emit: (w) => { if (this.wrap === wrap) this.onWrapup?.(w) },
         // Practice mode (no key) stays "Practice mode" whatever the MOCK wrap-up does.
         onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
       })
-      this.wrap.begin()
+      this.wrap = wrap
+      run.wrap = wrap
+      wrap.begin()
     } else this.onWrapup?.(null)
-    const wrap = this.wrap
+    const wrap = run.wrap
     void (async () => {
       try {
         if (closing) {
@@ -512,18 +546,22 @@ export class HelpService {
         if (!run.cancelled) this.log('after_call_failed', { code: (err as NodeJS.ErrnoException).code ?? (err as Error).name ?? 'unknown' })
       } finally {
         run.done = true
+        if (!wrap?.busy) this.background.delete(run)
       }
     })()
   }
 
-  /** A new call, a deleted call: stop the after-call work and the wrap-up; nothing more is written for that call. */
-  private cancelAfterCall(): void {
-    if (this.after) this.after.cancelled = true
-    this.after = null
-    if (!this.wrap) return
-    this.wrap.dispose()
-    this.wrap = null
-    this.onWrapup?.(null)
+  /** A deleted call: stop its after-call work and its wrap-up; nothing more is written for that call. */
+  private cancelAfterCall(a: AfterCall): void {
+    a.cancelled = true
+    this.background.delete(a)
+    a.notes?.dispose()
+    a.wrap?.dispose()
+    if (this.after === a) this.after = null
+    if (a.wrap && this.wrap === a.wrap) {
+      this.wrap = null
+      this.onWrapup?.(null)
+    }
   }
 
   /** The wrap-up of the call that just ended (null before any call ends, with the setting off, or after a delete). */
@@ -533,8 +571,8 @@ export class HelpService {
 
   /** Keith's changes count in the scorecard straight away (numbers only). */
   private rescoreWrapup(): void {
-    const e = this.endedCall
-    if (e && this.wrap?.sessionId === e.sessionId) this.writeScorecard(e.sessionId, e.callMs)
+    const a = this.after
+    if (a && this.wrap && a.wrap === this.wrap) this.writeScorecard(a.sessionId, a.callMs)
   }
 
   updateWrapupItem(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
@@ -750,15 +788,21 @@ export class HelpService {
 
   /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
-    // Nothing waits for Claude at quit: a closing pass or wrap-up still running is cancelled, what it has
-    // so far is saved (a wrap-up never stays "building"), and the ended call's scorecard is brought up to date.
+    // Nothing waits for Claude at quit: each ended call's closing pass or wrap-up still running is
+    // cancelled, what it has so far is saved (a wrap-up never stays "building"), and that call's
+    // scorecard is brought up to date.
     this.quitting = true
-    const after = this.after
-    if (after) after.cancelled = true
-    this.wrap?.abandon()
-    // An update in flight is cancelled and the notes' counts saved before the scorecard is written.
+    for (const a of [...this.background, this.after]) {
+      if (!a) continue
+      a.cancelled = true
+      const unfinished = !a.done || !!a.wrap?.busy
+      a.wrap?.abandon()
+      // An update in flight is cancelled and the notes' counts saved before the scorecard is written.
+      a.notes?.stop()
+      if (unfinished) this.writeScorecard(a.sessionId, a.callMs)
+    }
+    this.background.clear()
     this.notes?.stop()
-    if (after && !after.done && this.endedCall?.sessionId === after.sessionId) this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
     if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
       try {
         this.endCall()
