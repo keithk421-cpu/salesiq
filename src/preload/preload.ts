@@ -53,6 +53,7 @@ const api = {
   onHelpFocus: (cb: () => void) => ipcRenderer.on('help-focus', () => cb()),
   onIdle: (cb: (s: { warning: boolean; seconds?: number }) => void) => ipcRenderer.on('idle', (_e, s) => cb(s)),
   onAppNotice: (cb: (n: { level: 'warning' | 'info' | 'error'; text: string }) => void) => ipcRenderer.on('app-notice', (_e, n) => cb(n)),
+  onAppSettings: (cb: (s: { hide_from_capture: boolean; retention_days: number | null }) => void) => ipcRenderer.on('app-settings', (_e, s) => cb(s)),
   onSession: (cb: (ev: unknown) => void) => ipcRenderer.on('session-event', (_e, ev) => cb(ev)),
   onScan: (cb: (ev: unknown) => void) => ipcRenderer.on('scan-event', (_e, ev) => cb(ev)),
 }
