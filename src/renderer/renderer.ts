@@ -871,7 +871,7 @@ $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.k
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
 
 // ---- playbook status: which one HELP uses, a broken edit, a newer built-in version ----
-type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean }
+type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean; error?: string | null }
 function renderPlaybook(pb: PlaybookInfo | null): void {
   const el = $('pbStatus')
   if (!pb) {
@@ -879,7 +879,10 @@ function renderPlaybook(pb: PlaybookInfo | null): void {
     return
   }
   const check = ' <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
-  if (pb.problem) {
+  if (pb.error) {
+    el.innerHTML = `<span class="err-text">${esc(pb.error)}</span> HELP still uses ${pb.using === 'yours' ? 'your edited playbook' : 'the built-in playbook'} (${esc(pb.version)}). ` +
+      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Try again</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>'
+  } else if (pb.problem) {
     el.innerHTML = `<span class="err-text">Your edited playbook has a mistake: ${esc(pb.problem)}. HELP uses the built-in one (${esc(pb.built_in_version)}) until it's fixed.</span>${check}`
   } else if (pb.newer_built_in) {
     el.innerHTML = `A different built-in playbook is available (${esc(pb.built_in_version)}); HELP is using your edited copy (${esc(pb.version)}). ` +
@@ -892,7 +895,11 @@ $('pbStatus').addEventListener('click', async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pb]')
   if (!b) return
   const action = b.dataset.pb
-  renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  try {
+    renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  } catch {
+    $('pbStatus').innerHTML = '<span class="err-text">That didn\'t work. Close the playbook file if it\'s open, then try again.</span> <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
+  }
 })
 $('aiKeySave').addEventListener('click', async () => {
   const r = await api.helpSetKey($<HTMLInputElement>('aiKeyInput').value)
