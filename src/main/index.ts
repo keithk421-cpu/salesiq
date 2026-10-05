@@ -225,7 +225,30 @@ function registerIpc(): void {
     log('knowledge_approval', { doc_id: docId, approved })
     return { ok: true, docs: help.kb.listDocs() }
   })
-  ipcMain.handle('knowledge:openFolder', () => (help ? shell.openPath(help.knowledgeDir) : ''))
+  ipcMain.handle('knowledge:openFolder', async () => {
+    if (!help) return { ok: false, error: 'HELP did not start, so the knowledge folder is unavailable. Send the app log.' }
+    const error = await shell.openPath(help.knowledgeDir)
+    if (error) shell.showItemInFolder(path.join(help.knowledgeDir, 'README.md'))
+    return { ok: !error, path: help.knowledgeDir, error }
+  })
+  ipcMain.handle('knowledge:import', async (_e, mode: unknown) => {
+    if (!help || !win) return { ok: false, error: 'HELP did not start. Send the app log.' }
+    const folder = mode === 'folder'
+    const r = await dialog.showOpenDialog(win, folder
+      ? { title: 'Choose the folder with your knowledge files (for a review pack, the unzipped pack folder)', properties: ['openDirectory'] }
+      : { title: 'Choose knowledge files', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Knowledge files', extensions: ['md', 'txt'] }] })
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true }
+    try {
+      return { ok: true, ...help.importKnowledge(r.filePaths, folder) }
+    } catch (err) {
+      log('knowledge_import_failed', { message: (err as Error).message })
+      return { ok: false, error: (err as Error).message }
+    }
+  })
+  ipcMain.handle('knowledge:remove', (_e, docId: unknown) => {
+    if (!help || typeof docId !== 'string') return { ok: false }
+    return help.removeKnowledge(docId)
+  })
   ipcMain.handle('playbook:open', () => (help ? shell.openPath(help.playbookPath()) : ''))
   ipcMain.handle('help:benchmark', async (_e, raw: unknown) =>
     help ? help.runBenchmark(raw, (p) => send('benchmark-progress', p)) : { ok: false, reason: 'HELP unavailable' })

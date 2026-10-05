@@ -309,3 +309,57 @@ export class KnowledgeBase {
     return { usable, staleTitles: [...staleTitles], scopedOut: [...scopedOut].map(([title, applies_to]) => ({ title, applies_to })) }
   }
 }
+
+export interface KnowledgeImport {
+  added: string[]
+  skipped: Array<{ name: string; reason: string }>
+}
+
+/**
+ * Copy knowledge files into the knowledge folder (Setup -> "Add a folder" / "Add files").
+ * From a folder: its .md/.txt files that have front matter (a review pack's `1-live-candidate/`
+ * subfolder is used when present, so review sheets and held material are never copied). Picked files
+ * are copied as chosen. `_`-prefixed files (held or review material) and README.md are never copied.
+ * Copying is not approval: every copied file arrives unapproved.
+ */
+export function importKnowledgeFiles(knowledgeDir: string, picked: string[], fromFolder: boolean): KnowledgeImport {
+  const out: KnowledgeImport = { added: [], skipped: [] }
+  let candidates = picked
+  if (fromFolder) {
+    let dir = picked[0]
+    const pack = path.join(dir, '1-live-candidate')
+    if (fs.existsSync(pack) && fs.statSync(pack).isDirectory()) dir = pack
+    candidates = fs.readdirSync(dir).map((f) => path.join(dir, f)).filter((f) => fs.statSync(f).isFile())
+  }
+  fs.mkdirSync(knowledgeDir, { recursive: true })
+  for (const src of candidates) {
+    const name = path.basename(src)
+    if (!/\.(md|txt)$/i.test(name)) {
+      if (!fromFolder) out.skipped.push({ name, reason: 'not a .md or .txt file' })
+      continue
+    }
+    if (name.startsWith('_')) {
+      out.skipped.push({ name, reason: 'held or review file (name starts with _)' })
+      continue
+    }
+    if (name.toLowerCase() === 'readme.md') continue
+    if (fromFolder && !parseFrontMatter(fs.readFileSync(src, 'utf8')).meta.title) {
+      out.skipped.push({ name, reason: 'not a knowledge file (no front matter)' })
+      continue
+    }
+    const dest = path.join(knowledgeDir, name)
+    if (path.resolve(src) !== path.resolve(dest)) fs.copyFileSync(src, dest)
+    out.added.push(name)
+  }
+  return out
+}
+
+/** Take a document out of use: it moves to the knowledge folder's `_removed/` subfolder (never indexed), so it can be restored. */
+export function removeKnowledgeFile(knowledgeDir: string, file: string, now = new Date()): boolean {
+  if (path.resolve(path.dirname(file)) !== path.resolve(knowledgeDir) || !fs.existsSync(file)) return false
+  const bin = path.join(knowledgeDir, '_removed')
+  fs.mkdirSync(bin, { recursive: true })
+  const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-')
+  fs.renameSync(file, path.join(bin, `${stamp}-${path.basename(file)}`))
+  return true
+}

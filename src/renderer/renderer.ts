@@ -43,7 +43,7 @@ const labels = new Map<string, SpeakerLabel>()
 /** The HELP card currently displayed (only the newest request is ever shown). */
 let card: HelpCardEvent | null = null
 let cardShownAt = 0
-let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean } | null = null
+let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string } | null = null
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -628,7 +628,10 @@ document.addEventListener('click', (e) => {
 // ---- setup: Claude key, model, prefetch, knowledge ----
 async function refreshHelpInfo(): Promise<void> {
   helpInfo = await api.helpInfo()
-  if (!helpInfo) return
+  if (!helpInfo) {
+    kbMessage("HELP didn't start, so knowledge files can't be added. Send me the app log (Diagnostics → Open data folder → logs).")
+    return
+  }
   $('aiDone').hidden = !helpInfo.hasKey
   $('aiForm').hidden = helpInfo.hasKey
   $('aiKeyChange').hidden = !helpInfo.hasKey
@@ -641,6 +644,7 @@ async function refreshHelpInfo(): Promise<void> {
   $<HTMLInputElement>('csOutcomes').value = su.desired_outcomes.join(', ')
   $<HTMLInputElement>('csAccount').value = su.account
   $<HTMLSelectElement>('csDeploy').value = su.deployment ?? 'unknown'
+  $('kbPath').textContent = helpInfo.knowledgeDir ? `Knowledge folder: ${helpInfo.knowledgeDir}` : ''
   $('hotkeyHint').textContent = helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button'
   $('helpBtn').title = helpInfo.hotkeyRegistered ? 'HELP (Ctrl+Alt+H)' : 'HELP'
 }
@@ -654,7 +658,8 @@ async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
         return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
           ${stale ? '<span class="tag tag-warn">Stale</span>' : ''}
           ${d.needs_reapproval ? '<span class="tag tag-warn" title="This file changed after you approved it. HELP will not use it until you approve the new content.">Changed: approve again</span>' : ''}
-          <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label></div>`
+          <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label>
+          <button class="btn btn-ghost btn-sm" data-remove="${esc(d.doc_id)}" title="Take this file out of use (moved to the _removed folder, not deleted)">Remove</button></div>`
       }).join('')
     : '<div class="muted small">No documents yet. HELP still works: it asks good questions and offers follow-ups instead of stating facts.</div>'
 }
@@ -665,7 +670,32 @@ $('kbList').addEventListener('change', async (e) => {
   const r = await api.knowledgeApprove(cb.dataset.doc, cb.checked)
   if (r.ok) void renderKnowledge(r.docs)
 })
-$('kbOpen').addEventListener('click', () => void api.knowledgeOpenFolder())
+function kbMessage(text: string): void {
+  $('kbMsg').textContent = text
+  $('kbMsg').hidden = !text
+}
+$('kbList').addEventListener('click', async (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-remove]')
+  if (!b?.dataset.remove) return
+  if (!confirm('Take this file out of use? It moves to the _removed folder inside the knowledge folder, so you can put it back.')) return
+  const r = (await api.knowledgeRemove(b.dataset.remove)) as { ok: boolean; docs: KnowledgeDocMeta[] }
+  kbMessage(r.ok ? 'Removed. HELP no longer uses it.' : 'Could not remove that file.')
+  void renderKnowledge(r.docs)
+})
+async function importKnowledge(mode: 'folder' | 'files'): Promise<void> {
+  const r = (await api.knowledgeImport(mode)) as { ok: boolean; canceled?: boolean; error?: string; added?: string[]; skipped?: Array<{ name: string; reason: string }>; docs?: KnowledgeDocMeta[] }
+  if (r.canceled) return
+  if (!r.ok) return kbMessage(r.error ?? 'Could not add files.')
+  const skipped = r.skipped?.length ? ` Skipped ${r.skipped.length}: ${r.skipped.map((x) => `${x.name} (${x.reason})`).join('; ')}.` : ''
+  kbMessage(`${r.added?.length ? `Added ${r.added.length} file(s), not approved yet: tick Approved on each one you've read.` : 'No knowledge files found there.'}${skipped}`)
+  void renderKnowledge(r.docs)
+}
+$('kbAddFolder').addEventListener('click', () => void importKnowledge('folder'))
+$('kbAddFiles').addEventListener('click', () => void importKnowledge('files'))
+$('kbOpen').addEventListener('click', async () => {
+  const r = (await api.knowledgeOpenFolder()) as { ok: boolean; path?: string; error?: string }
+  kbMessage(r.ok ? '' : `Windows could not open the folder${r.error ? ` (${r.error})` : ''}. It is here: ${r.path ?? 'unknown'}. Or use "Add a folder…" instead.`)
+})
 $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.knowledgeReindex()))
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
 $('aiKeySave').addEventListener('click', async () => {

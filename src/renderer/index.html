@@ -117,15 +117,19 @@
         <span class="step-num">4</span>
         <div class="step-title">
           <h2>Knowledge pack <span class="muted">(optional)</span></h2>
-          <p class="muted">Drop approved .md/.txt files in the folder. HELP only states Arize facts from documents you approve here. Without docs, HELP still gives questions and follow-ups.</p>
+          <p class="muted">Add your .md/.txt knowledge files, then tick Approved on each one you've read. HELP only states Arize facts from approved documents. Without docs, HELP still gives questions and follow-ups.</p>
         </div>
       </div>
       <div class="row">
+        <button id="kbAddFolder" class="btn btn-ghost btn-sm" title="Pick a folder; for a review pack, pick the unzipped pack folder">Add a folder…</button>
+        <button id="kbAddFiles" class="btn btn-ghost btn-sm">Add files…</button>
         <button id="kbOpen" class="btn btn-ghost btn-sm">Open knowledge folder</button>
         <button id="kbReindex" class="btn btn-ghost btn-sm">Re-scan folder</button>
         <button id="pbOpen" class="btn btn-ghost btn-sm">Edit sales playbook</button>
       </div>
+      <div id="kbMsg" class="muted small" hidden></div>
       <div id="kbList" class="kb-list"></div>
+      <div id="kbPath" class="muted small"></div>
     </div>
   </section>
 

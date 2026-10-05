@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { CallSetup, CallType, Deployment, FeedbackType, BadReason, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import { Db } from './db'
-import { KnowledgeBase } from './knowledge'
+import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpModel } from './help/models'
@@ -128,7 +128,7 @@ export class HelpService {
     const model = this.createModel()
     return {
       hasKey: this.hasKey(), settings: this.settings, setup: this.setup, hotkey: 'Ctrl+Alt+H', hotkeyRegistered: this.hotkeyRegistered,
-      modelLabel: model.label(this.modelConfig()), mock: model.mock, playbookVersion: this.playbook.version,
+      modelLabel: model.label(this.modelConfig()), mock: model.mock, playbookVersion: this.playbook.version, knowledgeDir: this.knowledgeDir,
     }
   }
 
@@ -155,6 +155,19 @@ export class HelpService {
     this.storage.writeJson('call-setup.json', setup)
     if (this.memory) this.memory.setup = setup
     return setup
+  }
+
+  importKnowledge(picked: string[], fromFolder: boolean): KnowledgeImport & { docs: KnowledgeDocMeta[] } {
+    const r = importKnowledgeFiles(this.knowledgeDir, picked, fromFolder)
+    this.log('knowledge_import', { added: r.added.length, skipped: r.skipped.length })
+    return { ...r, docs: this.reindexKnowledge() }
+  }
+
+  removeKnowledge(docId: string): { ok: boolean; docs: KnowledgeDocMeta[] } {
+    const doc = this.kb.getDoc(docId)
+    const ok = !!doc && removeKnowledgeFile(this.knowledgeDir, doc.file)
+    this.log('knowledge_remove', { doc_id: docId, ok })
+    return { ok, docs: this.reindexKnowledge() }
   }
 
   reindexKnowledge(): KnowledgeDocMeta[] {

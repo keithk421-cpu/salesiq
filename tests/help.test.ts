@@ -5,7 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { HelpCardEvent, HelpModelConfig } from '../src/shared/help'
 import { Db } from '../src/main/db'
-import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom } from '../src/main/knowledge'
+import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom, importKnowledgeFiles, removeKnowledgeFile } from '../src/main/knowledge'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
 import { HelpEngine } from '../src/main/help/engine'
@@ -196,6 +196,45 @@ describe('knowledge import', () => {
     kb.indexFolder(dir)
     kb.approve('ok', true)
     expect(kb.search('Galileo guardrails').usable.map((c) => c.doc_id)).toEqual(['ok'])
+  })
+
+  it('"Add a folder" on an unzipped review pack copies only the live candidates, unapproved', () => {
+    const pack = tmp()
+    const kdir = tmp()
+    fs.writeFileSync(path.join(pack, 'START_HERE.md'), '# Start here\n\nSteps.')
+    fs.writeFileSync(path.join(pack, 'REVIEW_SHEET.md'), '# Review sheet')
+    fs.mkdirSync(path.join(pack, '1-live-candidate'))
+    fs.mkdirSync(path.join(pack, '2-held'))
+    file(path.join(pack, '1-live-candidate'), 'core.md', '', '## Evals\n\nEvals score output.\n\nSource: docs')
+    file(path.join(pack, '1-live-candidate'), 'security.md', '', '## SSO\n\nSAML on Enterprise.\n\nSource: docs')
+    file(path.join(pack, '2-held'), '_held-proof.md', '', '## Customer\n\nNot cleared.\n\nSource: x')
+    const r = importKnowledgeFiles(kdir, [pack], true)
+    expect(r.added.sort()).toEqual(['core.md', 'security.md'])
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    const docs = kb.indexFolder(kdir)
+    expect(docs.map((d) => [d.doc_id, d.approved])).toEqual([['core', false], ['security', false]])
+    // A plain folder (no pack layout): files without front matter are skipped and reported; _-prefixed never copied.
+    const plain = tmp()
+    fs.writeFileSync(path.join(plain, 'notes.md'), 'just notes')
+    file(plain, 'faq.md', '', '## Q\n\nA.\n\nSource: x')
+    file(plain, '_held-x.md', '', '## H\n\nHeld.\n\nSource: x')
+    const r2 = importKnowledgeFiles(kdir, [plain], true)
+    expect(r2.added).toEqual(['faq.md'])
+    expect(r2.skipped.map((x) => x.name).sort()).toEqual(['_held-x.md', 'notes.md'])
+    // "Add files": an explicitly picked plain .txt is accepted.
+    fs.writeFileSync(path.join(plain, 'my-notes.txt'), 'Objection notes.')
+    expect(importKnowledgeFiles(kdir, [path.join(plain, 'my-notes.txt')], false).added).toEqual(['my-notes.txt'])
+  })
+
+  it('Remove takes a file out of use without deleting it', () => {
+    const kdir = tmp()
+    file(kdir, 'old.md', '', '## Old\n\nOld text.\n\nSource: x')
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    const [doc] = kb.indexFolder(kdir)
+    expect(removeKnowledgeFile(kdir, doc.file, new Date('2026-10-05T12:00:00Z'))).toBe(true)
+    expect(kb.indexFolder(kdir)).toHaveLength(0)
+    expect(fs.readdirSync(path.join(kdir, '_removed'))).toEqual(['2026-10-05-12-00-00-old.md'])
+    expect(removeKnowledgeFile(kdir, path.join(tmp(), 'elsewhere.md'))).toBe(false)
   })
 
   it('subfolders (e.g. held material) are not indexed', () => {
