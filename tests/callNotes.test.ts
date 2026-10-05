@@ -572,7 +572,7 @@ describe('per call: scorecard, deletion and the app', () => {
     s.keeper.stop()
     const card = buildScorecard(s.db, 'sess-1', 600_000)
     expect(card.call_notes).toEqual({
-      started: 4, updated: 1, invalid: 1, failed: 1, cancelled: 1, capped: 1, cost_usd: 0.008,
+      started: 4, updated: 1, invalid: 1, failed: 1, cancelled: 1, closing: 0, capped: 1, cost_usd: 0.008,
       tokens: { input: 2400, output: 600, cache_read: 1800 }, errors: { not_json: 1, overloaded: 1 },
     })
     expect(card.total_cost_usd).toBe(0.008)

@@ -8,11 +8,13 @@ import path from 'node:path'
 import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import type { CallNotesState } from '../shared/help'
+import type { CallWrapup } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
+import { WrapupKeeper } from './help/wrapup'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
@@ -29,9 +31,11 @@ export interface HelpSettings {
   prefetch: boolean
   /** Keep running call notes during live calls (HELP reads them too). */
   call_notes: boolean
+  /** After Stop: finish the notes, then build the wrap-up (what's owed, agreed, still open). */
+  wrapup: boolean
 }
 
-const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true, call_notes: true }
+const DEFAULT_SETTINGS: HelpSettings = { model: 'claude-sonnet-5-5', prefetch: true, call_notes: true, wrapup: true }
 
 /** Which playbook HELP is using, and whether Keith needs to decide anything about it. */
 export interface PlaybookInfo {
@@ -111,6 +115,12 @@ export class HelpService {
   private sessionNow: () => number = () => 0
   /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
   private endedCall: { sessionId: string; callMs: number } | null = null
+  /** The wrap-up of the call that just ended (null with the setting off, after a delete or a new Start). */
+  wrap: WrapupKeeper | null = null
+  onWrapup: ((w: CallWrapup | null) => void) | null = null
+  /** The ended call's after-call work (closing notes pass, then the wrap-up); cancelled by a new call, a delete or quitting. */
+  private after: { sessionId: string; cancelled: boolean; done: boolean } | null = null
+  private quitting = false
   hotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
   onReadiness: ((r: HelpReadyState) => void) | null = null
@@ -129,7 +139,8 @@ export class HelpService {
     // App-written help text: refreshed when the template changes (the indexer never reads it).
     if (!fs.existsSync(readme) || fs.readFileSync(readme, 'utf8') !== KNOWLEDGE_README) fs.writeFileSync(readme, KNOWLEDGE_README)
     this.playbook = this.loadPlaybook()
-    this.settings = storage.readJson('help-settings.json', DEFAULT_SETTINGS)
+    // A copy: setSettings changes it, and the defaults must stay the defaults.
+    this.settings = storage.readJson('help-settings.json', { ...DEFAULT_SETTINGS })
     // Account, goal, outcomes and deployment belong to one call: if the app quit or crashed without
     // Stop, they'd be the last call's. Only the call type (which often repeats) carries over.
     const saved = storage.readJson<Partial<CallSetup>>('call-setup.json', DEFAULT_SETUP)
@@ -275,6 +286,7 @@ export class HelpService {
     if (s.model === 'claude-sonnet-5-5' || s.model === 'claude-opus-5-5') this.settings.model = s.model
     if (typeof s.prefetch === 'boolean') this.settings.prefetch = s.prefetch
     if (typeof s.call_notes === 'boolean') this.settings.call_notes = s.call_notes
+    if (typeof s.wrapup === 'boolean') this.settings.wrapup = s.wrapup
     this.storage.writeJson('help-settings.json', this.settings)
     return this.settings
   }
@@ -352,10 +364,13 @@ export class HelpService {
       }
       if (ev.state === 'paused') this.engine?.cancelAll('pause')
       if (ev.state === 'stopping' || ev.state === 'stopped' || ev.state === 'idle') this.engine?.cancelAll('stop')
-      // Call notes update only while live; Pause and Stop cancel one in flight (before Stop's scorecard).
+      // Call notes update only while live; Pause cancels one in flight. Stop doesn't: at "stopping" no new
+      // update starts, and at "stopped" (the transcript's last lines have all arrived by then: the session
+      // flushes them before it says so) the closing pass covers the last minutes (endCall).
       if (ev.state === 'live') this.notes?.resume()
       if (ev.state === 'paused') this.notes?.pause()
-      if (ev.state === 'stopping' || ev.state === 'stopped' || ev.state === 'idle') this.notes?.stop()
+      if (ev.state === 'stopping') this.notes?.beginFinish()
+      if (ev.state === 'idle') this.notes?.stop()
       if (ev.state === 'stopped') this.endCall()
       return
     }
@@ -386,6 +401,8 @@ export class HelpService {
   }
 
   private startCall(sessionId: string, nowSessionMs: () => number): void {
+    // The last call's closing pass or wrap-up still running stops here; what it saved stays saved.
+    this.cancelAfterCall()
     this.engine?.dispose()
     // Playbook edits made since the last call apply now, without restarting the app.
     this.playbook = this.loadPlaybook()
@@ -430,6 +447,7 @@ export class HelpService {
   /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
   forgetCall(sessionId: string): void {
     if (this.endedCall?.sessionId === sessionId) this.endedCall = null
+    if (this.after?.sessionId === sessionId || this.wrap?.sessionId === sessionId) this.cancelAfterCall()
     if (this.memory?.sessionId !== sessionId) return
     this.engine?.dispose()
     this.engine = null
@@ -446,12 +464,106 @@ export class HelpService {
     if (m) {
       // The session clock keeps running after Stop; the call's length is what it is now.
       this.endedCall = { sessionId: m.sessionId, callMs: this.sessionNow() }
+      // The closing notes pass starts now (with nothing left to cover, the notes are saved at once).
+      const closing = this.quitting ? undefined : this.notes?.finish()
       this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
+      if (!this.quitting) this.startAfterCall(m, this.endedCall.callMs, closing)
     }
     // Account, goal, outcomes and deployment are per call; the call type often repeats. The finished
     // call's own record keeps what it was.
     this.setup = { ...DEFAULT_SETUP, call_type: this.setup.call_type }
     this.storage.writeJson('call-setup.json', this.setup)
+  }
+
+  // ---------------------------------------------------------------- after the call: wrap-up and follow-up draft
+
+  /**
+   * After Stop: once the closing notes pass is done, the wrap-up is built from the ended call's own
+   * memory (its setup, labels, transcript and final notes; the setup strip is already cleared for the
+   * next call). The scorecard is written again after each step so their counts and cost land in it.
+   */
+  private startAfterCall(m: CallMemory, callMs: number, closing: Promise<void> | undefined): void {
+    const run = { sessionId: m.sessionId, cancelled: false, done: false }
+    this.after = run
+    this.wrap?.dispose()
+    this.wrap = null
+    if (this.settings.wrapup) {
+      const model = this.createModel()
+      this.wrap = new WrapupKeeper({
+        memory: m, model, config: this.modelConfig(), db: this.db, kb: this.kb, emit: (w) => this.onWrapup?.(w), log: this.log,
+        // Practice mode (no key) stays "Practice mode" whatever the MOCK wrap-up does.
+        onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
+      })
+      this.wrap.begin()
+    } else this.onWrapup?.(null)
+    const wrap = this.wrap
+    void (async () => {
+      try {
+        if (closing) {
+          await closing
+          if (run.cancelled) return
+          this.writeScorecard(m.sessionId, callMs)
+        }
+        if (!wrap) return
+        await wrap.build()
+        if (run.cancelled) return
+        this.writeScorecard(m.sessionId, callMs)
+      } catch (err) {
+        if (!run.cancelled) this.log('after_call_failed', { code: (err as NodeJS.ErrnoException).code ?? (err as Error).name ?? 'unknown' })
+      } finally {
+        run.done = true
+      }
+    })()
+  }
+
+  /** A new call, a deleted call: stop the after-call work and the wrap-up; nothing more is written for that call. */
+  private cancelAfterCall(): void {
+    if (this.after) this.after.cancelled = true
+    this.after = null
+    if (!this.wrap) return
+    this.wrap.dispose()
+    this.wrap = null
+    this.onWrapup?.(null)
+  }
+
+  /** The wrap-up of the call that just ended (null before any call ends, with the setting off, or after a delete). */
+  wrapup(): CallWrapup | null {
+    return this.wrap?.state() ?? null
+  }
+
+  /** Keith's changes count in the scorecard straight away (numbers only). */
+  private rescoreWrapup(): void {
+    const e = this.endedCall
+    if (e && this.wrap?.sessionId === e.sessionId) this.writeScorecard(e.sessionId, e.callMs)
+  }
+
+  updateWrapupItem(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
+    const ok = this.wrap?.updateItem(raw) ?? false
+    if (ok) this.rescoreWrapup()
+    return { ok, wrapup: this.wrapup() }
+  }
+
+  addWrapupItem(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
+    const ok = !!this.wrap?.addItem(raw)
+    if (ok) this.rescoreWrapup()
+    return { ok, wrapup: this.wrapup() }
+  }
+
+  /** "Draft follow-up email": only when Keith asks; nothing is sent. */
+  async draftFollowup(): Promise<{ ok: boolean; reason?: string; wrapup: CallWrapup | null }> {
+    const w = this.wrap
+    if (!w) return { ok: false, reason: 'No wrap-up for this call.', wrapup: null }
+    const r = await w.draft()
+    if (this.wrap === w) this.rescoreWrapup()
+    return { ...r, wrapup: this.wrapup() }
+  }
+
+  /** "Try again" after the wrap-up couldn't be built. */
+  async retryWrapup(): Promise<{ ok: boolean; wrapup: CallWrapup | null }> {
+    const w = this.wrap
+    const ok = !!w && (await w.retry())
+    if (ok && this.wrap === w) this.rescoreWrapup()
+    return { ok, wrapup: this.wrapup() }
   }
 
   /** reports/help-scorecard-<id>.json, numbers only. Rewritten as Keith rates the cards after the call. */
@@ -638,8 +750,15 @@ export class HelpService {
 
   /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
+    // Nothing waits for Claude at quit: a closing pass or wrap-up still running is cancelled, what it has
+    // so far is saved (a wrap-up never stays "building"), and the ended call's scorecard is brought up to date.
+    this.quitting = true
+    const after = this.after
+    if (after) after.cancelled = true
+    this.wrap?.abandon()
     // An update in flight is cancelled and the notes' counts saved before the scorecard is written.
     this.notes?.stop()
+    if (after && !after.done && this.endedCall?.sessionId === after.sessionId) this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
     if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
       try {
         this.endCall()

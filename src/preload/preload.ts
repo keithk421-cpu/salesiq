@@ -62,6 +62,13 @@ const api = {
   onAppSettings: (cb: (s: { hide_from_capture: boolean; retention_days: number | null }) => void) => ipcRenderer.on('app-settings', (_e, s) => cb(s)),
   onSession: (cb: (ev: unknown) => void) => ipcRenderer.on('session-event', (_e, ev) => cb(ev)),
   onScan: (cb: (ev: unknown) => void) => ipcRenderer.on('scan-event', (_e, ev) => cb(ev)),
+  // M2 wrap-up after Stop and the follow-up draft
+  wrapupGet: () => ipcRenderer.invoke('wrapup:get'),
+  wrapupUpdateItem: (change: unknown) => ipcRenderer.invoke('wrapup:updateItem', change),
+  wrapupAddItem: (item: unknown) => ipcRenderer.invoke('wrapup:addItem', item),
+  wrapupDraft: () => ipcRenderer.invoke('wrapup:draft'),
+  wrapupRetry: () => ipcRenderer.invoke('wrapup:retry'),
+  onWrapup: (cb: (w: unknown) => void) => ipcRenderer.on('wrapup', (_e, w) => cb(w)),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

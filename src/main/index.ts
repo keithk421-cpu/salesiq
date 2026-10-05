@@ -499,6 +499,14 @@ function registerIpc(): void {
     if (r.ok && r.file) shell.showItemInFolder(r.file)
     return r
   })
+  // ---- M2 wrap-up after Stop and the follow-up draft (a draft Keith copies; nothing is sent) ----
+  // Every input is checked in HelpService / WrapupKeeper (item id, state, text length, section).
+  if (help) help.onWrapup = (w) => send('wrapup', w)
+  ipcMain.handle('wrapup:get', () => help?.wrapup() ?? null)
+  ipcMain.handle('wrapup:updateItem', (_e, raw: unknown) => help?.updateWrapupItem(raw) ?? { ok: false, wrapup: null })
+  ipcMain.handle('wrapup:addItem', (_e, raw: unknown) => help?.addWrapupItem(raw) ?? { ok: false, wrapup: null })
+  ipcMain.handle('wrapup:draft', () => (help ? help.draftFollowup() : { ok: false, reason: 'HELP unavailable', wrapup: null }))
+  ipcMain.handle('wrapup:retry', () => (help ? help.retryWrapup() : { ok: false, wrapup: null }))
 }
 
 function createWindow(): void {

@@ -339,6 +339,29 @@
     </div>
   </div>
 
+  <!-- M2: wrap-up after Stop (wrapup.ts). Its "Wrap-up" button and Setup checkbox are added by wrapup.ts. -->
+  <div id="wrapupModal" class="modal-back" hidden>
+    <div class="modal card wide wu-modal" role="dialog" aria-modal="true" aria-labelledby="wuTitle">
+      <div class="wu-head"><h2 id="wuTitle">Wrap-up</h2><span id="wuBadge" class="tag tag-warn" hidden>MOCK</span><span id="wuStatus" class="muted small"></span></div>
+      <p class="muted small wu-hint">Only from what was said. Tick what's right, fix the wording, remove what's wrong, add what's missing.</p>
+      <div id="wuProblem" class="wu-problem" hidden><span id="wuProblemText"></span><button id="wuRetry" class="btn btn-sm btn-secondary" hidden>Try again</button></div>
+      <div id="wuList" class="wu-list"></div>
+      <div id="wuEmail" class="wu-email" hidden>
+        <div class="wu-email-head"><span class="nt-h">Follow-up email</span><span id="wuEmailBadge" class="tag tag-warn" hidden>MOCK</span><span class="muted small">A draft for you to copy. Nothing is sent.</span></div>
+        <input id="wuSubject" class="input" aria-label="Subject" />
+        <textarea id="wuBody" class="input" rows="12" aria-label="Email"></textarea>
+        <div id="wuChecks" class="hc-checks" hidden></div>
+        <div class="row"><button id="wuCopy" class="btn btn-sm btn-primary">Copy email</button><button id="wuCopySubject" class="btn btn-sm btn-ghost">Copy subject</button><span id="wuCopyMsg" class="muted small"></span></div>
+      </div>
+      <div class="row">
+        <button id="wuDraft" class="btn btn-secondary">Draft follow-up email</button>
+        <button id="wuReview" class="btn btn-ghost">Review cards</button>
+        <button id="wuDone" class="btn btn-primary">Done</button>
+        <span id="wuMsg" class="muted small"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="retentionModal" class="modal-back" hidden>
     <div class="modal card" role="dialog" aria-modal="true" aria-labelledby="rmTitle">
       <h2 id="rmTitle">Delete old calls?</h2>

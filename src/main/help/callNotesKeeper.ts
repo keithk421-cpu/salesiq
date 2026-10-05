@@ -8,7 +8,11 @@
  * - Spread out: at most one start every NOTES_MIN_GAP_MS (20 an hour), so a talkative call keeps
  *   updating to the end instead of using up the hour early. Every start counts, so a failing model
  *   or connection is retried at that pace too.
- * - Pause and Stop cancel an update in flight and drop its late answer; the notes stay on screen.
+ * - Pause cancels an update in flight and drops its late answer; the notes stay on screen.
+ * - Stop doesn't cancel: the last minutes (when next steps and promises are made) are what the notes
+ *   most often miss. At "stopping" no new regular update starts; at "stopped", once the transcript's
+ *   last lines are in, finish() waits for an update in flight, then runs closing updates over every
+ *   line still queued (no minimum talk, no spacing; at most 3 passes, 90 s in all).
  * - A key, credit or model-access error stops updates until a request (HELP or notes) succeeds again,
  *   like HELP's own background work.
  * - Delta-only: each request carries the previous notes, the finished lines since them (oldest first,
@@ -41,6 +45,9 @@ export const NOTES_TIMEOUT_MS = 30_000
 export const NOTES_MAX_TOKENS = 4000
 /** New lines per update, by size (oldest first); a backlog catches up over the next updates. */
 export const NOTES_MAX_DELTA_CHARS = 12_000
+/** The closing pass after Stop: a few updates at most, and never longer than this in all. */
+export const NOTES_CLOSING_MAX_PASSES = 3
+export const NOTES_CLOSING_BUDGET_MS = 90_000
 
 /** Per-call counts for the scorecard (numbers and codes only). */
 export interface CallNotesStats {
@@ -52,8 +59,10 @@ export interface CallNotesStats {
   invalid: number
   /** Errors and timeouts (previous notes kept). */
   failed: number
-  /** Stopped by Pause or Stop. */
+  /** Stopped by Pause, a quit or a deleted call. */
   cancelled: number
+  /** Closing updates run after Stop. */
+  closing: number
   /** Times an update was due but waited for the spacing (once per wait). */
   capped: number
   cost_usd: number
@@ -87,8 +96,14 @@ export interface CallNotesDeps {
 export class CallNotesKeeper {
   private snap: CallNotesSnapshot | null = null
   private updatedAt: number | null = null
-  private phase: 'not_live' | 'live' | 'paused' | 'stopped' = 'not_live'
+  /** ending: Stop was pressed (no new regular updates); finishing: the closing pass is running. */
+  private phase: 'not_live' | 'live' | 'paused' | 'ending' | 'finishing' | 'stopped' = 'not_live'
   private run: { seq: number; abort: AbortController } | null = null
+  /** The update in flight, so the closing pass can wait for it. */
+  private runDone: Promise<unknown> | null = null
+  /** The call was deleted or replaced: nothing is written or shown for it again. */
+  private disposed = false
+  private finishing: Promise<void> | null = null
   private seq = 0
   /** Finished turns not in the notes yet, in the order they finished. */
   private pending: string[] = []
@@ -101,7 +116,7 @@ export class CallNotesKeeper {
   private capHeld = false
   private blocked: HelpError | null = null
   readonly stats: CallNotesStats = {
-    started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, capped: 0,
+    started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, closing: 0, capped: 0,
     cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, errors: {},
   }
   private readonly now: () => number
@@ -118,6 +133,7 @@ export class CallNotesKeeper {
     const status: CallNotesState['status'] = !this.on ? 'off'
       : this.phase === 'stopped' ? 'stopped'
       : this.blocked ? 'blocked'
+      : this.phase === 'ending' || this.phase === 'finishing' ? 'finishing'
       : this.phase === 'paused' ? 'paused'
       : this.run ? 'updating'
       : 'waiting'
@@ -135,20 +151,46 @@ export class CallNotesKeeper {
 
   /** The call went live (first time or after Pause). */
   resume(): void {
-    if (this.phase === 'stopped') return
+    if (this.phase !== 'not_live' && this.phase !== 'paused' && this.phase !== 'live') return
     this.phase = 'live'
     this.emit()
     this.maybeUpdate()
   }
 
   pause(): void {
-    if (this.phase === 'stopped') return
+    if (this.phase !== 'not_live' && this.phase !== 'live') return
     this.cancel('pause')
     this.phase = 'paused'
     this.emit()
   }
 
-  /** Stop: no more updates; the notes stay readable for the after-call review. */
+  /** Stop was pressed: no new regular update starts, and one in flight is left to finish. */
+  beginFinish(): void {
+    if (this.phase === 'stopped' || this.phase === 'finishing') return
+    this.phase = 'ending'
+    this.emit()
+  }
+
+  /**
+   * After Stop, once the transcript's last lines have arrived: wait for an update in flight, then
+   * cover every line still queued, then stop. Skipped (just stops) when notes are off or blocked. With
+   * nothing to do it stops straight away, so the notes read "call ended" as soon as Stop is done.
+   */
+  finish(): Promise<void> {
+    if (this.finishing) return this.finishing
+    if (this.phase === 'stopped') return Promise.resolve()
+    const work = this.on && !this.blocked && (!!this.run || this.pendingTurns().length > 0)
+    if (!work) {
+      this.stop()
+      return Promise.resolve()
+    }
+    this.phase = 'finishing'
+    this.emit()
+    this.finishing = this.closingPass()
+    return this.finishing
+  }
+
+  /** Quit (or a call that never went live): cancel an update in flight; the notes stay readable. */
   stop(): void {
     if (this.phase === 'stopped') return
     this.cancel('stop')
@@ -159,6 +201,7 @@ export class CallNotesKeeper {
 
   /** Drop everything without writing (the call was deleted, or a new call replaces this one). */
   dispose(): void {
+    this.disposed = true
     const r = this.run
     this.run = null
     r?.abort.abort(new Error('dispose'))
@@ -221,10 +264,45 @@ export class CallNotesKeeper {
     }
     this.capHeld = false
     this.lastStart = now
-    void this.update(turns, { speechMs, words })
+    void this.track(this.update(turns, { speechMs, words }))
   }
 
-  private async update(queued: MemoryTurn[], heard: { speechMs: number; words: number }): Promise<void> {
+  private track<T>(p: Promise<T>): Promise<T> {
+    this.runDone = p
+    return p
+  }
+
+  /** The closing pass (see finish()). Counts, timings and codes are logged, never note text. */
+  private async closingPass(): Promise<void> {
+    const t0 = this.now()
+    const queuedBefore = this.pending.length
+    let passes = 0
+    let last: 'updated' | 'invalid' | 'failed' | 'dropped' | null = null
+    this.d.log('call_notes_closing_start', { queued: queuedBefore, in_flight: !!this.run })
+    if (this.run && this.runDone) await this.runDone
+    while (!this.disposed && this.phase === 'finishing' && !this.blocked && passes < NOTES_CLOSING_MAX_PASSES) {
+      const turns = this.pendingTurns()
+      const left = NOTES_CLOSING_BUDGET_MS - (this.now() - t0)
+      // Too little time left for a request to finish: what's noted so far stands.
+      if (!turns.length || left < 5_000) break
+      passes++
+      this.stats.closing++
+      const remote = turns.filter((t) => t.stream === 'system_remote')
+      last = await this.track(this.update(turns, {
+        speechMs: remote.reduce((a, t) => a + Math.max(0, t.end_ms - t.start_ms), 0),
+        words: remote.reduce((a, t) => a + t.text.split(/\s+/).filter(Boolean).length, 0),
+      }, { closing: true, timeoutMs: Math.min(NOTES_TIMEOUT_MS, left) }))
+    }
+    this.finishing = null
+    // Deleted or replaced meanwhile (or the app quit): nothing more is written or shown for it.
+    if (this.disposed || this.phase !== 'finishing') return
+    this.d.log('call_notes_closing_done', { passes, last, queued_before: queuedBefore, queued_left: this.pending.length, ms: Math.round(this.now() - t0), blocked: !!this.blocked })
+    this.phase = 'stopped'
+    this.persist()
+    this.emit()
+  }
+
+  private async update(queued: MemoryTurn[], heard: { speechMs: number; words: number }, o: { closing?: boolean; timeoutMs?: number } = {}): Promise<'updated' | 'invalid' | 'failed' | 'dropped'> {
     const delta: MemoryTurn[] = []
     let chars = 0
     for (const t of queued) {
@@ -240,19 +318,20 @@ export class CallNotesKeeper {
     const user = this.userMessage(delta)
     this.stats.started++
     const t0 = this.now()
-    this.d.log('call_notes_start', { seq, lines: delta.length, queued: queued.length, remote_words: heard.words, remote_speech_ms: Math.round(heard.speechMs) })
+    const timeoutMs = o.timeoutMs ?? NOTES_TIMEOUT_MS
+    this.d.log('call_notes_start', { seq, lines: delta.length, queued: queued.length, remote_words: heard.words, remote_speech_ms: Math.round(heard.speechMs), ...(o.closing ? { closing: true } : {}) })
     this.emit()
-    const timer = setTimeout(() => abort.abort(new Error('timeout')), NOTES_TIMEOUT_MS)
+    const timer = setTimeout(() => abort.abort(new Error('timeout')), timeoutMs)
     let status: 'updated' | 'invalid' | 'failed' = 'failed'
     let code: string | null = null
     let usage: HelpUsage | null = null
     try {
       const res = await this.d.model.notes!({
         system: NOTES_SYSTEM_PROMPT, user, schema: NOTES_SCHEMA, config: this.d.config, signal: abort.signal,
-        max_tokens: NOTES_MAX_TOKENS, timeout_ms: NOTES_TIMEOUT_MS,
+        max_tokens: NOTES_MAX_TOKENS, timeout_ms: timeoutMs,
       })
-      // Paused or stopped meanwhile: the answer is dropped.
-      if (this.run?.seq !== seq) return
+      // Paused, quit or deleted meanwhile: the answer is dropped.
+      if (this.run?.seq !== seq) return 'dropped'
       usage = res.usage
       this.setBlocked(null)
       this.d.onResult?.(null)
@@ -269,7 +348,7 @@ export class CallNotesKeeper {
         code = v.code
       }
     } catch (err) {
-      if (this.run?.seq !== seq) return
+      if (this.run?.seq !== seq) return 'dropped'
       if (abort.signal.aborted && (abort.signal.reason as Error | undefined)?.message === 'timeout') code = 'timeout'
       else {
         const e = describeError(err)
@@ -301,6 +380,7 @@ export class CallNotesKeeper {
     this.emit()
     // A backlog (or talk that arrived meanwhile) may already be enough for the next one.
     if (status === 'updated') this.maybeUpdate()
+    return status
   }
 
   private cancel(reason: 'pause' | 'stop'): void {
