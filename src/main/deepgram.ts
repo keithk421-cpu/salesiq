@@ -57,6 +57,8 @@ export interface DeepgramOptions {
   onWords: (words: DiarizedWord[], info: { isFinal: boolean; speechFinal: boolean }) => void
   /** Called once when an OPEN socket closes without us asking. */
   onUnexpectedClose: (detail: string) => void
+  /** Called for every message of any kind (words or not), until abort(). Feeds the stall watchdog. */
+  onMessage?: () => void
   log: (event: string, data?: Record<string, unknown>) => void
   keepAliveMs?: number
 }
@@ -168,6 +170,7 @@ export class DeepgramStream {
       })
       ws.on('message', (data) => {
         if (this.dead) return
+        this.opts.onMessage?.()
         this.handleMessage(typeof data === 'string' ? data : data.toString('utf8'))
       })
       ws.on('error', (err) => {

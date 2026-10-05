@@ -160,6 +160,8 @@ b { font-weight: 620; }
 .source-name .devid { font-size: 11px; color: var(--muted); font-family: Consolas, ui-monospace, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .state { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .state.ok { color: var(--ok); } .state.warn { color: var(--warn); } .state.err { color: var(--err); }
+/* Quiet is normal (nobody talking): a steady green dot, no pulse, plain text. */
+.state.quiet { color: var(--text); } .state.quiet .dot { background: var(--ok); }
 .meter { height: 10px; border-radius: 5px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .meter > div { height: 100%; width: 0; border-radius: 5px; background: linear-gradient(90deg, var(--ok), color-mix(in srgb, var(--ok) 70%, var(--warn))); transition: width .08s linear; }
 .controls { display: flex; flex-direction: column; justify-content: center; gap: 8px; }
