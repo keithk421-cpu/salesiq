@@ -46,6 +46,7 @@ let cardShownAt = 0
 type ReadyState = { readiness: string; message: string }
 let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean; knowledgeDir?: string; ready?: ReadyState } | null = null
 let hideHotkey: string | null = null
+let lastCallDeleted = false
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -199,6 +200,7 @@ function setButtons(): void {
   $('pauseBtn').hidden = s !== 'live'
   $('resumeBtn').hidden = s !== 'paused'
   $('stopBtn').hidden = !['checking', 'live', 'paused'].includes(s)
+  $('deleteCallBtn').hidden = s !== 'stopped' || lastCallDeleted
   $('checkCard').hidden = s !== 'checking'
   $('navSetup').toggleAttribute('disabled', !['idle', 'stopped'].includes(s))
   $<HTMLButtonElement>('helpBtn').disabled = s !== 'live'
@@ -349,6 +351,7 @@ api.onSession((raw) => {
   switch (ev.type) {
     case 'state':
       if (ev.state === 'checking') {
+        lastCallDeleted = false
         turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0; elapsedOffset = 0; liveSince = null
         for (const k of Object.keys(interims)) delete interims[k]
         for (const k of Object.keys(delays)) delete delays[k]
@@ -367,7 +370,10 @@ api.onSession((raw) => {
       }
       if (ev.state === 'idle' && ev.detail) showBanner('error', ev.detail)
       // Stop clears who the call was with (the next call starts clean).
-      if (ev.state === 'stopped') void refreshHelpInfo()
+      if (ev.state === 'stopped') {
+        void refreshHelpInfo()
+        void renderCallsInfo()
+      }
       if (ev.state !== 'live') $('idleBanner').hidden = true
       if (ev.detail) addActivity(ev.state === 'idle' ? 'error' : 'info', ev.detail)
       setButtons()
@@ -508,6 +514,62 @@ $('switchBtn').addEventListener('click', async () => {
 $('snapBefore').addEventListener('click', async () => { const r = await api.snapshot('before'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('snapAfter').addEventListener('click', async () => { const r = await api.snapshot('after'); $('snapMsg').textContent = `Saved ${r.file}` })
 $('openFolder').addEventListener('click', () => void api.openFolder())
+// ---- saved calls: delete this call, retention ----
+function clearCallView(): void {
+  turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0
+  labels.clear()
+  card = null
+  renderCard()
+  renderTranscript()
+}
+$('deleteCallBtn').addEventListener('click', async () => {
+  if (!confirm("Delete this call from this PC? Its transcript, HELP cards and your notes are removed. This can't be undone.")) return
+  const r = (await api.deleteLastCall()) as { ok: boolean; reason?: string }
+  if (!r.ok) return showBanner('error', r.reason ?? "Couldn't delete every file of this call. Close the app and try again.")
+  lastCallDeleted = true
+  clearCallView()
+  setButtons()
+  showBanner('info', 'Deleted. Nothing from that call is left on this PC.')
+  void renderCallsInfo()
+})
+async function renderCallsInfo(): Promise<void> {
+  const i = (await api.callsInfo()) as { count: number; oldest: string | null; retention_days: number | null }
+  $<HTMLSelectElement>('retention').value = i.retention_days === null ? 'never' : String(i.retention_days)
+  $('callsInfo').textContent = i.count ? `${i.count} saved call${i.count === 1 ? '' : 's'}, oldest ${new Date(i.oldest!).toLocaleDateString()}` : 'No saved calls'
+}
+$('retention').addEventListener('change', async () => {
+  const v = $<HTMLSelectElement>('retention').value
+  await api.setAppSettings({ retention_days: v === 'never' ? null : Number(v) })
+  void renderCallsInfo()
+})
+$('deleteAll').addEventListener('click', async () => {
+  if (!confirm("Delete every saved call from this PC? Transcripts, HELP cards and notes are removed. This can't be undone.")) return
+  const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number }
+  if (sessionState === 'stopped' || sessionState === 'idle') {
+    lastCallDeleted = true
+    clearCallView()
+    setButtons()
+  }
+  $('snapMsg').textContent = r.ok ? `Deleted ${r.deleted} saved call(s).` : "Some files couldn't be deleted. Close the app and try again."
+  void renderCallsInfo()
+})
+api.onRetentionPreview((p) => {
+  $('rmText').textContent = `${p.calls.length} saved call${p.calls.length === 1 ? ' is' : 's are'} older than ${p.days} days:`
+  $('rmList').innerHTML = p.calls.slice(0, 8).map((c) => `<li>${esc(new Date(c.started_at).toLocaleDateString())}${c.account ? ` · ${esc(c.account)}` : ''}</li>`).join('') +
+    (p.calls.length > 8 ? `<li>and ${p.calls.length - 8} more</li>` : '')
+  $('retentionModal').hidden = false
+})
+$('rmYes').addEventListener('click', async () => {
+  $('retentionModal').hidden = true
+  const r = (await api.confirmRetention(true)) as { deleted: number; failed: number }
+  $('snapMsg').textContent = `Deleted ${r.deleted} old call(s).${r.failed ? ` ${r.failed} couldn't be removed.` : ''}`
+  void renderCallsInfo()
+})
+$('rmNo').addEventListener('click', () => {
+  $('retentionModal').hidden = true
+  void api.confirmRetention(false)
+})
+
 $('hideCapture').addEventListener('change', async () => {
   const on = $<HTMLInputElement>('hideCapture').checked
   await api.setAppSettings({ hide_from_capture: on })
@@ -829,4 +891,5 @@ void (async () => {
   renderSources()
   renderTranscript()
   showView(isReady() ? 'call' : 'setup')
+  void renderCallsInfo()
 })()

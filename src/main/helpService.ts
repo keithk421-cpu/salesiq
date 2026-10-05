@@ -296,6 +296,14 @@ export class HelpService {
     void this.checkReady()
   }
 
+  /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
+  forgetCall(sessionId: string): void {
+    if (this.memory?.sessionId !== sessionId) return
+    this.engine?.dispose()
+    this.engine = null
+    this.memory = null
+  }
+
   /** Stop: write the numbers-only scorecard, then clear who the call was with so the next call starts clean. */
   private endCall(): void {
     const m = this.memory

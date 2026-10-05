@@ -16,6 +16,7 @@ import { saveSupportFiles } from './support'
 import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
 import { IdleWatch } from './idleWatch'
+import { deleteCalls, listSavedCalls, olderThan } from './retention'
 import { SessionController, type SessionEvent } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
@@ -42,8 +43,13 @@ const DISCLOSURE_VERSION = 'placeholder-2026-10-05'
 interface AppSettings {
   /** Keep this window out of screen shares, recordings and screenshots (Windows 10 2004 and later). */
   hide_from_capture: boolean
+  /** Delete saved calls older than this many days; null keeps them until Keith deletes them. */
+  retention_days: number | null
+  /** Keith said yes to the first deletion preview; after that, old calls are deleted without asking. */
+  retention_confirmed: boolean
 }
-const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true }
+const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true, retention_days: 30, retention_confirmed: false }
+const RETENTION_CHOICES = [7, 14, 30, 90]
 let appSettings: AppSettings = { ...DEFAULT_APP_SETTINGS }
 
 /** Knowledge file names can name a customer; logs keep a short fingerprint instead. */
@@ -151,6 +157,46 @@ function autoPause(why: 'lock' | 'sleep'): void {
   if (r.ok) send('app-notice', { level: 'warning', text: `Paused because the PC ${why === 'lock' ? 'was locked' : 'went to sleep'}. Press Resume when you're back on the call.` })
 }
 
+/** The call that is running (or waiting to start), which is never deleted. */
+function activeCallId(): string | null {
+  return session && !['idle', 'stopped'].includes(session.state) ? session.sessionId : null
+}
+
+function dueForDeletion() {
+  if (appSettings.retention_days === null) return []
+  return olderThan(listSavedCalls(storage.root, help?.db ?? null), appSettings.retention_days).filter((c) => c.id !== activeCallId())
+}
+
+function purgeCalls(ids: string[], why: string): { deleted: number; failed: number } {
+  // The last call's files stay open until the next Start; close them so Windows lets them go.
+  if (session?.sessionId && ids.includes(session.sessionId)) {
+    sessionLog?.close()
+    transcriptLog?.close()
+    sessionLog = null
+    transcriptLog = null
+  }
+  for (const id of ids) help?.forgetCall(id)
+  const r = deleteCalls(storage.root, help?.db ?? null, ids)
+  log('calls_deleted', { why, ...r })
+  return r
+}
+
+/** Old calls: the first time any are due, show them and ask; once Keith agrees, delete without asking. */
+function runRetention(): void {
+  const due = dueForDeletion()
+  if (!due.length) return
+  if (!appSettings.retention_confirmed) {
+    send('retention-preview', { days: appSettings.retention_days, calls: due.map((c) => ({ started_at: c.started_at, account: c.account })) })
+    return
+  }
+  purgeCalls(due.map((c) => c.id), 'retention')
+}
+
+function callsInfo() {
+  const calls = listSavedCalls(storage.root, help?.db ?? null)
+  return { count: calls.length, oldest: calls[0]?.started_at ?? null, retention_days: appSettings.retention_days, choices: RETENTION_CHOICES }
+}
+
 function applyWindowSettings(): void {
   if (!win || win.isDestroyed()) return
   win.setContentProtection(appSettings.hide_from_capture)
@@ -165,10 +211,37 @@ function registerIpc(): void {
   ipcMain.handle('app:setSettings', (_e, raw: unknown) => {
     const r = (raw ?? {}) as Record<string, unknown>
     if (typeof r.hide_from_capture === 'boolean') appSettings.hide_from_capture = r.hide_from_capture
+    if (r.retention_days === null || RETENTION_CHOICES.includes(r.retention_days as number)) {
+      // A new limit is shown and confirmed again before anything is deleted under it.
+      if (r.retention_days !== appSettings.retention_days) appSettings.retention_confirmed = false
+      appSettings.retention_days = r.retention_days as number | null
+    }
     storage.writeJson('app-settings.json', appSettings)
     applyWindowSettings()
     log('app_settings', { ...appSettings })
+    runRetention()
     return appSettings
+  })
+  ipcMain.handle('calls:info', () => callsInfo())
+  ipcMain.handle('calls:confirmRetention', (_e, yes: unknown) => {
+    if (yes !== true) {
+      log('retention_declined')
+      return { ok: true, deleted: 0 }
+    }
+    appSettings.retention_confirmed = true
+    storage.writeJson('app-settings.json', appSettings)
+    return { ok: true, ...purgeCalls(dueForDeletion().map((c) => c.id), 'retention') }
+  })
+  ipcMain.handle('calls:deleteLast', () => {
+    const id = session?.sessionId
+    if (!id || activeCallId()) return { ok: false, reason: 'Stop the call first.' }
+    const r = purgeCalls([id], 'keith_last')
+    return { ok: r.failed === 0, ...r }
+  })
+  ipcMain.handle('calls:deleteAll', () => {
+    const ids = listSavedCalls(storage.root, help?.db ?? null).map((c) => c.id).filter((id) => id !== activeCallId())
+    const r = purgeCalls(ids, 'keith_all')
+    return { ok: r.failed === 0, ...r }
   })
 
   ipcMain.handle('devices:list', () => endpointsForUi())
@@ -470,6 +543,8 @@ if (!app.requestSingleInstanceLock()) {
     powerMonitor.on('lock-screen', () => autoPause('lock'))
     powerMonitor.on('suspend', () => autoPause('sleep'))
     setInterval(checkIdle, 5000)
+    win?.webContents.once('did-finish-load', () => runRetention())
+    setInterval(runRetention, 6 * 3_600_000)
   })
 
   app.on('before-quit', () => shutdownCapture('before-quit'))
