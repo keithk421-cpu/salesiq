@@ -179,6 +179,29 @@ export interface KnowledgeSearch {
   scopedOut: Array<{ title: string; applies_to: string[] }>
 }
 
+/** A usable chunk with how it matched (for merging searches and judging a strong match). */
+export interface RankedChunk extends KnowledgeChunk {
+  /** The order search() uses: concept score scaled to the best candidate, plus the bm25 blend, times the tag boost. */
+  rank: number
+  /** Indexes into `concepts` of the spoken concepts this chunk mentions (text, title or heading). */
+  matched: number[]
+  /** The subset of `matched` that its section heading mentions. */
+  in_heading: number[]
+}
+
+/** search() with the detail behind it: every usable chunk in rank order, and how common each spoken concept is. */
+export interface RankedSearch extends Omit<KnowledgeSearch, 'usable'> {
+  ranked: RankedChunk[]
+  /** The spoken concepts (newest first), each with how many searchable sections mention it. */
+  concepts: Array<{ terms: string[]; sections: number }>
+  /** Sections (a document's "## " headings) in the documents searched. */
+  sections: number
+}
+
+/** One section's place in the index: chunk ids "k:<doc>#<n>" sort by n, not as text (#10 comes after #2). */
+const chunkNo = (id: string) => Number(/#(\d+)$/.exec(id)?.[1] ?? 0)
+const sectionKey = (docId: string, heading: string) => `${docId}\n${heading}`
+
 export class KnowledgeBase {
   private aliases: Map<string, string[]>
 
@@ -260,10 +283,20 @@ export class KnowledgeBase {
     }
   }
 
-  /** Per chunk: sum over the concepts it mentions of ln(1 + N/df), x1.5 when the heading mentions it. */
-  private conceptScorer(concepts: string[][], docIds: string[]): (chunkId: string) => number {
+  /**
+   * Per chunk: sum over the concepts it mentions of ln(1 + N/df), x1.5 when the heading mentions it.
+   * Also says which concepts each chunk matched (and in its heading), and how many sections mention each.
+   */
+  private conceptScorer(concepts: string[][], docIds: string[]): {
+    score: (chunkId: string) => number
+    matched: (chunkId: string) => { all: number[]; heading: number[] }
+    sectionsPerConcept: number[]
+    sections: number
+  } {
     const score = new Map<string, number>()
-    if (!docIds.length || !concepts.length) return () => 0
+    const matched = new Map<string, { all: number[]; heading: number[] }>()
+    const sectionsPerConcept = concepts.map(() => 0)
+    if (!docIds.length || !concepts.length) return { score: () => 0, matched: () => ({ all: [], heading: [] }), sectionsPerConcept, sections: 0 }
     const ids = JSON.stringify(docIds)
     const hits = (match: string): string[] => {
       try {
@@ -272,15 +305,35 @@ export class KnowledgeBase {
         return []
       }
     }
-    const n = (this.db.sql.prepare('SELECT COUNT(*) AS n FROM knowledge_chunks WHERE doc_id IN (SELECT value FROM json_each(?))').get(ids) as { n: number }).n
-    for (const c of concepts) {
+    const chunks = this.db.sql.prepare('SELECT chunk_id, doc_id, heading FROM knowledge_chunks WHERE doc_id IN (SELECT value FROM json_each(?))').all(ids) as Array<{ chunk_id: string; doc_id: string; heading: string }>
+    const n = chunks.length
+    const sectionOf = new Map(chunks.map((c) => [c.chunk_id, sectionKey(c.doc_id, c.heading)]))
+    concepts.forEach((c, i) => {
       const any = hits(ftsAny(c))
-      if (!any.length) continue
+      if (!any.length) return
+      sectionsPerConcept[i] = new Set(any.map((id) => sectionOf.get(id))).size
       const idf = Math.log(1 + n / any.length)
       const inHeading = new Set(hits(`heading : (${ftsAny(c)})`))
-      for (const id of any) score.set(id, (score.get(id) ?? 0) + idf * (inHeading.has(id) ? 1.5 : 1))
+      for (const id of any) {
+        score.set(id, (score.get(id) ?? 0) + idf * (inHeading.has(id) ? 1.5 : 1))
+        const m = matched.get(id) ?? { all: [], heading: [] }
+        m.all.push(i)
+        if (inHeading.has(id)) m.heading.push(i)
+        matched.set(id, m)
+      }
+    })
+    return {
+      score: (chunkId) => score.get(chunkId) ?? 0,
+      matched: (chunkId) => matched.get(chunkId) ?? { all: [], heading: [] },
+      sectionsPerConcept,
+      sections: new Set(sectionOf.values()).size,
     }
-    return (chunkId) => score.get(chunkId) ?? 0
+  }
+
+  /** Every chunk of one section (a document's "## " heading), in order; the section's text is these joined. */
+  sectionChunks(docId: string, heading: string): Array<{ chunk_id: string; text: string; source_ref: string }> {
+    const rows = this.db.sql.prepare('SELECT chunk_id, text, source_ref FROM knowledge_chunks WHERE doc_id = ? AND heading = ?').all(docId, heading) as Array<{ chunk_id: string; text: string; source_ref: string }>
+    return rows.sort((a, b) => chunkNo(a.chunk_id) - chunkNo(b.chunk_id))
   }
 
   /**
@@ -290,7 +343,18 @@ export class KnowledgeBase {
    * another deployment (to prompt a follow-up, never a claim).
    */
   search(text: string, limit = 4, today = new Date(), deployment: Deployment = 'unknown'): KnowledgeSearch {
-    const none: KnowledgeSearch = { usable: [], staleTitles: [], scopedOut: [] }
+    const r = this.searchRanked(text, today, deployment)
+    const usable = r.ranked.slice(0, limit).map(({ rank: _rank, matched: _m, in_heading: _h, ...c }) => c)
+    return { usable, staleTitles: r.staleTitles, scopedOut: r.scopedOut }
+  }
+
+  /**
+   * search() with every usable chunk (not just the first few) and how each one matched. With
+   * `everyApproved`, every approved document is ranked whatever its scope, and stale chunks stay in
+   * the list marked `stale` (to judge whether the best match overall is one HELP may use).
+   */
+  searchRanked(text: string, today = new Date(), deployment: Deployment = 'unknown', opts: { everyApproved?: boolean } = {}): RankedSearch {
+    const none: RankedSearch = { ranked: [], staleTitles: [], scopedOut: [], concepts: [], sections: 0 }
     const concepts = ftsConcepts(text, this.aliases)
     const terms = concepts.flat()
     const q = ftsQuery(text, this.aliases)
@@ -313,8 +377,9 @@ export class KnowledgeBase {
       }
     }
     const tagHits = (meta: KnowledgeDocMeta) => Math.min(2, terms.filter((t) => meta.tags.some((tag) => tag.toLowerCase() === t)).length)
-    const inScopeIds = approved.filter((d) => inScope(d, deployment)).map((d) => d.doc_id)
-    const conceptScore = this.conceptScorer(concepts, inScopeIds)
+    const inScopeIds = approved.filter((d) => opts.everyApproved || inScope(d, deployment)).map((d) => d.doc_id)
+    const scorer = this.conceptScorer(concepts, inScopeIds)
+    const conceptScore = scorer.score
     // Rank by what was said: each spoken word counts once with its aliases (so one word with many
     // synonyms can't outweigh a rarer, decisive one like a company name), rarer words count more,
     // a match in a section's heading counts extra; tags nudge; bm25 breaks ties.
@@ -324,22 +389,25 @@ export class KnowledgeBase {
     const rows = candidates
       .map((r) => ({ ...r, rank: (conceptScore(r.chunk_id) / maxConcept + BM25_BLEND * (-r.score / maxBm25)) * (1 + TAG_BOOST * tagHits(byId.get(r.doc_id)!)) }))
       .sort((a, b) => b.rank - a.rank || a.score - b.score)
-    const usable: KnowledgeChunk[] = []
+    const ranked: RankedChunk[] = []
     const staleTitles = new Set<string>()
-    for (const { score: _score, rank: _rank, ...r } of rows) {
+    for (const { score: _score, ...r } of rows) {
       const meta = byId.get(r.doc_id)!
-      if (isStale(meta, today)) {
-        staleTitles.add(meta.title)
-        continue
-      }
-      if (usable.length < limit) usable.push({ ...r, meta, stale: false })
+      const stale = isStale(meta, today)
+      if (stale) staleTitles.add(meta.title)
+      if (stale && !opts.everyApproved) continue
+      const m = scorer.matched(r.chunk_id)
+      ranked.push({ ...r, meta, stale, matched: m.all, in_heading: m.heading })
     }
     const scopedOut = new Map<string, string[]>()
-    for (const r of query(approved.filter((d) => !inScope(d, deployment)).map((d) => d.doc_id), 3)) {
+    for (const r of query(approved.filter((d) => !opts.everyApproved && !inScope(d, deployment)).map((d) => d.doc_id), 3)) {
       const meta = byId.get(r.doc_id)!
       scopedOut.set(meta.title, meta.applies_to)
     }
-    return { usable, staleTitles: [...staleTitles], scopedOut: [...scopedOut].map(([title, applies_to]) => ({ title, applies_to })) }
+    return {
+      ranked, staleTitles: [...staleTitles], scopedOut: [...scopedOut].map(([title, applies_to]) => ({ title, applies_to })),
+      concepts: concepts.map((terms, i) => ({ terms, sections: scorer.sectionsPerConcept[i] })), sections: scorer.sections,
+    }
   }
 }
 

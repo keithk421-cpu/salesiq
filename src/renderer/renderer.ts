@@ -6,6 +6,7 @@ import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
+import { passageLabel } from '../shared/passageLabel'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -730,19 +731,23 @@ function renderCard(): void {
   const su = card.setup
   $('hcFor').textContent = su ? `For ${su.account || 'account not set'} · ${DEPLOY_LABEL[su.deployment] ?? 'deployment not sure'}` : ''
   const prim = $('hcPrimary')
+  // When HELP doesn't finish, the approved note found at the press stays on the card: say so plainly.
+  const still = card.passage ? '<span class="hc-couldnt">You still have the approved note below.</span>' : ''
   if (usable && broken) {
     // A line that streamed in but whose answer then failed or was cut off is shown struck through.
     const why = card.error ?? (cut ? 'the answer was cut off before it finished its checks' : "the answer didn't finish its checks")
-    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(why)}</span>`
+    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(why)}</span>${still}`
   } else if (usable) {
     prim.innerHTML = `<span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span>${esc(c.primary_kind === 'ask' ? `"${c.primary}"` : c.primary!)}`
   } else if (cut) {
-    prim.textContent = 'Cancelled.'
+    prim.innerHTML = still ? `HELP stopped before it finished a line.${still}` : 'Cancelled.'
   } else if (broken) {
-    prim.textContent = card.error ?? 'HELP could not produce a usable line. Press HELP again.'
+    const err = card.error ?? 'HELP could not produce a usable line. Press HELP again.'
+    prim.innerHTML = still ? `HELP couldn't finish a line.<span class="hc-couldnt">${esc(err)} You still have the approved note below.</span>` : esc(err)
   } else {
     prim.textContent = PENDING_TEXT[card.status] ?? ''
   }
+  renderPassage(card)
   const fol = $('hcFollow')
   fol.hidden = !c.follow_up || broken
   fol.textContent = c.follow_up ?? ''
@@ -761,6 +766,27 @@ function renderCard(): void {
   const how = t.served_from_prefetch ? 'ready' : ms(t.first_usable_ms)
   $('hcMeta').textContent = [how ? `line ${how}` : '', card.model_label.split(' · ')[0]].filter(Boolean).join(' · ') + age
   el.querySelectorAll<HTMLButtonElement>('.fb').forEach((b) => (b.disabled = !done))
+}
+
+/** The request whose approved note is on the card (its "Whole note" folds shut when a new press replaces it). */
+let passageFor: string | null = null
+
+/** The approved passage found at the press: compact, under the line; marked once the finished card cites it. */
+function renderPassage(ev: HelpCardEvent): void {
+  const p = ev.passage ?? null
+  $('hcPassage').hidden = !p
+  if (!p) return
+  if (passageFor !== ev.request_id) {
+    passageFor = ev.request_id
+    $<HTMLDetailsElement>('hcpMore').open = false
+  }
+  const label = passageLabel(p)
+  $('hcpLabel').textContent = label
+  $('hcpLabel').title = label
+  $('hcpUsed').hidden = !(p.used_by_card && ev.status === 'complete')
+  $('hcpSnippet').textContent = p.snippet
+  $('hcpText').textContent = p.text
+  $('hcpSource').textContent = p.source_ref
 }
 
 api.onHelp((raw) => {

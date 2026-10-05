@@ -278,6 +278,16 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 .hc-checks { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; font-weight: 600; }
 .hc-primary .struck { opacity: 0.55; text-decoration: line-through; }
 .hc-dontuse { display: block; margin-top: 4px; font-size: 13px; font-weight: 650; color: var(--err); }
+/* Approved passage: shown at the press, compact and secondary to the Ask/Say line. */
+.hc-passage { margin-top: 8px; padding: 6px 10px; border-radius: 8px; border-left: 3px solid var(--ok); background: var(--ok-soft); font-size: 13px; }
+.hcp-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.hcp-label { color: var(--muted); font-size: 12px; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.hcp-head .tag { flex: none; font-size: 10px; padding: 2px 7px; }
+.hcp-snippet { margin-top: 2px; color: var(--text); line-height: 1.4; }
+.hcp-more summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.hcp-text { white-space: pre-wrap; margin-top: 4px; }
+.hcp-source { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.hc-couldnt { display: block; margin-top: 4px; font-size: 13px; font-weight: 600; color: var(--muted); font-style: normal; }
 .modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
 .modal { width: min(520px, 100%); display: grid; gap: 14px; }
 .modal h2 { margin: 0; font-size: 18px; }

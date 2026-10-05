@@ -11,15 +11,18 @@
  * - Prefetch: after someone finishes speaking, a candidate card is prepared in the background
  *   (never shown unless Keith presses, and only used if nothing new was said since).
  * - Cache/connection pre-warm at session start and keep-warm while live.
+ * - Approved passage: found at the press and sent with its very first card event, so something
+ *   trustworthy is on screen before Claude answers (passage.ts). It stays if Claude fails.
  */
 import { randomUUID } from 'node:crypto'
-import type { Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { ApprovedPassage, Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
 import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { buildHelpContext, type BuiltContext } from './context'
 import { describeError, type HelpError, type HelpModel } from './models'
+import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, validateCard } from './protocol'
 
@@ -76,6 +79,13 @@ interface Run {
   setup: { account: string; deployment: Deployment }
   raw: string
   done: Promise<void>
+  /** The approved passage found when Keith pressed (null: none, or a background run nobody pressed for). */
+  passage: ApprovedPassage | null
+  /** When the first event carrying the passage went out. */
+  passageShownWall: number | null
+  /** Stage timings (ms): building the context, and the knowledge search inside it. */
+  contextMs: number
+  knowledgeMs: number
 }
 
 const PREFETCH_DEBOUNCE_MS = 700
@@ -118,6 +128,8 @@ export class HelpEngine {
     if (this.current && this.current.status !== 'complete' && this.current.status !== 'failed' && this.current.status !== 'timeout') {
       this.finish(this.current, 'superseded')
     }
+    // Found now (also for a prefetched card), so it goes out with this press's very first event.
+    const passage = this.findPassage()
 
     // Reuse a prefetched candidate only if nothing new was said since it was built.
     const pf = this.prefetchRun
@@ -126,17 +138,28 @@ export class HelpEngine {
       pf.seq = ++this.seq
       pf.origin = origin
       pf.pressedWall = pressedWall
+      pf.passage = passage
       this.current = pf
-      this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status })
-      // Shown now, so its request is kept like any pressed request.
-      this.persist(pf, buildUserMessage(pf.ctx.text))
+      this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status, passage: !!passage })
+      // On screen first; shown now, so its request is kept like any pressed request.
       this.emit(pf)
+      this.persist(pf, buildUserMessage(pf.ctx.text))
       return pf.id
     }
     this.abortPrefetch()
-    const run = this.start(origin, false, pressedWall)
-    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false })
+    const run = this.start(origin, false, pressedWall, passage)
+    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false, passage: !!passage })
     return run.id
+  }
+
+  /** The approved passage for what the other side just said; a problem finding it never stops HELP. */
+  private findPassage(): ApprovedPassage | null {
+    try {
+      return findApprovedPassage({ kb: this.d.kb, memory: this.d.memory, atMs: this.d.sessionNowMs() })
+    } catch (err) {
+      this.d.log('help_passage_failed', { message: (err as Error).message })
+      return null
+    }
   }
 
   /**
@@ -229,9 +252,11 @@ export class HelpEngine {
     return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
   }
 
-  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null): Run {
+  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null): Run {
     const atMs = this.d.sessionNowMs()
-    const ctx = buildHelpContext({ memory: this.d.memory, kb: this.d.kb, atMs })
+    const c0 = this.wallNow()
+    const ctx = buildHelpContext({ memory: this.d.memory, kb: this.d.kb, atMs, clock: this.wallNow })
+    const contextMs = Math.max(0, Math.round(this.wallNow() - c0))
     const run: Run = {
       id: randomUUID(),
       seq: prefetch ? 0 : ++this.seq,
@@ -256,11 +281,16 @@ export class HelpEngine {
       setup: { account: this.d.memory.setup.account, deployment: this.d.memory.setup.deployment },
       raw: '',
       done: Promise.resolve(),
+      passage,
+      passageShownWall: null,
+      contextMs,
+      knowledgeMs: ctx.knowledge_ms,
     }
     if (!prefetch) this.current = run
     this.lastRequestWall = run.startedWall
-    this.persist(run, buildUserMessage(ctx.text))
+    // The first card (with any approved passage) goes on screen before the request is written to disk.
     if (!prefetch) this.emit(run)
+    this.persist(run, buildUserMessage(ctx.text))
     run.done = this.execute(run)
     return run
   }
@@ -361,6 +391,7 @@ export class HelpEngine {
       first_usable_ms: t.first_usable_ms, complete_ms: t.complete_ms, first_token_ms: t.first_token_ms,
       served_from_prefetch: t.served_from_prefetch, input_tokens: run.usage?.input_tokens, output_tokens: run.usage?.output_tokens,
       cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.errorCode,
+      passage_ms: t.passage_ms, passage_used: run.passage ? this.passageUsed(run) : null, context_ms: t.context_ms, knowledge_ms: t.knowledge_ms,
     })
     // A finished prefetch nobody pressed for stays in memory, unseen.
     if (run.pressedWall !== null || !run.prefetch) this.emit(run)
@@ -385,12 +416,26 @@ export class HelpEngine {
       complete_ms: run.status === 'complete' ? rel(run.completeWall) : null,
       first_token_ms: rel(run.firstTokenWall),
       served_from_prefetch: run.prefetch && run.pressedWall !== null,
+      passage_ms: run.passage ? rel(run.passageShownWall) : null,
+      context_ms: run.contextMs,
+      knowledge_ms: run.knowledgeMs,
     }
+  }
+
+  /** The finished card cites a chunk of the approved passage's section. */
+  private passageUsed(run: Run): boolean {
+    const p = run.passage
+    if (!p || run.status !== 'complete' || !run.card) return false
+    return run.card.source_ids.some((s) => {
+      const src = run.ctx.sources.get(s)
+      return src?.kind === 'knowledge' && p.chunk_ids.includes(src.id)
+    })
   }
 
   private emit(run: Run): void {
     // Never let an older request reach the screen once a newer one exists.
     if (this.current !== run || run.seq !== this.seq) return
+    if (run.passage && run.passageShownWall === null) run.passageShownWall = this.wallNow()
     const sources = (run.content.source_ids ?? [])
       .map((s) => run.ctx.sources.get(s))
       .filter((x): x is NonNullable<typeof x> => !!x)
@@ -408,6 +453,7 @@ export class HelpEngine {
       checks: run.checks,
       setup: run.setup,
       sources,
+      passage: run.passage ? { ...run.passage, used_by_card: this.passageUsed(run) } : null,
     }
     this.d.emit(ev)
   }
@@ -429,7 +475,11 @@ export class HelpEngine {
       JSON.stringify({ ...this.d.config, label: this.d.model.label(this.d.config), mock: this.d.model.mock, playbook: this.d.playbook.version }),
       JSON.stringify(run.ctx.refs), shown ? (requestText ?? null) : null, shown ? run.raw || null : null, shown && run.card ? JSON.stringify(run.card) : null,
       // Issue details can quote the model's output; an unseen request keeps only what kind they were.
-      JSON.stringify({ ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length }),
+      JSON.stringify({
+        ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length,
+        // Which approved passage Keith saw at the press, and whether the finished card cited it.
+        passage_chunk_ids: run.passage?.chunk_ids ?? null, passage_used: run.passage ? this.passageUsed(run) : null,
+      }),
       run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )
   }

@@ -11,6 +11,7 @@ import path from 'node:path'
 import type { HelpCardContent, HelpModelConfig, HelpUsage } from '../../shared/help'
 import { buildHelpContext } from './context'
 import type { HelpModel } from './models'
+import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
 import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
 import { replayAt, type Scenario } from './replay'
@@ -29,6 +30,14 @@ export interface ScenarioResult {
   raw: string
   first_usable_ms: number | null
   complete_ms: number | null
+  /** Stages, all from the press: the approved passage on screen (null: none shown), Claude's first byte. */
+  passage_ms?: number | null
+  first_token_ms?: number | null
+  /** Building the context, and the knowledge search inside it (ms). */
+  context_ms?: number
+  knowledge_ms?: number
+  /** The approved passage shown at the press (section heading), and whether the card cited it. */
+  passage?: { title: string; heading: string; cited: boolean } | null
   usage: HelpUsage | null
   level1: { pass: boolean; failures: string[] }
   /** Level 3 signal: move in best/acceptable. Only gates when the scenario is approved. */
@@ -84,19 +93,24 @@ export function level1(s: Scenario, card: HelpCardContent | null, issues: string
 
 export async function runScenario(s: Scenario, model: HelpModel, config: HelpModelConfig, playbook: Playbook, now = new Date()): Promise<ScenarioResult> {
   const r = replayAt(s)
+  // The press: as in the engine, the approved passage is found and the context built before the first card goes out.
+  const t0 = performance.now()
+  const passage = findApprovedPassage({ kb: r.kb, memory: r.memory, atMs: r.atMs, today: now })
+  const c0 = performance.now()
   const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs, now })
+  const shownAt = performance.now()
   const parser = new LineProtocolParser()
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error('timeout')), config.timeout_ms)
-  const t0 = performance.now()
   let raw = ''
+  let firstTokenAt = null as number | null
   let usage: HelpUsage | null = null
   let error: string | null = null
   let status: ScenarioResult['status'] = 'complete'
   try {
     const res = await model.run({
       system: buildSystemPrompt(playbook), user: buildUserMessage(ctx.text), config, signal: abort.signal,
-      onText: (c) => { raw += c; parser.feed(c) },
+      onText: (c) => { firstTokenAt ??= performance.now(); raw += c; parser.feed(c) },
     })
     usage = res.usage
     if (res.stop_reason === 'refusal') throw new Error('refusal')
@@ -113,6 +127,10 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   const kinds = new Map([...ctx.sources.entries()].map(([k, v2]) => [k, v2.kind]))
   const failures = status === 'complete' ? level1(s, v.card, v.issues, ctx.text, kinds) : [`request ${status}${error ? `: ${error}` : ''}`]
   const move = v.card?.move
+  const cited = !!passage && status === 'complete' && !!v.card?.source_ids.some((id) => {
+    const src = ctx.sources.get(id)
+    return src?.kind === 'knowledge' && passage.chunk_ids.includes(src.id)
+  })
   return {
     scenario_id: s.id,
     category: s.category,
@@ -124,6 +142,11 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
     raw,
     first_usable_ms: parser.firstUsableAt === null ? null : Math.round(parser.firstUsableAt - t0),
     complete_ms: status === 'complete' ? Math.round(completeAt - t0) : null,
+    passage_ms: passage ? Math.round(shownAt - t0) : null,
+    first_token_ms: firstTokenAt === null ? null : Math.round(firstTokenAt - t0),
+    context_ms: Math.round(shownAt - c0),
+    knowledge_ms: ctx.knowledge_ms,
+    passage: passage ? { title: passage.title, heading: passage.heading, cited } : null,
     usage,
     level1: { pass: failures.length === 0, failures },
     move_ok: moveOk(s, move),
@@ -167,6 +190,18 @@ export interface ConfigSummary {
   first_usable_p95_ms: number | null
   complete_median_ms: number | null
   complete_p95_ms: number | null
+  /**
+   * Stages from the press: share of runs that showed an approved passage, and when; Claude's first
+   * byte; context build and knowledge search. Absent in baselines saved before they were measured.
+   */
+  passage_shown_rate?: number
+  passage_median_ms?: number | null
+  first_token_median_ms?: number | null
+  first_token_p95_ms?: number | null
+  context_median_ms?: number | null
+  knowledge_median_ms?: number | null
+  /** Share of runs that showed a passage whose card then cited it. */
+  passage_cited_rate?: number | null
   /** Share of runs with usable guidance within the 2 s and 3 s targets. */
   usable_within_2s: number
   usable_within_3s: number
@@ -189,6 +224,8 @@ export function summarize(model: string, results: ScenarioResult[]): ConfigSumma
   const usage = results.map((r) => r.usage).filter((u): u is HelpUsage => !!u)
   const sum = (k: keyof HelpUsage) => usage.reduce((a, u) => a + (u[k] as number), 0)
   const agree = (rs: ScenarioResult[]) => (rs.length ? rs.filter((r) => r.move_ok).length / rs.length : null)
+  const nums = (k: 'passage_ms' | 'first_token_ms' | 'context_ms' | 'knowledge_ms') => results.map((r) => r[k]).filter((x): x is number => typeof x === 'number')
+  const withPassage = results.filter((r) => r.passage)
   return {
     config_label: results[0]?.config_label ?? model,
     model,
@@ -197,6 +234,13 @@ export function summarize(model: string, results: ScenarioResult[]): ConfigSumma
     first_usable_p95_ms: percentile(fu, 95),
     complete_median_ms: percentile(cm, 50),
     complete_p95_ms: percentile(cm, 95),
+    passage_shown_rate: withPassage.length / n,
+    passage_median_ms: percentile(nums('passage_ms'), 50),
+    first_token_median_ms: percentile(nums('first_token_ms'), 50),
+    first_token_p95_ms: percentile(nums('first_token_ms'), 95),
+    context_median_ms: percentile(nums('context_ms'), 50),
+    knowledge_median_ms: percentile(nums('knowledge_ms'), 50),
+    passage_cited_rate: withPassage.length ? withPassage.filter((r) => r.passage!.cited).length / withPassage.length : null,
     usable_within_2s: results.filter((r) => r.first_usable_ms !== null && r.first_usable_ms <= 2000 && r.level1.pass).length / n,
     usable_within_3s: results.filter((r) => r.first_usable_ms !== null && r.first_usable_ms <= 3000 && r.level1.pass).length / n,
     timeouts: results.filter((r) => r.status === 'timeout').length,
@@ -449,14 +493,35 @@ Playbook ${r.playbook_version} · ${r.scenarios} scenarios (${r.approved_scenari
 ${r.note}
 
 Targets: usable guidance ~1-2 s, p95 <= 3 s. "Usable" = a complete, validated Ask/Say line that passes Level 1.
+Times are from the press, including finding the approved note and building the context (a few ms), as on a call.
 
 | Model | First usable p50 | First usable p95 | Full card p50 | Full card p95 | Usable <=2 s | Usable <=3 s | Timeouts | Failures | Level 1 pass | Move agree (approved) | Move agree (drafts) | Cost / press |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 ${rows.join('\n')}
 
+${stagesMarkdown(r.summaries, pc)}
+
 ## Level 1 failures
 ${fails.join('\n') || 'None.'}
 ${r.mine ? mineMarkdown(r.mine, ms, pc) : ''}`
+}
+
+/**
+ * Speed by stage, all timed from the press (which includes finding the approved passage and building
+ * the context, as on a call): passage on screen, Claude's first byte, first usable line.
+ */
+function stagesMarkdown(summaries: ConfigSummary[], pc: (x: number | null) => string): string {
+  const t = (x: number | null | undefined) => (x == null ? '–' : x < 1000 ? `${Math.round(x)} ms` : `${(x / 1000).toFixed(2)} s`)
+  const rows = summaries.map((s) =>
+    `| ${s.model} | ${pc(s.passage_shown_rate ?? null)} | ${t(s.passage_median_ms)} | ${t(s.first_token_median_ms)} | ${t(s.first_token_p95_ms)} | ${t(s.first_usable_median_ms)} | ${t(s.first_usable_p95_ms)} | ${t(s.context_median_ms)} | ${t(s.knowledge_median_ms)} | ${pc(s.passage_cited_rate ?? null)} |`,
+  )
+  return `## Speed by stage (from the press)
+
+"Approved note" is the approved passage shown at once, only on a strong match; "cited" is how often the finished card then cited it.
+
+| Model | Approved note shown | Press -> note p50 | Press -> first token p50 | p95 | Press -> first usable p50 | p95 | Context build p50 | Knowledge search p50 | Note cited by card |
+|---|---|---|---|---|---|---|---|---|---|
+${rows.join('\n')}`
 }
 
 /** Keith's saved moments: their own section, so they never mix with the numbers that decide anything. */
