@@ -512,9 +512,9 @@ export class HelpService {
     }
   }
 
-  /** App exit. A call still going (Stop never pressed) gets its end-of-call work first. */
+  /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
-    if (this.memory && (this.callInProgress() || this.sessionState === 'stopping')) {
+    if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
       try {
         this.endCall()
       } catch (err) {
