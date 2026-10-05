@@ -178,6 +178,7 @@ export function buildHelpContext(opts: {
     thread_turn_ids: thread.map((t) => t.id),
     earlier_turn_ids: earlier.map((t) => t.id),
     knowledge_chunk_ids: usable.map((c) => c.chunk_id),
+    knowledge_hashes: usable.map((c) => c.meta.content_hash),
     gaps_noted: gapNotes,
     provisional_text: interims.length > 0,
     transcript_lag_ms: lag,

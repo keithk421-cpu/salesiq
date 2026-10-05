@@ -35,6 +35,28 @@ describe('Save support files', () => {
     expect(path.basename(out.dir)).toBe('SalesCopilot-support-2026-10-05-12-00-00')
   })
 
+  it('leaves behind everything holding real call text: practice moments and speed-test reports that replayed them', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'))
+    const put = (rel: string, body = 'x') => {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true })
+      fs.writeFileSync(path.join(root, rel), body)
+    }
+    put('reports/help-benchmark-2026-10-05T12-00-00-000Z.json')
+    put('reports/help-benchmark-2026-10-05T12-00-00-000Z.md')
+    put('reports/help-scorecard-s-1.json')
+    put('reports/help-benchmark-2026-10-05T13-00-00-000Z-mine.json', 'THE BUYER SAID REAL THINGS')
+    put('reports/help-benchmark-2026-10-05T13-00-00-000Z-mine.md', 'THE BUYER SAID REAL THINGS')
+    put('reports/help-benchmark-2026-10-05T14-00-00-000Z-MOCK-mine.json', 'THE BUYER SAID REAL THINGS')
+    put('practice/real-20261005143210-a1b2c3d4.json', 'THE BUYER SAID REAL THINGS')
+    put('SalesCopilot-feedback-2026-10-05.md', 'THE BUYER SAID REAL THINGS')
+    const out = saveSupportFiles(root, fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')))
+    expect(out.files.map((f) => f.split(path.sep).join('/')).sort()).toEqual([
+      'reports/help-benchmark-2026-10-05T12-00-00-000Z.json', 'reports/help-benchmark-2026-10-05T12-00-00-000Z.md', 'reports/help-scorecard-s-1.json',
+    ])
+    const all = fs.readdirSync(out.dir, { recursive: true }).map((f) => path.join(out.dir, String(f))).filter((f) => fs.statSync(f).isFile())
+    for (const f of all) expect(fs.readFileSync(f, 'utf8')).not.toMatch(/BUYER/)
+  })
+
   it('a file that cannot be copied (locked log) is skipped and noted, the rest is still saved', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ud-'))
     fs.mkdirSync(path.join(root, 'logs'), { recursive: true })
