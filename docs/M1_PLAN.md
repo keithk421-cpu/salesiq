@@ -26,15 +26,19 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - **Call setup**: type, goal, desired outcomes, account. **Participants**: manual labels; unlabeled is normal.
 - **Recent thread**: the few minutes before that, compact.
 - **Earlier in the call**: SQLite FTS5 search of older turns relevant to what's being discussed.
-- **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
+- **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Only approved, in-scope documents are searched. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
 - **Transcript status**: gaps and lag, so HELP never pretends it heard something.
 
 ## Knowledge rules
-- Local folder (`%APPDATA%/Sales Copilot M0/knowledge`), never in Git.
-- Each document keeps source, version, approval, review-by date and applies-to.
-- Importing is not approval. Approval is per version: a new version needs re-approval.
-- Only approved, current material can be stated as fact. Stale documents are named only ("exists but past review date"). Unapproved material is never sent.
-- A buyer's claim about Arize or a competitor is labelled as a speaker statement, not verified fact.
+- Local folder (`%APPDATA%/Sales Copilot M0/knowledge`), never in Git. Only files directly in it are read; material still under review stays outside it.
+- Each document keeps source, version, review-by date and applies-to (one scope per file: `saas`, `self_hosted` or `all`; split mixed files).
+- **Approval happens in the app only and is bound to the exact content reviewed**: a sha256 of the body plus the material front matter (title, category, source, version, review_by, applies_to, tags). Any edit, even with the same readable version, needs approval again (the list shows "Changed: approve again"). `approved: true` written in a file approves nothing, so no tool or import can approve for Keith. Revoking always wins. Restoring exactly the approved content restores its approval.
+- Approval is per document, so a document should only contain sections that are ready for the same use. "Verify before stating" text inside an approved file is not an enforced block.
+- Only approved, current, in-scope material can be stated as fact. Unapproved documents are not searched at all (they cannot crowd out an approved answer). Stale documents are named only. Documents scoped to another deployment than the call's are named only ("covers SaaS only: offer to check").
+- The call's deployment is set in the setup strip (not sure / SaaS / self-hosted). With "not sure", HELP sees each item's scope and must state it or ask.
+- Each `## ` section is claim text (at most 700 characters, all of which the model receives) plus one `Source:` paragraph kept whole and sent with it; the card's sources show both in full.
+- A buyer's claim about Arize or a competitor is labelled as a speaker statement, not verified fact. "Possible reason" notes in objection material are hypotheses about buyers in general; HAPPENING describes only what was said on the call.
+- Source authority depends on the claim: product docs for product behavior, the current plan source for entitlements, Security/Legal-approved answers for promises, permission for customer references, current competitor docs for competitor features. When equally relevant sources disagree, the claim is held for its owner.
 - With no docs, HELP still gives questions and follow-ups.
 
 ## Model and latency design
@@ -64,7 +68,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
   - per-scenario forbidden patterns
 - **Level 2 (quality)**: promptfoo `llm-rubric` (understood the point, neutral, useful, concise, supported, not repetitive).
 - **Level 3 (Keith's Golden Set)**: move agreement on scenarios Keith approved. All 25 drafts start `golden_approved: false`; only Keith changes that. Drafts are reported separately and never gate.
-- **Scenarios**: `evals/scenarios/help/` (25 synthetic drafts). They cover neutral discovery (including a long rambling answer with a buried point), objections, competitors (including a neutral mention and an incorrect buyer claim), technical confusion, approved vs missing vs stale sources, fully answered questions, the SA leading, older context, unknown speakers and transcript gaps.
+- **Scenarios**: `evals/scenarios/help/` (33 synthetic drafts: 25 originals plus 8 from the knowledge review: cheaper option, build with nothing built, no budget without a deadline, MLflow local evals, Phoenix in production, a customer reference awaiting clearance, a SaaS-only feature for a self-hosted buyer and for an unknown deployment). They cover neutral discovery (including a long rambling answer with a buried point), objections, competitors (including a neutral mention and an incorrect buyer claim), technical confusion, approved vs missing vs stale sources, fully answered questions, the SA leading, older context, unknown speakers and transcript gaps.
 
 ## Data handling
 - Everything is in local SQLite (`copilot.db` in userData): calls' turns, labels, HELP requests (mode, request text, context references, output, model and config, timing, usage) and feedback.

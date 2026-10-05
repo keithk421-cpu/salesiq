@@ -1,0 +1,74 @@
+{
+  "id": "sources-04-saas-only-feature-unknown-deployment",
+  "category": "sources",
+  "tags": [
+    "deployment_scope"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Answer Alder & Finch's question about issue detection with the right scope",
+  "desired_outcomes": [
+    "Answer with scope",
+    "Learn how they would deploy"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Nadia Rahman (AI Product Manager)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 700,
+      "end": 722,
+      "who": "e1:s0",
+      "text": "One thing I liked in your video was the automatic issue detection, the grouping of failures. Is that something we'd get?"
+    },
+    {
+      "t": 722.5,
+      "end": 724,
+      "who": "keith",
+      "text": "Yeah, good one."
+    },
+    {
+      "t": 724.5,
+      "end": 726,
+      "who": "e1:s0",
+      "text": "We haven't decided how we'd run it yet."
+    }
+  ],
+  "help_at_s": 728,
+  "knowledge": [
+    {
+      "id": "k-issue-detection",
+      "title": "Automatic issue detection",
+      "text": "## Automatic issue detection\n\nAutomatic issue detection runs on Arize's SaaS and groups recurring failures every 6 hours by default.\n\nSource: product docs (fixture)",
+      "approved": true,
+      "applies_to": [
+        "saas"
+      ]
+    }
+  ],
+  "best_moves": [
+    "technical_answer",
+    "technical_clarification"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "States the feature without saying it is for Arize's SaaS",
+    "Implies it works the same on every deployment"
+  ],
+  "forbid_regex": [
+    "works (the same|everywhere)",
+    "on (any|every) deployment",
+    "self-hosted too"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "On our SaaS, yes, it groups recurring failures automatically. Are you leaning toward SaaS or running it yourselves?"
+  ],
+  "keith_notes": ""
+}

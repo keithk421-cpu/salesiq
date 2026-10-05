@@ -35,9 +35,9 @@ files.forEach((f, i) => {
   const before = [...sc.transcript.filter((l) => l.t < sc.help_at_s), ...gaps].sort((a, b) => a.t - b.t).slice(-6)
   out.push(`## ${i + 1}. ${sc.id}${sc.golden_approved ? ' ✅ approved' : ''}`)
   out.push('')
-  out.push(`**Call:** ${sc.call_type}${sc.call_goal ? `. Goal: ${sc.call_goal}` : ''}`)
+  out.push(`**Call:** ${sc.call_type}${sc.call_goal ? `. Goal: ${sc.call_goal}` : ''}${sc.deployment ? `. Buyer's deployment: ${sc.deployment.replace('_', '-')}` : ''}`)
   if ((sc.knowledge ?? []).length) {
-    out.push(`**Docs HELP has:** ${sc.knowledge.map((k) => `${k.title}${k.approved ? '' : ' (not approved)'}${k.review_by ? ` (review by ${k.review_by})` : ''}`).join('; ')}`)
+    out.push(`**Docs HELP has:** ${sc.knowledge.map((k) => `${k.title}${k.approved === false ? ' (not approved)' : ''}${k.applies_to?.length ? ` (applies to: ${k.applies_to.join(', ')})` : ''}${k.review_by ? ` (review by ${k.review_by})` : ''}`).join('; ')}`)
   } else {
     out.push('**Docs HELP has:** none')
   }

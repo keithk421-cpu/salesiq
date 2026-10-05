@@ -1,0 +1,72 @@
+{
+  "id": "sources-02-customer-reference-awaiting-clearance",
+  "category": "sources",
+  "tags": [
+    "held_material"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Answer Fenwick Care's question about similar customers without naming anyone not cleared",
+  "desired_outcomes": [
+    "Understand what kind of reference would help",
+    "Offer a cleared follow-up"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Amelia Grant (VP Clinical Informatics)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 1105,
+      "end": 1131,
+      "who": "e1:s0",
+      "text": "Before we go further, do you have other healthcare companies using this? Ideally someone doing clinical summaries like we are."
+    },
+    {
+      "t": 1131.5,
+      "end": 1133,
+      "who": "keith",
+      "text": "Good question."
+    },
+    {
+      "t": 1133.5,
+      "end": 1135,
+      "who": "e1:s0",
+      "text": "It would help a lot internally."
+    }
+  ],
+  "help_at_s": 1137,
+  "knowledge": [
+    {
+      "id": "k-ref-uncleared",
+      "title": "Customer reference (awaiting clearance)",
+      "text": "## Northfield Health (fixture)\n\nNorthfield Health uses Arize to check clinical summary quality.\n\nSource: fixture, permission not confirmed",
+      "approved": false
+    }
+  ],
+  "best_moves": [
+    "confirm_next_step",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_desired_state"
+  ],
+  "unacceptable_behaviors": [
+    "Names a customer that is not in approved knowledge",
+    "Invents a customer story or result",
+    "Promises a reference call without checking"
+  ],
+  "forbid_regex": [
+    "Northfield",
+    "\\b(we|arize) (have|work with) (a|several|many) (hospital|health)",
+    "case study shows"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Let me check which healthcare references we can share and come back to you. What would be most useful to hear from them?"
+  ],
+  "keith_notes": ""
+}

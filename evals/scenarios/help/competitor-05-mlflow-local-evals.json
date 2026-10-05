@@ -1,0 +1,75 @@
+{
+  "id": "competitor-05-mlflow-local-evals",
+  "category": "competitor",
+  "tags": [
+    "presumption_check",
+    "competitor_accuracy"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Brightwater Analytics evaluates its support agent today",
+  "desired_outcomes": [
+    "Understand their evaluation process",
+    "Understand who runs it"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Imran Qureshi (ML Engineer)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 300,
+      "end": 304,
+      "who": "keith",
+      "text": "How do you check the agent's answers today?"
+    },
+    {
+      "t": 305,
+      "end": 333,
+      "who": "e1:s0",
+      "text": "We use MLflow for that. Just locally, a tracking server on one of our boxes, and we run mlflow.genai.evaluate from a notebook before each release. It works fine for the team."
+    },
+    {
+      "t": 333.5,
+      "end": 335,
+      "who": "keith",
+      "text": "Nice."
+    },
+    {
+      "t": 335.5,
+      "end": 337,
+      "who": "e1:s0",
+      "text": "Yeah, it's pretty lightweight."
+    }
+  ],
+  "help_at_s": 339,
+  "best_moves": [
+    "clarify_current_state",
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "handle_competitor"
+  ],
+  "unacceptable_behaviors": [
+    "Says MLflow GenAI evaluation needs Databricks or managed MLflow (it runs locally)",
+    "Assumes their MLflow setup has problems the buyer did not mention",
+    "Bashes MLflow"
+  ],
+  "forbid_regex": [
+    "requires? (databricks|managed mlflow)",
+    "(only|just) (on|with|in) databricks",
+    "can'?t (evaluate|run evals)",
+    "open[- ]source mlflow (can'?t|doesn'?t)",
+    "\\blimitation"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What does a release look like, who runs the notebook and what happens with the results?",
+    "What kinds of checks do you run in those evals?"
+  ],
+  "keith_notes": ""
+}

@@ -7,7 +7,7 @@
  */
 import fs from 'node:fs'
 import type { Stream } from '../../shared/contracts'
-import type { CallSetup, CallType, KnowledgeCategory, KnowledgeDocMeta, SpeakerLabel } from '../../shared/help'
+import type { CallSetup, CallType, Deployment, KnowledgeCategory, KnowledgeDocMeta, SpeakerLabel } from '../../shared/help'
 import { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
 import { CallMemory } from './callMemory'
@@ -31,6 +31,8 @@ export interface Scenario {
   call_type: CallType
   call_goal: string
   desired_outcomes: string[]
+  /** The buyer's deployment if Keith set it for the call (default unknown). */
+  deployment?: Deployment
   speakers: Record<string, { role: 'buyer' | 'teammate' | 'unknown'; name: string | null }>
   transcript: ScenarioLine[]
   gaps?: Array<{ start: number; end: number; stream: Stream; cause: string }>
@@ -71,13 +73,15 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   for (const k of s.knowledge ?? []) {
     const meta: KnowledgeDocMeta = {
       doc_id: k.id, title: k.title, category: k.category ?? 'other', source: k.source ?? 'scenario fixture', version: k.version ?? 'fixture',
-      approved: k.approved ?? true, approved_by: null, approved_at: null, review_by: k.review_by ?? null,
+      content_hash: '', approved: false, needs_reapproval: false, approved_by: null, approved_at: null, review_by: k.review_by ?? null,
       applies_to: k.applies_to ?? [], tags: [], file: `${s.id}#${k.id}`,
     }
     kb.addDoc(meta, k.text)
+    // Scenario fixtures stand in for Keith's in-app approval.
+    if (k.approved ?? true) kb.approve(k.id, true)
   }
   const memory = new CallMemory(`replay:${s.id}`, db)
-  const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: '' }
+  const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: '', deployment: s.deployment ?? 'unknown' }
   memory.setup = setup
   for (const [cluster, sp] of Object.entries(s.speakers)) {
     if (sp.role === 'unknown' && !sp.name) continue // unlabeled: Keith never tagged them

@@ -2,26 +2,35 @@
  * Approved knowledge pack (M1): local Markdown/text files in the user's knowledge folder,
  * indexed with SQLite FTS5 + aliases + tags. No embeddings.
  *
- * Importing is NOT approval. A document counts as approved only if Keith approved it
- * (front matter `approved: true`, or approval recorded in the app for that exact version).
- * Only approved, non-stale chunks are offered to HELP as facts. Stale ones are surfaced by
- * title only ("exists but is past its review date") so HELP offers to confirm instead of asserting.
+ * Importing is NOT approval. A document counts as approved only if Keith approved it in the app,
+ * and the approval is bound to the exact content he reviewed: a hash of the body plus the material
+ * front matter (title, category, source, version, review_by, applies_to, tags). Any edit, including
+ * one that keeps the same readable version, needs approval again. `approved: true` written in a file
+ * does not approve it, so no tool or import can approve on Keith's behalf; revoking in the app always wins.
+ *
+ * Only approved, non-stale chunks in scope for the call's deployment are offered to HELP as facts.
+ * Stale ones are surfaced by title only ("exists but is past its review date"), and ones scoped to
+ * another deployment are named so HELP offers to check instead of asserting.
+ *
+ * Each "## " section is one or more chunks of claim text (at most KNOWLEDGE_TEXT_MAX characters,
+ * all of which the model receives) plus the section's "Source:" paragraph, kept whole and separate.
  *
  * Front matter (optional, between --- lines at the top):
  *   title, category (product|deployment_security|competitive|objection_handling|other), source,
- *   version, approved (true|false), approved_by, approved_at, review_by (YYYY-MM-DD),
- *   applies_to (comma list), tags (comma list)
+ *   version, review_by (YYYY-MM-DD), applies_to (saas | self_hosted | all), tags (comma list)
  */
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import type { KnowledgeCategory, KnowledgeChunk, KnowledgeDocMeta } from '../shared/help'
+import type { Deployment, KnowledgeCategory, KnowledgeChunk, KnowledgeDocMeta } from '../shared/help'
 import { Db, ftsQuery, ftsTerms } from './db'
 
 const CATEGORIES: KnowledgeCategory[] = ['product', 'deployment_security', 'competitive', 'objection_handling', 'other']
-const MAX_CHUNK_CHARS = 900
+/** The model receives every character of a chunk's text, so the chunker and the prompt share this limit. */
+export const KNOWLEDGE_TEXT_MAX = 700
 /** Ranking boost per query term that matches one of the document's tags (max two counted). */
 const TAG_BOOST = 0.05
+const SOURCE_PARA = /^source\s*:/i
 
 export function loadAliases(file: string): Map<string, string[]> {
   const map = new Map<string, string[]>()
@@ -50,53 +59,98 @@ export function parseFrontMatter(src: string): { meta: Record<string, string>; b
 
 const list = (s: string | undefined) => (s ? s.split(',').map((x) => x.trim()).filter(Boolean) : [])
 
+type Material = Pick<KnowledgeDocMeta, 'title' | 'category' | 'source' | 'version' | 'review_by' | 'applies_to' | 'tags'>
+
+/** Identity of the reviewed content: body plus everything in the front matter that changes meaning or scope. */
+export function contentHash(m: Material, body: string): string {
+  const material = { title: m.title, category: m.category, source: m.source, version: m.version, review_by: m.review_by, applies_to: m.applies_to, tags: m.tags }
+  return createHash('sha256').update(JSON.stringify(material)).update('\n').update(body.replace(/\r\n/g, '\n')).digest('hex')
+}
+
 export function docMetaFrom(file: string, meta: Record<string, string>, body: string): KnowledgeDocMeta {
   const firstHeading = /^#\s+(.+)$/m.exec(body)?.[1]
   const category = (CATEGORIES as string[]).includes(meta.category ?? '') ? (meta.category as KnowledgeCategory) : 'other'
-  const version = meta.version || createHash('sha1').update(body).digest('hex').slice(0, 10)
-  return {
-    doc_id: path.basename(file).replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+  const material: Material = {
     title: meta.title || firstHeading || path.basename(file),
     category,
     source: meta.source || path.basename(file),
-    version,
-    approved: meta.approved === 'true',
-    approved_by: meta.approved_by || null,
-    approved_at: meta.approved_at || null,
+    version: meta.version || createHash('sha1').update(body).digest('hex').slice(0, 10),
     review_by: meta.review_by || null,
-    applies_to: list(meta.applies_to),
+    applies_to: list(meta.applies_to).map((x) => x.toLowerCase()),
     tags: list(meta.tags),
+  }
+  return {
+    doc_id: path.basename(file).replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+    ...material,
+    content_hash: contentHash(material, body),
+    // Approval lives in the app only (see the header); whatever the file says is ignored.
+    approved: false,
+    needs_reapproval: false,
+    approved_by: null,
+    approved_at: null,
     file,
   }
 }
 
-/** Split by headings, then paragraphs, keeping chunks under MAX_CHUNK_CHARS. */
-export function chunkBody(body: string): Array<{ heading: string; text: string }> {
-  const out: Array<{ heading: string; text: string }> = []
-  let heading = ''
-  let buf = ''
-  const flush = () => {
-    const t = buf.trim()
-    if (t) out.push({ heading, text: t })
-    buf = ''
+/** Split one paragraph that is longer than the limit at sentence ends, then at spaces. */
+function splitLong(p: string, max: number): string[] {
+  if (p.length <= max) return [p]
+  const sentences = p.match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) ?? [p]
+  const out: string[] = []
+  let cur = ''
+  for (let s of sentences) {
+    while (s.length > max) {
+      if (cur.trim()) out.push(cur.trim())
+      cur = ''
+      const cut = s.lastIndexOf(' ', max)
+      const at = cut > max / 2 ? cut : max
+      out.push(s.slice(0, at).trim())
+      s = s.slice(at)
+    }
+    if ((cur + s).trim().length > max) {
+      out.push(cur.trim())
+      cur = s
+    } else cur += s
   }
-  for (const para of body.split(/\n\s*\n/)) {
-    const h = /^#{1,6}\s+(.+)$/m.exec(para.trim())
-    if (h && para.trim().startsWith('#')) {
-      flush()
-      heading = h[1].trim()
-      const rest = para.trim().split('\n').slice(1).join('\n').trim()
-      if (rest) buf = rest
+  if (cur.trim()) out.push(cur.trim())
+  return out
+}
+
+/**
+ * Split by headings into sections. Each section's "Source:" paragraph becomes its source_ref; the rest
+ * is packed into chunks of whole paragraphs, none longer than KNOWLEDGE_TEXT_MAX.
+ */
+export function chunkBody(body: string, max = KNOWLEDGE_TEXT_MAX): Array<{ heading: string; text: string; source_ref: string }> {
+  const out: Array<{ heading: string; text: string; source_ref: string }> = []
+  let heading = ''
+  let paras: string[] = []
+  const flushSection = () => {
+    const source_ref = paras.filter((p) => SOURCE_PARA.test(p)).join(' ')
+    let buf = ''
+    for (const p of paras.filter((x) => !SOURCE_PARA.test(x)).flatMap((x) => splitLong(x, max))) {
+      if (buf && buf.length + 2 + p.length > max) {
+        out.push({ heading, text: buf, source_ref })
+        buf = ''
+      }
+      buf = buf ? `${buf}\n\n${p}` : p
+    }
+    if (buf) out.push({ heading, text: buf, source_ref })
+    paras = []
+  }
+  for (const raw of body.split(/\n\s*\n/)) {
+    const para = raw.trim()
+    if (!para) continue
+    if (/^#{1,6}\s+\S/.test(para)) {
+      flushSection()
+      const lines = para.split('\n')
+      heading = lines[0].replace(/^#{1,6}\s+/, '').trim()
+      const rest = lines.slice(1).join('\n').trim()
+      if (rest) paras.push(rest)
       continue
     }
-    if (buf.length + para.length > MAX_CHUNK_CHARS) flush()
-    buf += (buf ? '\n\n' : '') + para.trim()
-    while (buf.length > MAX_CHUNK_CHARS * 1.5) {
-      out.push({ heading, text: buf.slice(0, MAX_CHUNK_CHARS) })
-      buf = buf.slice(MAX_CHUNK_CHARS)
-    }
+    paras.push(para)
   }
-  flush()
+  flushSection()
   return out
 }
 
@@ -106,61 +160,75 @@ export function isStale(meta: KnowledgeDocMeta, today = new Date()): boolean {
   return !Number.isNaN(d.getTime()) && d.getTime() < today.getTime()
 }
 
+/** A document with no scope, or scope "all", applies everywhere; otherwise it must name the deployment. */
+export function inScope(meta: KnowledgeDocMeta, deployment: Deployment): boolean {
+  if (deployment === 'unknown' || meta.applies_to.length === 0 || meta.applies_to.includes('all')) return true
+  return meta.applies_to.includes(deployment)
+}
+
+type Row = { chunk_id: string; doc_id: string; title: string; heading: string; text: string; source_ref: string; score: number }
+
+export interface KnowledgeSearch {
+  /** Approved, current, in-scope chunks: the only material HELP may state as fact. */
+  usable: KnowledgeChunk[]
+  /** Approved documents that matched but are past their review date. */
+  staleTitles: string[]
+  /** Approved documents that matched but cover another deployment than this call's. */
+  scopedOut: Array<{ title: string; applies_to: string[] }>
+}
+
 export class KnowledgeBase {
   private aliases: Map<string, string[]>
 
   constructor(private readonly db: Db, aliasesFile: string | null) {
     this.aliases = aliasesFile ? loadAliases(aliasesFile) : new Map()
-    db.sql.exec(`CREATE TABLE IF NOT EXISTS knowledge_approvals (
-      doc_id TEXT NOT NULL, version TEXT NOT NULL, approved_at TEXT NOT NULL, PRIMARY KEY (doc_id, version))`)
+    // One row per (document, exact content) Keith decided on. The pre-hash table (keyed by the readable
+    // version) is no longer read, so earlier approvals do not carry over to unreviewed content.
+    db.sql.exec(`CREATE TABLE IF NOT EXISTS knowledge_decisions (
+      doc_id TEXT NOT NULL, content_hash TEXT NOT NULL, approved INTEGER NOT NULL, decided_at TEXT NOT NULL,
+      PRIMARY KEY (doc_id, content_hash))`)
   }
 
   get aliasMap(): Map<string, string[]> {
     return this.aliases
   }
 
-  /** (Re)index every .md/.txt file in the folder. Returns doc metadata for display. */
+  /** (Re)index every .md/.txt file in the folder (not subfolders). Returns doc metadata for display. */
   indexFolder(folder: string): KnowledgeDocMeta[] {
     fs.mkdirSync(folder, { recursive: true })
     const files = fs.readdirSync(folder).filter((f) => /\.(md|txt)$/i.test(f) && !f.startsWith('_') && f.toLowerCase() !== 'readme.md')
-    const docs: KnowledgeDocMeta[] = []
     this.db.tx(() => {
       this.db.sql.exec('DELETE FROM knowledge_chunks; DELETE FROM knowledge_fts; DELETE FROM knowledge_docs;')
       for (const f of files) {
         const full = path.join(folder, f)
-        const src = fs.readFileSync(full, 'utf8')
-        const { meta, body } = parseFrontMatter(src)
-        const doc = docMetaFrom(full, meta, body)
-        this.addDoc(doc, body, fs.statSync(full).mtimeMs)
-        docs.push(doc)
+        if (!fs.statSync(full).isFile()) continue
+        const { meta, body } = parseFrontMatter(fs.readFileSync(full, 'utf8'))
+        this.addDoc(docMetaFrom(full, meta, body), body, fs.statSync(full).mtimeMs)
       }
     })
-    return docs.map((d) => this.withApproval(d))
+    return this.listDocs()
   }
 
-  /** Index one document (used by indexFolder and tests). */
+  /** Index one document (used by indexFolder, replay and tests). The content hash is always recomputed here. */
   addDoc(doc: KnowledgeDocMeta, body: string, mtimeMs = 0): void {
+    const stored: KnowledgeDocMeta = { ...doc, content_hash: contentHash(doc, body), approved: false, needs_reapproval: false, approved_by: null, approved_at: null }
     this.db.sql.prepare('INSERT OR REPLACE INTO knowledge_docs (doc_id, file, mtime_ms, meta_json) VALUES (?, ?, ?, ?)')
-      .run(doc.doc_id, doc.file, Math.round(mtimeMs), JSON.stringify(doc))
-    const ins = this.db.sql.prepare('INSERT INTO knowledge_chunks (chunk_id, doc_id, title, heading, text) VALUES (?, ?, ?, ?, ?)')
+      .run(doc.doc_id, doc.file, Math.round(mtimeMs), JSON.stringify(stored))
+    const ins = this.db.sql.prepare('INSERT INTO knowledge_chunks (chunk_id, doc_id, title, heading, text, source_ref) VALUES (?, ?, ?, ?, ?, ?)')
     const fts = this.db.sql.prepare('INSERT INTO knowledge_fts (text, title, heading, chunk_id, doc_id) VALUES (?, ?, ?, ?, ?)')
     chunkBody(body).forEach((c, i) => {
       const id = `k:${doc.doc_id}#${i + 1}`
-      ins.run(id, doc.doc_id, doc.title, c.heading, c.text)
+      ins.run(id, doc.doc_id, doc.title, c.heading, c.text, c.source_ref)
       fts.run(c.text, doc.title, c.heading, id, doc.doc_id)
     })
   }
 
-  /** Keith approves the current version of a document in the app. A new version needs re-approval. */
+  /** Keith approves or revokes the document's current content in the app. Any later edit needs approval again. */
   approve(docId: string, approved: boolean): void {
     const doc = this.getDoc(docId)
     if (!doc) return
-    if (approved) {
-      this.db.sql.prepare('INSERT OR REPLACE INTO knowledge_approvals (doc_id, version, approved_at) VALUES (?, ?, ?)')
-        .run(docId, doc.version, new Date().toISOString())
-    } else {
-      this.db.sql.prepare('DELETE FROM knowledge_approvals WHERE doc_id = ?').run(docId)
-    }
+    this.db.sql.prepare('INSERT OR REPLACE INTO knowledge_decisions (doc_id, content_hash, approved, decided_at) VALUES (?, ?, ?, ?)')
+      .run(docId, doc.content_hash, approved ? 1 : 0, new Date().toISOString())
   }
 
   getDoc(docId: string): KnowledgeDocMeta | null {
@@ -174,57 +242,70 @@ export class KnowledgeBase {
   }
 
   private withApproval(d: KnowledgeDocMeta): KnowledgeDocMeta {
-    if (d.approved) return d
-    const row = this.db.sql.prepare('SELECT approved_at FROM knowledge_approvals WHERE doc_id = ? AND version = ?').get(d.doc_id, d.version) as
-      | { approved_at: string }
-      | undefined
-    return row ? { ...d, approved: true, approved_by: d.approved_by ?? 'Keith (in app)', approved_at: row.approved_at } : d
+    const decisions = this.db.sql.prepare('SELECT content_hash, approved, decided_at FROM knowledge_decisions WHERE doc_id = ?').all(d.doc_id) as Array<{
+      content_hash: string
+      approved: number
+      decided_at: string
+    }>
+    const current = decisions.find((x) => x.content_hash === d.content_hash)
+    const approved = current?.approved === 1
+    return {
+      ...d,
+      approved,
+      approved_by: approved ? 'Keith (in app)' : null,
+      approved_at: approved ? current!.decided_at : null,
+      needs_reapproval: !current && decisions.some((x) => x.approved === 1),
+    }
   }
 
   /**
-   * Search for chunks relevant to `text`. Returns approved+current chunks (usable as facts)
-   * and the titles of approved-but-stale docs that matched (to prompt a follow-up, never a claim).
-   * Unapproved documents are never returned.
+   * Search for chunks relevant to `text`. Only approved documents are searched at all (so unapproved
+   * matches can never crowd out an approved answer). Returns approved, current, in-scope chunks
+   * (usable as facts), plus the titles of approved documents that matched but are stale or scoped to
+   * another deployment (to prompt a follow-up, never a claim).
    */
-  search(text: string, limit = 4, today = new Date()): { usable: KnowledgeChunk[]; staleTitles: string[] } {
+  search(text: string, limit = 4, today = new Date(), deployment: Deployment = 'unknown'): KnowledgeSearch {
+    const none: KnowledgeSearch = { usable: [], staleTitles: [], scopedOut: [] }
     const terms = ftsTerms(text, this.aliases)
     const q = ftsQuery(text, this.aliases)
-    if (!q) return { usable: [], staleTitles: [] }
-    let rows: Array<{ chunk_id: string; doc_id: string; title: string; heading: string; text: string; score: number }>
-    try {
-      // Tags are not indexed per chunk: repeating them in every chunk of a doc would make the most
-      // telling words (a competitor's name, "HIPAA") look common and rank worse. They re-rank instead.
-      rows = this.db.sql.prepare(
-        `SELECT c.chunk_id, c.doc_id, c.title, c.heading, c.text, bm25(knowledge_fts, 1.0, 0.5, 2.5) AS score FROM knowledge_fts f
-         JOIN knowledge_chunks c ON c.chunk_id = f.chunk_id
-         WHERE knowledge_fts MATCH ? ORDER BY score LIMIT 30`,
-      ).all(q) as typeof rows
-    } catch {
-      return { usable: [], staleTitles: [] }
+    if (!q) return none
+    const approved = this.listDocs().filter((d) => d.approved)
+    if (!approved.length) return none
+    const byId = new Map(approved.map((d) => [d.doc_id, d]))
+    const query = (ids: string[], max: number): Row[] => {
+      if (!ids.length) return []
+      try {
+        // Tags are not indexed per chunk: repeating them in every chunk of a doc would make the most
+        // telling words (a competitor's name, "HIPAA") look common and rank worse. They re-rank instead.
+        return this.db.sql.prepare(
+          `SELECT c.chunk_id, c.doc_id, c.title, c.heading, c.text, c.source_ref, bm25(knowledge_fts, 1.0, 0.5, 2.5) AS score FROM knowledge_fts f
+           JOIN knowledge_chunks c ON c.chunk_id = f.chunk_id
+           WHERE knowledge_fts MATCH ? AND f.doc_id IN (SELECT value FROM json_each(?)) ORDER BY score LIMIT ?`,
+        ).all(q, JSON.stringify(ids), max) as Row[]
+      } catch {
+        return []
+      }
     }
-    const docs = new Map<string, KnowledgeDocMeta | null>()
-    const docOf = (id: string) => {
-      if (!docs.has(id)) docs.set(id, this.getDoc(id))
-      return docs.get(id) ?? null
-    }
-    const tagHits = (meta: KnowledgeDocMeta | null) =>
-      meta ? Math.min(2, terms.filter((t) => meta.tags.some((tag) => tag.toLowerCase() === t)).length) : 0
+    const tagHits = (meta: KnowledgeDocMeta) => Math.min(2, terms.filter((t) => meta.tags.some((tag) => tag.toLowerCase() === t)).length)
     // bm25 is negative (lower is better), so a boost multiplies it.
-    rows = rows
-      .map((r) => ({ ...r, score: r.score * (1 + TAG_BOOST * tagHits(docOf(r.doc_id))) }))
+    const rows = query(approved.filter((d) => inScope(d, deployment)).map((d) => d.doc_id), 30)
+      .map((r) => ({ ...r, score: r.score * (1 + TAG_BOOST * tagHits(byId.get(r.doc_id)!)) }))
       .sort((a, b) => a.score - b.score)
     const usable: KnowledgeChunk[] = []
     const staleTitles = new Set<string>()
     for (const { score: _score, ...r } of rows) {
-      const meta = docOf(r.doc_id)
-      if (!meta || !meta.approved) continue
-      const stale = isStale(meta, today)
-      if (stale) {
+      const meta = byId.get(r.doc_id)!
+      if (isStale(meta, today)) {
         staleTitles.add(meta.title)
         continue
       }
-      if (usable.length < limit) usable.push({ ...r, meta, stale })
+      if (usable.length < limit) usable.push({ ...r, meta, stale: false })
     }
-    return { usable, staleTitles: [...staleTitles] }
+    const scopedOut = new Map<string, string[]>()
+    for (const r of query(approved.filter((d) => !inScope(d, deployment)).map((d) => d.doc_id), 3)) {
+      const meta = byId.get(r.doc_id)!
+      scopedOut.set(meta.title, meta.applies_to)
+    }
+    return { usable, staleTitles: [...staleTitles], scopedOut: [...scopedOut].map(([title, applies_to]) => ({ title, applies_to })) }
   }
 }

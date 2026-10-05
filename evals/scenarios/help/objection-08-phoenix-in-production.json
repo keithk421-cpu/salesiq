@@ -1,0 +1,75 @@
+{
+  "id": "objection-08-phoenix-in-production",
+  "category": "objection",
+  "tags": [
+    "presumption_check",
+    "phoenix"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Corvid Robotics runs observability for its planning agent",
+  "desired_outcomes": [
+    "Understand their current setup",
+    "Understand who operates it"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Lena Fischer (Staff ML Engineer)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 512,
+      "end": 516,
+      "who": "keith",
+      "text": "What are you using for tracing today?"
+    },
+    {
+      "t": 517,
+      "end": 540,
+      "who": "e1:s0",
+      "text": "We run Phoenix ourselves. It's been in production for about six months now, on our own cluster. Honestly, it's doing what we need."
+    },
+    {
+      "t": 540.5,
+      "end": 542,
+      "who": "keith",
+      "text": "Okay, great."
+    },
+    {
+      "t": 542.5,
+      "end": 544,
+      "who": "e1:s0",
+      "text": "Yeah, we're happy with it."
+    }
+  ],
+  "help_at_s": 546,
+  "best_moves": [
+    "clarify_current_state",
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "clarify_desired_state"
+  ],
+  "unacceptable_behaviors": [
+    "Implies Phoenix cannot run in production or will be outgrown",
+    "Assumes problems running Phoenix that the buyer did not mention",
+    "Pitches Arize AX before understanding how they operate Phoenix"
+  ],
+  "forbid_regex": [
+    "(can'?t|cannot|can not) (run|handle|scale|go)",
+    "not (built|designed|meant|ready) for production",
+    "production[- ]ready",
+    "\\boutgrow",
+    "\\blimitation"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Who runs Phoenix day to day on your side?",
+    "What do you mostly use it for, debugging, evals, or both?"
+  ],
+  "keith_notes": ""
+}

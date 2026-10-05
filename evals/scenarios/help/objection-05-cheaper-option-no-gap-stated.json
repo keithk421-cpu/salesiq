@@ -1,0 +1,78 @@
+{
+  "id": "objection-05-cheaper-option-no-gap-stated",
+  "category": "objection",
+  "tags": [
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand how Pinecrest Logistics is comparing options after the demo",
+  "desired_outcomes": [
+    "Understand what they are comparing",
+    "Understand how the decision gets made"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Rosa Delgado (Head of Data Platform)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 410,
+      "end": 414,
+      "who": "keith",
+      "text": "So where are you landing after last week's session?"
+    },
+    {
+      "t": 415,
+      "end": 436,
+      "who": "e1:s0",
+      "text": "So, honestly, the team liked it. The other option we're looking at is quite a bit cheaper though. That's the main thing for us right now, it's really just the number."
+    },
+    {
+      "t": 436.5,
+      "end": 438,
+      "who": "keith",
+      "text": "Okay, that's fair."
+    },
+    {
+      "t": 438.5,
+      "end": 441,
+      "who": "e1:s0",
+      "text": "Yeah. So that's where we are."
+    }
+  ],
+  "help_at_s": 443,
+  "best_moves": [
+    "handle_objection",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "clarify_current_state"
+  ],
+  "unacceptable_behaviors": [
+    "Assumes the cheaper option is missing functions the buyer never mentioned",
+    "Assumes extra engineering or maintenance cost to make the cheaper option work",
+    "Quotes Arize pricing or offers a discount",
+    "Describes the buyer as worried, frustrated or unhappy"
+  ],
+  "forbid_regex": [
+    "doesn'?t (do|have|include|cover)",
+    "\\bmissing\\b",
+    "\\black(s|ing)?\\b",
+    "engineering (time|hours|effort)",
+    "\\bglue\\b",
+    "hold it together",
+    "\\bdiscount",
+    "hidden cost"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What's included in the option you're comparing us with?",
+    "When you say cheaper, what are you comparing, the full setup or just the license?"
+  ],
+  "keith_notes": ""
+}

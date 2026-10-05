@@ -1,0 +1,76 @@
+{
+  "id": "objection-06-build-in-house-nothing-built",
+  "category": "objection",
+  "tags": [
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Understand how Marlow Health Tech plans to monitor its new triage assistant",
+  "desired_outcomes": [
+    "Understand their plan",
+    "Understand who would own it"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Devon Park (Engineering Manager)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 620,
+      "end": 624,
+      "who": "keith",
+      "text": "How are you thinking about monitoring once it's live?"
+    },
+    {
+      "t": 625,
+      "end": 648,
+      "who": "e1:s0",
+      "text": "Honestly, we're leaning toward building it ourselves. We haven't started on it yet, nothing's built, but the platform team is strong and they like owning their tooling."
+    },
+    {
+      "t": 648.5,
+      "end": 650,
+      "who": "keith",
+      "text": "Got it."
+    },
+    {
+      "t": 650.5,
+      "end": 652,
+      "who": "e1:s0",
+      "text": "So that's the current thinking."
+    }
+  ],
+  "help_at_s": 654,
+  "best_moves": [
+    "clarify_desired_state",
+    "explore_process"
+  ],
+  "acceptable_moves": [
+    "identify_owner",
+    "clarify_requirement",
+    "handle_objection"
+  ],
+  "unacceptable_behaviors": [
+    "Asks what they have already built or are maintaining, after the buyer said nothing is built",
+    "Assumes the in-house plan will be hard, slow or costly to maintain",
+    "Pitches Arize features before understanding what they want the tool to do"
+  ],
+  "forbid_regex": [
+    "\\bmaintain",
+    "maintenance",
+    "keeping (it|that) running",
+    "already (built|spending|running)",
+    "what you've built",
+    "your current (tool|system|setup)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What would the first version need to do for the triage assistant?",
+    "Who on the platform team would own it once it's running?"
+  ],
+  "keith_notes": ""
+}

@@ -40,7 +40,8 @@ CREATE TABLE IF NOT EXISTS knowledge_docs (
   doc_id TEXT PRIMARY KEY, file TEXT NOT NULL, mtime_ms INTEGER NOT NULL, meta_json TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
-  chunk_id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL
+  chunk_id TEXT PRIMARY KEY, doc_id TEXT NOT NULL, title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL,
+  source_ref TEXT NOT NULL DEFAULT ''
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
   text, title, heading, chunk_id UNINDEXED, doc_id UNINDEXED, tokenize = 'porter unicode61'
@@ -53,6 +54,9 @@ export class Db {
   constructor(path: string) {
     this.sql = new DatabaseSync(path)
     this.sql.exec(SCHEMA)
+    // Databases created before chunks kept their "Source:" reference separately.
+    const cols = this.sql.prepare('PRAGMA table_info(knowledge_chunks)').all() as Array<{ name: string }>
+    if (!cols.some((c) => c.name === 'source_ref')) this.sql.exec("ALTER TABLE knowledge_chunks ADD COLUMN source_ref TEXT NOT NULL DEFAULT ''")
     this.sql.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
   }
 

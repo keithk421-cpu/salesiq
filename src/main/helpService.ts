@@ -4,8 +4,8 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import type { CallSetup, CallType, FeedbackType, BadReason, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
-import { CALL_TYPES } from '../shared/help'
+import type { CallSetup, CallType, Deployment, FeedbackType, BadReason, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
@@ -30,14 +30,19 @@ const KNOWLEDGE_README = `# Knowledge pack (local, private)
 Drop approved Markdown (.md) or text (.txt) files here. HELP searches them during calls.
 Nothing here is uploaded anywhere except the matching snippets sent with a HELP request.
 
-Importing a file does NOT approve it. Approve each document in the app (Setup -> Knowledge),
-or add \`approved: true\` to its front matter yourself. A new version needs approval again.
+Importing a file does NOT approve it. Approve each document in the app (Setup -> Knowledge).
+Approval covers that exact content: after any edit, the app asks you to approve it again.
+Writing \`approved: true\` in a file does nothing, so nothing can be approved on your behalf.
+Keep material that is still waiting for review OUTSIDE this folder (subfolders are not read).
 
 Suggested files:
 - arize-product-overview.md      (product + evaluation overview)
 - deployment-security.md         (deployment, SSO, data handling answers)
 - competitive.md                 (current competitive material)
 - objection-handling.md          (your objection notes)
+
+Each "## " section is one answer: a few sentences of claim text, then one paragraph starting
+"Source:" with the full reference. HELP sends the whole section and its source to the model.
 
 Optional front matter at the top of a file:
 
@@ -47,7 +52,7 @@ category: deployment_security        # product | deployment_security | competiti
 source: Arize security team FAQ (Confluence export)
 version: 2026-09
 review_by: 2027-03-01                # after this date HELP treats it as stale
-applies_to: self_hosted, saas
+applies_to: saas                     # saas | self_hosted | all (one per file; split mixed files)
 tags: sso, soc2
 ---
 `
@@ -76,10 +81,12 @@ export class HelpService {
     this.knowledgeDir = path.join(storage.root, 'knowledge')
     fs.mkdirSync(this.knowledgeDir, { recursive: true })
     const readme = path.join(this.knowledgeDir, 'README.md')
-    if (!fs.existsSync(readme)) fs.writeFileSync(readme, KNOWLEDGE_README)
+    // App-written help text: refreshed when the template changes (the indexer never reads it).
+    if (!fs.existsSync(readme) || fs.readFileSync(readme, 'utf8') !== KNOWLEDGE_README) fs.writeFileSync(readme, KNOWLEDGE_README)
     this.playbook = this.loadPlaybook()
     this.settings = storage.readJson('help-settings.json', DEFAULT_SETTINGS)
-    this.setup = storage.readJson('call-setup.json', DEFAULT_SETUP)
+    // Older saved setups have no deployment field; missing fields fall back to the defaults.
+    this.setup = { ...DEFAULT_SETUP, ...storage.readJson('call-setup.json', DEFAULT_SETUP) }
     try {
       this.kb.indexFolder(this.knowledgeDir)
     } catch (err) {
@@ -142,6 +149,7 @@ export class HelpService {
       call_goal: str(r.call_goal, 300),
       desired_outcomes: Array.isArray(r.desired_outcomes) ? r.desired_outcomes.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 200)).slice(0, 6) : [],
       account: str(r.account, 120),
+      deployment: (DEPLOYMENTS as readonly string[]).includes(r.deployment as string) ? (r.deployment as Deployment) : 'unknown',
     }
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)

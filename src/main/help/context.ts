@@ -16,7 +16,8 @@ export const THREAD_WINDOW_MS = 180_000
 const THREAD_MAX_CHARS = 1800
 const EARLIER_MAX = 3
 const KNOWLEDGE_MAX = 3
-const KNOWLEDGE_CHARS = 700
+/** A source reference longer than this is shortened for the model only; the card's sources show it in full. */
+const SOURCE_REF_MODEL_MAX = 400
 
 export interface SourceInfo {
   id: string
@@ -47,6 +48,11 @@ export function speakerName(memory: CallMemory, t: { stream: Stream; cluster: st
   if (!label || label.role === 'unknown') return label?.name ? `${label.name} (role unknown)` : `Speaker ${tag} (unlabeled)`
   const role = label.role === 'teammate' ? 'Arize teammate' : 'buyer'
   return label.name ? `${label.name} (${role})` : `Speaker ${tag} (${role})`
+}
+
+function scopeLabel(applies: string[]): string {
+  if (!applies.length || applies.includes('all')) return 'all deployments'
+  return applies.map((a) => (a === 'saas' ? "Arize's SaaS" : a === 'self_hosted' ? 'self-hosted' : a.replace(/_/g, ' '))).join(', ')
 }
 
 export function buildHelpContext(opts: {
@@ -94,14 +100,17 @@ export function buildHelpContext(opts: {
   const hotText = hot.map((t) => t.text).join(' ') + ' ' + memory.interimsAsOf(atMs).map((i) => i.text).join(' ')
   const earlier = memory.searchEarlier(hotText, threadStart, atMs, EARLIER_MAX).filter((t) => !used.has(t.id))
 
+  const deployment = memory.setup.deployment ?? 'unknown'
   let usable: KnowledgeChunk[] = []
   let staleTitles: string[] = []
-  if (kb) ({ usable, staleTitles } = kb.search(hotText, KNOWLEDGE_MAX, opts.now))
+  let scopedOut: Array<{ title: string; applies_to: string[] }> = []
+  if (kb) ({ usable, staleTitles, scopedOut } = kb.search(hotText, KNOWLEDGE_MAX, opts.now, deployment))
   const kShort: string[] = []
   usable.forEach((c, i) => {
     const s = `K${i + 1}`
     kShort.push(s)
-    sources.set(s, { id: c.chunk_id, kind: 'knowledge', label: c.meta.title, detail: `${c.heading ? c.heading + ': ' : ''}${c.text}`.slice(0, 400) })
+    // The card's sources show the whole section and its full reference, so a line can be traced exactly.
+    sources.set(s, { id: c.chunk_id, kind: 'knowledge', label: c.meta.title, detail: `${c.heading ? c.heading + ': ' : ''}${c.text}${c.source_ref ? `\n${c.source_ref}` : ''}` })
   })
 
   // STATUS: gaps and lag. Never pretend coverage was continuous.
@@ -132,7 +141,7 @@ export function buildHelpContext(opts: {
 
   const parts: string[] = []
   parts.push(
-    `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\n</call_setup>`,
+    `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${deployment === 'unknown' ? 'not known (SaaS or self-hosted)' : deployment === 'saas' ? "Arize's SaaS" : 'self-hosted'}\n</call_setup>`,
   )
   parts.push(`<participants>\n${roster.join('\n')}\n</participants>`)
   if (earlier.length) parts.push(`<earlier_in_call note="relevant moments from earlier; speaker statements, not verified facts">\n${earlier.map(line).join('\n')}\n</earlier_in_call>`)
@@ -147,11 +156,18 @@ export function buildHelpContext(opts: {
   if (usable.length) {
     parts.push(
       `<approved_knowledge note="the ONLY material you may state as Arize fact">\n${usable
-        .map((c, i) => `[${kShort[i]}] ${c.meta.title}${c.heading ? ` - ${c.heading}` : ''} (source: ${c.meta.source}, version ${c.meta.version}${c.meta.applies_to.length ? `, applies to: ${c.meta.applies_to.join(', ')}` : ''}): ${c.text.slice(0, KNOWLEDGE_CHARS)}`)
+        .map((c, i) => {
+          const scope = scopeLabel(c.meta.applies_to)
+          const ref = c.source_ref.length > SOURCE_REF_MODEL_MAX ? `${c.source_ref.slice(0, SOURCE_REF_MODEL_MAX)}... (full reference in card sources)` : c.source_ref
+          return `[${kShort[i]}] ${c.meta.title}${c.heading ? ` - ${c.heading}` : ''} (applies to: ${scope}; version ${c.meta.version}): ${c.text}\n   ${ref || `Source: ${c.meta.source}`}`
+        })
         .join('\n')}\n</approved_knowledge>`,
     )
   } else {
     parts.push('<approved_knowledge>(none relevant) - do not state Arize product facts; ask or offer to follow up instead.</approved_knowledge>')
+  }
+  if (scopedOut.length) {
+    parts.push(`<other_deployment>\n${scopedOut.map((d) => `"${d.title}" covers ${scopeLabel(d.applies_to)} only, not this buyer's deployment: do not state it for them; offer to check.`).join('\n')}\n</other_deployment>`)
   }
   if (staleTitles.length) parts.push(`<not_current>\n${staleTitles.map((t) => `"${t}" exists but is past its review date: do not state its content as current; offer to confirm.`).join('\n')}\n</not_current>`)
   parts.push(`Keith pressed HELP at ${fmtClock(atMs)}.`)

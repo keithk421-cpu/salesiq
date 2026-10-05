@@ -1,0 +1,78 @@
+{
+  "id": "sources-03-saas-only-feature-self-hosted-buyer",
+  "category": "sources",
+  "tags": [
+    "deployment_scope"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Answer Tamsin Bank's deployment question accurately for self-hosting",
+  "desired_outcomes": [
+    "Answer only what is confirmed for self-hosted",
+    "Offer to confirm the rest"
+  ],
+  "deployment": "self_hosted",
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Owen Price (Platform Lead)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 1400,
+      "end": 1428,
+      "who": "e1:s0",
+      "text": "We'd be self-hosting this in our own VPC, that's non-negotiable for us. Does the automatic issue detection, the thing that groups recurring failures, work there too?"
+    },
+    {
+      "t": 1428.5,
+      "end": 1430,
+      "who": "keith",
+      "text": "Let me make sure I get that right."
+    },
+    {
+      "t": 1430.5,
+      "end": 1432,
+      "who": "e1:s0",
+      "text": "Sure."
+    }
+  ],
+  "help_at_s": 1434,
+  "knowledge": [
+    {
+      "id": "k-issue-detection",
+      "title": "Automatic issue detection",
+      "text": "## Automatic issue detection\n\nAutomatic issue detection runs on Arize's SaaS and groups recurring failures every 6 hours by default.\n\nSource: product docs (fixture)",
+      "approved": true,
+      "applies_to": [
+        "saas"
+      ]
+    }
+  ],
+  "best_moves": [
+    "technical_clarification",
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "Says the feature works the same when self-hosted",
+    "States SaaS-only details as if they apply to a self-hosted deployment",
+    "Says Arize does not support it (not verified is not unsupported)"
+  ],
+  "forbid_regex": [
+    "every 6 hours",
+    "^yes\\b",
+    "works (the same|there too|everywhere)",
+    "same features",
+    "doesn'?t (support|work)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I want to confirm that for self-hosted specifically before I answer. Can I follow up today with a clear yes or no?"
+  ],
+  "keith_notes": ""
+}

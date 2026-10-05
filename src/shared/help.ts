@@ -11,11 +11,16 @@ export type SalesMove = (typeof SALES_MOVES)[number]
 export const CALL_TYPES = ['discovery', 'demo', 'technical_deep_dive', 'follow_up', 'negotiation', 'other'] as const
 export type CallType = (typeof CALL_TYPES)[number]
 
+/** The buyer's deployment for this call. Knowledge scoped to another deployment is not offered as fact. */
+export const DEPLOYMENTS = ['unknown', 'saas', 'self_hosted'] as const
+export type Deployment = (typeof DEPLOYMENTS)[number]
+
 export interface CallSetup {
   call_type: CallType
   call_goal: string
   desired_outcomes: string[]
   account: string
+  deployment: Deployment
 }
 
 export type SpeakerRole = 'keith' | 'buyer' | 'teammate' | 'unknown'
@@ -56,9 +61,14 @@ export interface KnowledgeDocMeta {
   title: string
   category: KnowledgeCategory
   source: string
+  /** Readable label only. Approval is bound to content_hash, never to this string. */
   version: string
-  /** Importing is not approval. Only Keith sets this. */
+  /** sha256 of the body plus the material front matter (everything except approval fields). */
+  content_hash: string
+  /** Importing is not approval. True only if Keith approved this exact content in the app. */
   approved: boolean
+  /** Keith approved an earlier content of this document; the current content needs review again. */
+  needs_reapproval: boolean
   approved_by: string | null
   approved_at: string | null
   /** ISO date; past => stale (not stated as current fact). */
@@ -73,7 +83,10 @@ export interface KnowledgeChunk {
   doc_id: string
   title: string
   heading: string
+  /** Claim text, at most KNOWLEDGE_TEXT_MAX characters; the model receives all of it. */
   text: string
+  /** The section's full "Source:" reference, kept separately so it is never cut off. */
+  source_ref: string
   meta: KnowledgeDocMeta
   stale: boolean
 }

@@ -8,7 +8,7 @@ import type { Stream } from '../../shared/contracts'
 import type { CallSetup, MemoryGap, MemoryTurn, SpeakerLabel } from '../../shared/help'
 import { Db, ftsQuery } from '../db'
 
-export const DEFAULT_SETUP: CallSetup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '' }
+export const DEFAULT_SETUP: CallSetup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown' }
 
 interface Interim {
   text: string

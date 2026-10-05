@@ -43,7 +43,7 @@ const labels = new Map<string, SpeakerLabel>()
 /** The HELP card currently displayed (only the newest request is ever shown). */
 let card: HelpCardEvent | null = null
 let cardShownAt = 0
-let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean } | null = null
+let helpInfo: { hasKey: boolean; settings: { model: string; prefetch: boolean }; setup: { call_type: string; call_goal: string; desired_outcomes: string[]; account: string; deployment?: string }; hotkeyRegistered: boolean; modelLabel: string; mock: boolean } | null = null
 
 // ------------------------------------------------------------------ helpers
 function esc(s: string): string {
@@ -589,9 +589,10 @@ function saveSetup(): void {
     call_goal: $<HTMLInputElement>('csGoal').value,
     desired_outcomes: $<HTMLInputElement>('csOutcomes').value.split(',').map((x) => x.trim()).filter(Boolean),
     account: $<HTMLInputElement>('csAccount').value,
+    deployment: $<HTMLSelectElement>('csDeploy').value,
   })
 }
-for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount']) $(id).addEventListener('change', saveSetup)
+for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount', 'csDeploy']) $(id).addEventListener('change', saveSetup)
 
 // ---- tap-to-name speaker labels (per call; never required for HELP) ----
 let labelCluster: string | null = null
@@ -639,6 +640,7 @@ async function refreshHelpInfo(): Promise<void> {
   $<HTMLInputElement>('csGoal').value = su.call_goal
   $<HTMLInputElement>('csOutcomes').value = su.desired_outcomes.join(', ')
   $<HTMLInputElement>('csAccount').value = su.account
+  $<HTMLSelectElement>('csDeploy').value = su.deployment ?? 'unknown'
   $('hotkeyHint').textContent = helpInfo.hotkeyRegistered ? 'HELP: Ctrl+Alt+H' : 'Ctrl+Alt+H unavailable (used by another app) - use the HELP button'
   $('helpBtn').title = helpInfo.hotkeyRegistered ? 'HELP (Ctrl+Alt+H)' : 'HELP'
 }
@@ -651,6 +653,7 @@ async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
         const stale = d.review_by && new Date(d.review_by) < today
         return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
           ${stale ? '<span class="tag tag-warn">Stale</span>' : ''}
+          ${d.needs_reapproval ? '<span class="tag tag-warn" title="This file changed after you approved it. HELP will not use it until you approve the new content.">Changed: approve again</span>' : ''}
           <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label></div>`
       }).join('')
     : '<div class="muted small">No documents yet. HELP still works: it asks good questions and offers follow-ups instead of stating facts.</div>'

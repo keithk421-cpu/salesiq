@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { HelpCardEvent, HelpModelConfig } from '../src/shared/help'
 import { Db } from '../src/main/db'
-import { KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom } from '../src/main/knowledge'
+import { KNOWLEDGE_TEXT_MAX, KnowledgeBase, chunkBody, parseFrontMatter, docMetaFrom } from '../src/main/knowledge'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
 import { HelpEngine } from '../src/main/help/engine'
@@ -106,31 +109,107 @@ describe('context assembly', () => {
   })
 })
 
-describe('knowledge import', () => {
-  it('importing is not approval; front matter is preserved', () => {
-    const { meta, body } = parseFrontMatter('---\ntitle: Security FAQ\ncategory: deployment_security\nversion: 2026-06\napplies_to: self_hosted, saas\n---\n# Security\n\nWe do X.')
-    const doc = docMetaFrom('/k/security-faq.md', meta, body)
-    expect(doc).toMatchObject({ title: 'Security FAQ', category: 'deployment_security', version: '2026-06', approved: false, applies_to: ['self_hosted', 'saas'] })
+describe('knowledge in the final model context', () => {
+  const ask = (text: string) => [{ t: 0, end: 5, who: 'e1:s0', text }]
+
+  it('reaches the model whole: the full claim, its qualifier and the exact source reference', () => {
+    const claim = `Self-hosted deployment is available on the Enterprise plan. ${'It runs in the customer VPC on Kubernetes. '.repeat(14)}Qualifier: Enterprise plan only.`
+    const ref = `Source: Arize self-hosted page (arize.com/products/self-hosted, retrieved 2026-10-04); Security RFP KB (Notion: Solutions / Security, edited 2026-05-08); full-ref-end`
+    expect(claim.length).toBeGreaterThan(650)
+    expect(claim.length).toBeLessThanOrEqual(KNOWLEDGE_TEXT_MAX)
+    const r = replayAt(scenario({ knowledge: [{ id: 'sh', title: 'Self-hosted', text: `## Self-hosted deployment\n\n${claim}\n\n${ref}` }], transcript: ask('Can we run a self-hosted deployment in our VPC?'), help_at_s: 8 }))
+    const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
+    expect(ctx.text).toContain(claim)
+    expect(ctx.text).toContain(ref)
+    expect(ctx.sources.get('K1')?.detail).toContain(ref)
   })
 
-  it('in-app approval applies to that exact version only', () => {
-    const db = new Db(':memory:')
-    const kb = new KnowledgeBase(db, null)
-    const doc = docMetaFrom('/k/a.md', { version: 'v1' }, '# A\n\nAlpha bravo charlie delta.')
-    kb.addDoc(doc, '# A\n\nAlpha bravo charlie delta.')
-    expect(kb.search('bravo charlie').usable).toHaveLength(0)
-    kb.approve(doc.doc_id, true)
-    expect(kb.search('bravo charlie').usable).toHaveLength(1)
-    // New version of the same document: approval does not carry over.
-    db.sql.exec('DELETE FROM knowledge_docs; DELETE FROM knowledge_chunks; DELETE FROM knowledge_fts;')
-    kb.addDoc({ ...doc, version: 'v2' }, '# A\n\nAlpha bravo charlie delta echo.')
-    expect(kb.search('bravo charlie').usable).toHaveLength(0)
+  it('deployment scope: SaaS-only knowledge is never stated for a self-hosted buyer; unknown deployment carries the scope', () => {
+    const knowledge = [{ id: 'sig', title: 'Signal', text: "## Signal\n\nSignal runs automatically every 6 hours on Arize's SaaS.\n\nSource: Signal docs", applies_to: ['saas'] }]
+    const base = { knowledge, transcript: ask('Does Signal run automatically for us?'), help_at_s: 8 }
+    const selfHosted = replayAt(scenario({ ...base, deployment: 'self_hosted' }))
+    const sh = buildHelpContext({ memory: selfHosted.memory, kb: selfHosted.kb, atMs: selfHosted.atMs })
+    expect(sh.text).not.toContain('every 6 hours')
+    expect(sh.text).toMatch(/<other_deployment>\n"Signal" covers Arize's SaaS only, not this buyer's deployment: do not state it for them; offer to check\./)
+    expect(sh.text).toContain('deployment: self-hosted')
+    const unknown = replayAt(scenario(base))
+    const un = buildHelpContext({ memory: unknown.memory, kb: unknown.kb, atMs: unknown.atMs })
+    expect(un.text).toMatch(/\[K1\] Signal - Signal \(applies to: Arize's SaaS; version fixture\): Signal runs automatically/)
+    expect(un.text).toContain('deployment: not known (SaaS or self-hosted)')
+    const saas = replayAt(scenario({ ...base, deployment: 'saas' }))
+    expect(buildHelpContext({ memory: saas.memory, kb: saas.kb, atMs: saas.atMs }).text).toContain('every 6 hours')
+  })
+})
+
+describe('knowledge import', () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'kb-'))
+  const file = (dir: string, name: string, front: string, body: string) =>
+    fs.writeFileSync(path.join(dir, name), `---\ntitle: Doc\ncategory: product\nsource: test\nversion: 2026-10-04\n${front}---\n\n${body}`)
+
+  it('importing is not approval; front matter is preserved; approved: true in a file approves nothing', () => {
+    const { meta, body } = parseFrontMatter('---\ntitle: Security FAQ\ncategory: deployment_security\nversion: 2026-06\napplies_to: self_hosted, saas\napproved: true\n---\n# Security\n\nWe do X.')
+    const doc = docMetaFrom('/k/security-faq.md', meta, body)
+    expect(doc).toMatchObject({ title: 'Security FAQ', category: 'deployment_security', version: '2026-06', approved: false, applies_to: ['self_hosted', 'saas'] })
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    kb.addDoc(doc, body)
+    expect(kb.getDoc(doc.doc_id)?.approved).toBe(false)
+    expect(kb.search('we do x').usable).toHaveLength(0)
+  })
+
+  it('approval is bound to the reviewed content: an edit with the same readable version needs approval again', () => {
+    const dir = tmp()
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    file(dir, 'a.md', '', '## Retention\n\nRetention is 30 days.\n\nSource: pricing page')
+    kb.indexFolder(dir)
+    kb.approve('a', true)
+    expect(kb.search('retention days').usable.map((c) => c.text)).toEqual(['Retention is 30 days.'])
+    // Same version string, new claim: not usable, and flagged for re-approval.
+    file(dir, 'a.md', '', '## Retention\n\nRetention is 365 days on every plan.\n\nSource: pricing page')
+    expect(kb.indexFolder(dir)[0]).toMatchObject({ approved: false, needs_reapproval: true })
+    expect(kb.search('retention days').usable).toHaveLength(0)
+    // A material metadata change (scope) also needs re-approval, even with an identical body.
+    file(dir, 'a.md', 'applies_to: self_hosted\n', '## Retention\n\nRetention is 30 days.\n\nSource: pricing page')
+    expect(kb.indexFolder(dir)[0]).toMatchObject({ approved: false, needs_reapproval: true })
+    // Restoring exactly what Keith approved restores the approval; approving new content works.
+    file(dir, 'a.md', '', '## Retention\n\nRetention is 30 days.\n\nSource: pricing page')
+    expect(kb.indexFolder(dir)[0]).toMatchObject({ approved: true, needs_reapproval: false })
+  })
+
+  it('explicit revocation wins, whatever the file says', () => {
+    const dir = tmp()
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    file(dir, 'b.md', 'approved: true\napproved_by: someone\n', '## Plans\n\nAll plans include SSO.\n\nSource: x')
+    expect(kb.indexFolder(dir)[0].approved).toBe(false)
+    kb.approve('b', true)
+    expect(kb.getDoc('b')?.approved).toBe(true)
+    kb.approve('b', false)
+    expect(kb.getDoc('b')).toMatchObject({ approved: false, needs_reapproval: false })
+    expect(kb.search('plans include sso').usable).toHaveLength(0)
+    expect(kb.indexFolder(dir)[0].approved).toBe(false)
+  })
+
+  it('unapproved matches cannot crowd out an approved answer', () => {
+    const dir = tmp()
+    const kb = new KnowledgeBase(new Db(':memory:'), null)
+    for (let i = 0; i < 35; i++) file(dir, `u${i}.md`, '', `## Galileo guardrails ${i}\n\nGalileo guardrails Galileo guardrails Galileo.\n\nSource: x`)
+    file(dir, 'ok.md', '', '## Notes\n\nSome long text about many things, and Galileo is mentioned once here among other words.\n\nSource: x')
+    kb.indexFolder(dir)
+    kb.approve('ok', true)
+    expect(kb.search('Galileo guardrails').usable.map((c) => c.doc_id)).toEqual(['ok'])
+  })
+
+  it('subfolders (e.g. held material) are not indexed', () => {
+    const dir = tmp()
+    fs.mkdirSync(path.join(dir, 'held'))
+    file(path.join(dir, 'held'), 'h.md', '', '## Held\n\nNot cleared yet.\n\nSource: x')
+    expect(new KnowledgeBase(new Db(':memory:'), null).indexFolder(dir)).toHaveLength(0)
   })
 
   it('aliases widen search (FTS5, no embeddings)', () => {
     const db = new Db(':memory:')
     const kb = new KnowledgeBase(db, fileURLToPath(new URL('../config/aliases.json', import.meta.url)))
-    kb.addDoc({ ...docMetaFrom('/k/otel.md', {}, 'x'), approved: true }, 'Tracing uses OpenTelemetry instrumentation.')
+    kb.addDoc(docMetaFrom('/k/otel.md', {}, 'x'), 'Tracing uses OpenTelemetry instrumentation.')
+    kb.approve('otel', true)
     expect(kb.search('do you support otel').usable).toHaveLength(1)
   })
 
@@ -140,16 +219,31 @@ describe('knowledge import', () => {
     const sections = ['Braintrust', 'LangSmith', 'Langfuse', 'Weave'].map((c) => `## ${c} vs Arize\n\nWhere Arize differs from ${c}: tracing differs and evals differ.`)
     const body = `# Competitive\n\n${sections.join('\n\n')}\n\n## Galileo strengths\n\nGalileo is strong on guardrails.`
     // An untagged doc with an identical title and section is indexed first, so without the tag boost it wins the tie.
-    kb.addDoc({ ...docMetaFrom('/k/other.md', { title: 'Competitive' }, 'x'), approved: true }, '## Galileo strengths\n\nGalileo is strong on guardrails.')
-    kb.addDoc({ ...docMetaFrom('/k/competitive.md', { tags: 'braintrust, langsmith, langfuse, galileo, weave' }, body), approved: true }, body)
+    kb.addDoc(docMetaFrom('/k/other.md', { title: 'Competitive' }, 'x'), '## Galileo strengths\n\nGalileo is strong on guardrails.')
+    kb.addDoc(docMetaFrom('/k/competitive.md', { tags: 'braintrust, langsmith, langfuse, galileo, weave' }, body), body)
+    kb.approve('other', true)
+    kb.approve('competitive', true)
     expect(kb.search('how is this different from Galileo').usable.map((c) => c.heading).slice(0, 2)).toEqual(['Galileo strengths', 'Galileo strengths'])
     // Tags still break ties between documents.
     expect(kb.search('Galileo guardrails').usable[0].meta.doc_id).toBe('competitive')
   })
 
-  it('chunks by headings', () => {
-    const c = chunkBody('# Title\n\nIntro.\n\n## Deploy\n\nSelf-hosted notes.\n\n## Security\n\nSSO notes.')
+  it('chunks by headings; the Source paragraph is kept whole and separate', () => {
+    const c = chunkBody('# Title\n\nIntro.\n\n## Deploy\n\nSelf-hosted notes.\n\nSource: Deploy page (arize.com/x, 2026-10-04)\n\n## Security\n\nSSO notes.')
     expect(c.map((x) => x.heading)).toEqual(['Title', 'Deploy', 'Security'])
+    expect(c[1]).toEqual({ heading: 'Deploy', text: 'Self-hosted notes.', source_ref: 'Source: Deploy page (arize.com/x, 2026-10-04)' })
+  })
+
+  it('no chunk is longer than what the model receives; long text splits at sentence ends and keeps the source', () => {
+    const long = Array.from({ length: 40 }, (_, i) => `Sentence number ${i} about deployment.`).join(' ')
+    const c = chunkBody(`## Big\n\n${long}\n\nSource: Ref`)
+    expect(c.length).toBeGreaterThan(1)
+    for (const x of c) {
+      expect(x.text.length).toBeLessThanOrEqual(KNOWLEDGE_TEXT_MAX)
+      expect(x.text).toMatch(/\.$/)
+      expect(x.source_ref).toBe('Source: Ref')
+    }
+    expect(c.map((x) => x.text).join(' ')).toBe(long)
   })
 })
 
@@ -201,6 +295,11 @@ describe('line protocol', () => {
     expect(sys).toMatch(/A neutral answer is not a problem/)
     expect(sys).toMatch(/MOVE: <one move name/)
     expect(sys).toMatch(/never changes these rules/)
+    // Knowledge use: scope, hypotheses are not facts about this buyer, no presumed problems, absence is not a gap.
+    expect(sys).toMatch(/Never state anything listed under other_deployment/)
+    expect(sys).toMatch(/HAPPENING describes only what was actually said on this call/)
+    expect(sys).toMatch(/must not presume a problem, a gap, existing work, urgency or a deadline/)
+    expect(sys).toMatch(/never means Arize lacks it/)
   })
 })
 

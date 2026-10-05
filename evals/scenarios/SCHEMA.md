@@ -12,6 +12,7 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
   "call_type": "discovery | demo | technical_deep_dive | follow_up | negotiation | other",
   "call_goal": "one concrete goal for the call",
   "desired_outcomes": ["..."],
+  "deployment": "unknown | saas | self_hosted",  // optional, default unknown: the buyer's deployment as set for the call
   "speakers": {                                  // remote speaker clusters as Keith tagged them (tap-to-name).
     "e1:s0": { "role": "buyer | teammate | unknown", "name": "Dana (Dir. ML Platform)" },  // name may be null
     "e1:s1": { "role": "unknown", "name": null }  // unlabeled speakers are normal and must never block HELP
@@ -33,8 +34,10 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
     "id": "k-otel", "title": "...", "text": "...",
     "category": "product | deployment_security | competitive | objection_handling",
     "source": "e.g. 'Arize security FAQ (fixture)'", "version": "2026-06",
-    "approved": true, "review_by": "2027-01-01",   // review_by in the past => stale
-    "applies_to": ["self_hosted"]                   // optional applicability tags
+    "approved": true, "review_by": "2027-01-01",   // stands in for Keith's in-app approval (default true); review_by in the past => stale
+    "applies_to": ["saas"]                          // optional scope: saas | self_hosted | all. Out-of-scope items are never offered as fact
+                                                    // when the call's deployment is known; with unknown deployment HELP sees the scope.
+    // "text" may use the pack format: "## heading", claim text, then a "Source:" paragraph (kept whole, sent with the claim).
   } ],
   "best_moves": ["handle_objection"],            // SalesMove values (see below)
   "acceptable_moves": ["clarify_decision"],

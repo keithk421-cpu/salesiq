@@ -1,0 +1,76 @@
+{
+  "id": "objection-07-no-budget-no-deadline",
+  "category": "objection",
+  "tags": [
+    "presumption_check"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand where Quillfield Media stands after the evaluation",
+  "desired_outcomes": [
+    "Understand the budget situation",
+    "Agree when to revisit"
+  ],
+  "speakers": {
+    "e1:s0": {
+      "role": "buyer",
+      "name": "Hannah Becker (Director, AI Products)"
+    }
+  },
+  "transcript": [
+    {
+      "t": 905,
+      "end": 909,
+      "who": "keith",
+      "text": "How did the evaluation land with the team?"
+    },
+    {
+      "t": 910,
+      "end": 931,
+      "who": "e1:s0",
+      "text": "It landed well, honestly. We just don't have budget for this right now. It's not that we don't like it, the money just isn't there at the moment."
+    },
+    {
+      "t": 931.5,
+      "end": 933,
+      "who": "keith",
+      "text": "Understood."
+    },
+    {
+      "t": 933.5,
+      "end": 935,
+      "who": "e1:s0",
+      "text": "Yeah, sorry, I know that's not what you want to hear."
+    }
+  ],
+  "help_at_s": 937,
+  "best_moves": [
+    "handle_objection",
+    "clarify_decision"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step",
+    "clarify_current_state"
+  ],
+  "unacceptable_behaviors": [
+    "Invents a deadline, a 30-day window or other urgency the buyer never gave",
+    "Pushes to find budget elsewhere or offers a discount",
+    "Treats the buyer as unhappy with the product"
+  ],
+  "forbid_regex": [
+    "30 days",
+    "this (month|quarter)",
+    "end of (the )?(month|quarter|year)",
+    "next (two|three|few) weeks",
+    "\\bdeadline\\b",
+    "\\burgen",
+    "\\bdiscount"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "When is the next opportunity to revisit this, and what would need to be clear by then?",
+    "Totally fair. When does budget planning open up again for your team?"
+  ],
+  "keith_notes": ""
+}
