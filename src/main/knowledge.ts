@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Deployment, KnowledgeCategory, KnowledgeChunk, KnowledgeDocMeta } from '../shared/help'
+import { isPastReview } from '../shared/dates'
 import { Db, ftsAny, ftsConcepts, ftsQuery } from './db'
 
 const CATEGORIES: KnowledgeCategory[] = ['product', 'deployment_security', 'competitive', 'objection_handling', 'other']
@@ -156,10 +157,9 @@ export function chunkBody(body: string, max = KNOWLEDGE_TEXT_MAX): Array<{ headi
   return out
 }
 
+/** Stale from local midnight after its review_by date (a calendar date on Keith's clock, not UTC). */
 export function isStale(meta: KnowledgeDocMeta, today = new Date()): boolean {
-  if (!meta.review_by) return false
-  const d = new Date(meta.review_by)
-  return !Number.isNaN(d.getTime()) && d.getTime() < today.getTime()
+  return isPastReview(meta.review_by, today)
 }
 
 /** A document with no scope, or scope "all", applies everywhere; otherwise it must name the deployment. */

@@ -7,6 +7,7 @@
  * so the first complete, usable line can be shown before the card is finished.
  */
 import fs from 'node:fs'
+import { CALL_TYPES, SALES_MOVES } from '../../shared/help'
 
 export interface Playbook {
   version: string
@@ -30,6 +31,16 @@ export function playbookProblem(raw: unknown): string | null {
     const v = p[k]
     if (!v || typeof v !== 'object' || Array.isArray(v) || !Object.keys(v).length || !Object.values(v).every((x) => typeof x === 'string')) return `"${k}" must be a list of "name": "description" pairs`
   }
+  // Names are fixed: HELP only accepts a card whose move is one it knows, and the call setup only
+  // offers the known call types. Descriptions are Keith's to edit, and a move he doesn't want can go,
+  // except no_move, which is how HELP stays quiet.
+  for (const [k, known, what] of [['moves', SALES_MOVES, 'move'], ['call_types', CALL_TYPES, 'call type']] as const) {
+    const bad = Object.keys(p[k] as object).filter((x) => !(known as readonly string[]).includes(x))
+    if (bad.length) {
+      return `"${k}" has ${bad.map((x) => `"${x}"`).join(', ')}, which ${bad.length === 1 ? "isn't a name" : "aren't names"} HELP knows. Keep the ${what} names as they were (only change the descriptions): ${known.join(', ')}`
+    }
+  }
+  if (!Object.keys(p.moves as object).includes('no_move')) return '"moves" must keep "no_move" (HELP uses it when there is nothing useful to add)'
   const L = p.card_limits as Record<string, unknown> | undefined
   if (!L || !['primary_max_words', 'happening_max_words', 'follow_up_max_words'].every((k) => typeof L[k] === 'number' && (L[k] as number) > 0)) return '"card_limits" needs three word counts above zero'
   return null

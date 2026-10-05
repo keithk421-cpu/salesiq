@@ -76,8 +76,11 @@ export function deleteCall(root: string, db: Db | null, id: string): boolean {
 /**
  * Rebuild the database file without the deleted rows, then flush and empty the write-ahead log, so
  * deleted text is left neither in free pages nor in the -wal file while the app keeps running.
+ * Deleting from the transcript search index only adds "deleted" markers next to the old index entries
+ * (which hold the words), so the index is merged first; VACUUM alone would keep those words.
  */
 export function compact(db: Db): void {
+  db.sql.exec("INSERT INTO turns_fts(turns_fts) VALUES('optimize')")
   db.sql.exec('VACUUM')
   db.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)')
 }

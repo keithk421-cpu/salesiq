@@ -58,10 +58,14 @@ export class Db {
     const cols = this.sql.prepare('PRAGMA table_info(knowledge_chunks)').all() as Array<{ name: string }>
     if (!cols.some((c) => c.name === 'source_ref')) this.sql.exec("ALTER TABLE knowledge_chunks ADD COLUMN source_ref TEXT NOT NULL DEFAULT ''")
     // Builds before Oct 5 kept the text of background requests Keith never saw. Drop it, and compact
-    // the file so the removed text doesn't linger in free pages.
+    // the file so the removed text doesn't linger in free pages. A timing record that can't be read
+    // can't say whether he saw the card, so that row is left as it is (and never stops HELP starting).
     const unseen = this.sql.prepare(
       `UPDATE help_requests SET request_text = NULL, output_raw = NULL, card_json = NULL
-       WHERE prefetch = 1 AND COALESCE(json_extract(timing_json, '$.served_from_prefetch'), 0) = 0
+       WHERE prefetch = 1
+         AND CASE WHEN timing_json IS NULL THEN 0
+                  WHEN json_valid(timing_json) THEN COALESCE(json_extract(timing_json, '$.served_from_prefetch'), 0)
+                  ELSE 1 END = 0
          AND (request_text IS NOT NULL OR output_raw IS NOT NULL OR card_json IS NOT NULL)`,
     ).run()
     if (Number(unseen.changes) > 0 && path !== ':memory:') {
