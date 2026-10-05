@@ -5,6 +5,7 @@ import type { DeviceScanEvent, ProbeStats } from '../main/deviceTest'
 import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import { expiresLabel, isPastReview } from '../shared/dates'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -914,11 +915,12 @@ async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
   const today = new Date()
   $('kbList').innerHTML = list.length
     ? list.map((d) => {
-        const stale = d.review_by && new Date(d.review_by) < today
-        const daysLeft = d.review_by && !stale ? Math.ceil((new Date(d.review_by).getTime() - today.getTime()) / 86_400_000) : null
+        // Same rule as the knowledge index: review_by is a local calendar date, stale from the day after.
+        const stale = isPastReview(d.review_by, today)
+        const expires = expiresLabel(d.review_by, today)
         return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
           ${stale ? '<span class="tag tag-warn" title="Past its review date: HELP mentions it exists but states nothing from it">Stale</span>' : ''}
-          ${daysLeft !== null && daysLeft <= 14 ? `<span class="tag tag-warn" title="After its review date HELP stops stating facts from it. Ask for a refresh before then.">Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}</span>` : ''}
+          ${expires ? `<span class="tag tag-warn" title="After its review date HELP stops stating facts from it. Ask for a refresh before then.">${expires}</span>` : ''}
           ${d.needs_reapproval ? '<span class="tag tag-warn" title="This file changed after you approved it. HELP will not use it until you approve the new content.">Changed: approve again</span>' : ''}
           <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label>
           <button class="btn btn-ghost btn-sm" data-remove="${esc(d.doc_id)}" title="Take this file out of use (moved to the _removed folder, not deleted)">Remove</button></div>`
