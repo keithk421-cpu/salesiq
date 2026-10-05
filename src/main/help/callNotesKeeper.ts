@@ -29,7 +29,11 @@ export const NOTES_MAX_PER_HOUR = 20
 /** After a failed or unusable answer, wait this long before trying again. */
 export const NOTES_RETRY_AFTER_MS = 60_000
 export const NOTES_TIMEOUT_MS = 30_000
-export const NOTES_MAX_TOKENS = 1500
+/**
+ * A ceiling, not spend: full notes run to ~1,700 output tokens, and Opus's thinking counts too. A cut-off
+ * answer is unusable and would be retried with the same lines, so leave plenty of room.
+ */
+export const NOTES_MAX_TOKENS = 4000
 /** New lines per update, by size (oldest first); a backlog catches up over the next updates. */
 export const NOTES_MAX_DELTA_CHARS = 12_000
 const HOUR_MS = 3_600_000
