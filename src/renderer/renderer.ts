@@ -660,13 +660,13 @@ $('retention').addEventListener('change', async () => {
 })
 $('deleteAll').addEventListener('click', async () => {
   if (!confirm("Delete every saved call from this PC? Transcripts, HELP cards and notes are removed. This can't be undone.")) return
-  const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number }
-  if (sessionState === 'stopped' || sessionState === 'idle') {
+  const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number; error?: string }
+  if (!r.error && (sessionState === 'stopped' || sessionState === 'idle')) {
     lastCallDeleted = true
     clearCallView()
     setButtons()
   }
-  $('snapMsg').textContent = r.ok ? `Deleted ${r.deleted} saved call(s).` : "Some files couldn't be deleted. Close the app and try again."
+  $('snapMsg').textContent = r.ok ? `Deleted ${r.deleted} saved call(s).` : r.error ?? "Some files couldn't be deleted. Close the app and try again."
   void renderCallsInfo()
 })
 api.onRetentionPreview((p) => {
@@ -689,8 +689,10 @@ $('rmNo').addEventListener('click', () => {
 $('hideCapture').addEventListener('change', async () => {
   const on = $<HTMLInputElement>('hideCapture').checked
   await api.setAppSettings({ hide_from_capture: on })
-  $('snapMsg').textContent = on ? 'This window is hidden from screen sharing and screenshots again.' : 'This window can now be captured. Take the screenshot, then tick the box again before your next call.'
+  $('snapMsg').textContent = on ? 'This window is hidden from screen sharing during calls.' : 'This window can now be captured, even during a call. It hides again when you next press Start.'
 })
+// Start switches the hiding back on if it was off for a screenshot.
+api.onAppSettings((s) => { $<HTMLInputElement>('hideCapture').checked = s.hide_from_capture })
 void (api.buildInfo() as Promise<{ version: string; build: string; sha: string; date: string }>).then((b) => {
   $('buildTag').textContent = `· build ${b.build} (${b.sha}${b.date ? `, ${b.date}` : ''})`
 })
@@ -720,20 +722,24 @@ function renderCard(): void {
   el.classList.toggle('pending', !usable)
   el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
   $('hcBadge').hidden = !card.mock
-  $('hcHappening').textContent = c.happening ?? ''
+  // An answer that never finished (failed, timed out, cancelled by Pause/Stop) is never advice.
+  const cut = card.status === 'cancelled' || card.status === 'superseded'
+  const broken = card.status === 'failed' || card.status === 'timeout' || cut
+  // Its read of the moment is hidden too: it never passed the checks.
+  $('hcHappening').textContent = broken ? '' : c.happening ?? ''
   const su = card.setup
   $('hcFor').textContent = su ? `For ${su.account || 'account not set'} · ${DEPLOY_LABEL[su.deployment] ?? 'deployment not sure'}` : ''
   const prim = $('hcPrimary')
-  const broken = card.status === 'failed' || card.status === 'timeout'
   if (usable && broken) {
-    // A line that streamed in but whose answer then failed is shown struck through, never as advice.
-    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(card.error ?? "the answer didn't finish its checks")}</span>`
+    // A line that streamed in but whose answer then failed or was cut off is shown struck through.
+    const why = card.error ?? (cut ? 'the answer was cut off before it finished its checks' : "the answer didn't finish its checks")
+    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(why)}</span>`
   } else if (usable) {
     prim.innerHTML = `<span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span>${esc(c.primary_kind === 'ask' ? `"${c.primary}"` : c.primary!)}`
+  } else if (cut) {
+    prim.textContent = 'Cancelled.'
   } else if (broken) {
     prim.textContent = card.error ?? 'HELP could not produce a usable line. Press HELP again.'
-  } else if (card.status === 'cancelled') {
-    prim.textContent = 'Cancelled.'
   } else {
     prim.textContent = PENDING_TEXT[card.status] ?? ''
   }
@@ -786,7 +792,7 @@ const DEPLOY_LABEL: Record<string, string> = { saas: 'SaaS', self_hosted: 'self-
 function renderReady(r: ReadyState | undefined): void {
   const el = $('helpReady')
   const state = r?.readiness ?? 'checking'
-  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' ? 'warn' : 'bad'}`
+  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' || state === 'busy' ? 'warn' : 'bad'}`
   $('helpReadyText').textContent = r?.message ?? 'Checking HELP…'
 }
 api.onHelpReady((r) => renderReady(r))
@@ -964,7 +970,7 @@ $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.k
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
 
 // ---- playbook status: which one HELP uses, a broken edit, a newer built-in version ----
-type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean }
+type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean; error?: string | null }
 function renderPlaybook(pb: PlaybookInfo | null): void {
   const el = $('pbStatus')
   if (!pb) {
@@ -972,7 +978,10 @@ function renderPlaybook(pb: PlaybookInfo | null): void {
     return
   }
   const check = ' <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
-  if (pb.problem) {
+  if (pb.error) {
+    el.innerHTML = `<span class="err-text">${esc(pb.error)}</span> HELP still uses ${pb.using === 'yours' ? 'your edited playbook' : 'the built-in playbook'} (${esc(pb.version)}). ` +
+      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Try again</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>'
+  } else if (pb.problem) {
     el.innerHTML = `<span class="err-text">Your edited playbook has a mistake: ${esc(pb.problem)}. HELP uses the built-in one (${esc(pb.built_in_version)}) until it's fixed.</span>${check}`
   } else if (pb.newer_built_in) {
     el.innerHTML = `A different built-in playbook is available (${esc(pb.built_in_version)}); HELP is using your edited copy (${esc(pb.version)}). ` +
@@ -985,7 +994,11 @@ $('pbStatus').addEventListener('click', async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pb]')
   if (!b) return
   const action = b.dataset.pb
-  renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  try {
+    renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  } catch {
+    $('pbStatus').innerHTML = '<span class="err-text">That didn\'t work. Close the playbook file if it\'s open, then try again.</span> <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
+  }
 })
 $('aiKeySave').addEventListener('click', async () => {
   const r = await api.helpSetKey($<HTMLInputElement>('aiKeyInput').value)

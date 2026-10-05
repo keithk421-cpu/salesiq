@@ -11,7 +11,7 @@ import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
-import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
+import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
@@ -38,6 +38,8 @@ export interface PlaybookInfo {
   problem: string | null
   /** A different built-in version shipped since Keith's copy was made, and he hasn't chosen yet. */
   newer_built_in: boolean
+  /** "Use the new one" didn't work (e.g. Windows holds the file open); HELP keeps using what it was. */
+  error?: string | null
 }
 
 export interface HelpReadyState {
@@ -51,6 +53,7 @@ const READY_TEXT: Record<HelpReadiness, string> = {
   key_rejected: 'Claude key not working: check Setup, step 3',
   no_credit: 'Anthropic account is out of credit',
   offline: "Can't reach Claude: check the internet",
+  busy: 'Claude is busy right now; press HELP again',
   unavailable: "HELP's Claude model isn't available to this key",
   checking: 'Checking HELP…',
 }
@@ -99,6 +102,8 @@ export class HelpService {
   engine: HelpEngine | null = null
   private sessionState = 'idle'
   private sessionNow: () => number = () => 0
+  /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
+  private endedCall: { sessionId: string; callMs: number } | null = null
   hotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
   onReadiness: ((r: HelpReadyState) => void) | null = null
@@ -118,8 +123,11 @@ export class HelpService {
     if (!fs.existsSync(readme) || fs.readFileSync(readme, 'utf8') !== KNOWLEDGE_README) fs.writeFileSync(readme, KNOWLEDGE_README)
     this.playbook = this.loadPlaybook()
     this.settings = storage.readJson('help-settings.json', DEFAULT_SETTINGS)
-    // Older saved setups have no deployment field; missing fields fall back to the defaults.
-    this.setup = { ...DEFAULT_SETUP, ...storage.readJson('call-setup.json', DEFAULT_SETUP) }
+    // Account, goal, outcomes and deployment belong to one call: if the app quit or crashed without
+    // Stop, they'd be the last call's. Only the call type (which often repeats) carries over.
+    const saved = storage.readJson<Partial<CallSetup>>('call-setup.json', DEFAULT_SETUP)
+    const callType = (CALL_TYPES as readonly string[]).includes(saved.call_type as string) ? (saved.call_type as CallType) : DEFAULT_SETUP.call_type
+    this.setup = { ...DEFAULT_SETUP, call_type: callType }
     try {
       this.kb.indexFolder(this.knowledgeDir)
     } catch (err) {
@@ -159,9 +167,30 @@ export class HelpService {
   /** Switch to the shipped playbook; Keith's copy is kept as a dated backup next to it. */
   useBuiltInPlaybook(now = new Date()): PlaybookInfo {
     const user = path.join(this.storage.root, 'playbook.json')
-    if (fs.existsSync(user)) fs.renameSync(user, path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`))
+    const backup = path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`)
+    if (fs.existsSync(user)) {
+      try {
+        fs.renameSync(user, backup)
+      } catch (err) {
+        // Windows can refuse a rename while another program has the file open: copy, then delete.
+        this.log('playbook_rename_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+        try {
+          fs.copyFileSync(user, backup)
+          fs.unlinkSync(user)
+        } catch (err2) {
+          this.log('playbook_switch_failed', { code: (err2 as NodeJS.ErrnoException).code ?? 'unknown' })
+          // His copy stays in use, so don't leave a second copy of it lying around.
+          try {
+            if (fs.existsSync(user)) fs.rmSync(backup, { force: true })
+          } catch {
+            /* best effort */
+          }
+          return { ...this.reloadPlaybook(), error: "Couldn't switch: close the playbook file and try again." }
+        }
+      }
+    }
     this.log('playbook_choice', { choice: 'built_in' })
-    return this.reloadPlaybook()
+    return { ...this.reloadPlaybook(), error: null }
   }
 
   /** Keep Keith's copy and stop offering this shipped version. */
@@ -200,13 +229,17 @@ export class HelpService {
   }
 
   private setReady(readiness: HelpReadiness): void {
+    if (this.ready.readiness !== readiness) this.log('help_readiness', { readiness })
     this.ready = { readiness, message: READY_TEXT[readiness] }
-    this.log('help_readiness', { readiness })
     this.onReadiness?.(this.ready)
   }
 
+  /** Bumped by every check and every finished request: only the newest news reaches the light. */
+  private readySeq = 0
+
   /** HELP-ready light: a free check that Claude accepts the saved key (no tokens used). */
   async checkReady(): Promise<HelpReadyState> {
+    const seq = ++this.readySeq
     const model = this.createModel()
     if (model.mock) {
       this.setReady('practice')
@@ -214,13 +247,17 @@ export class HelpService {
     }
     this.setReady('checking')
     const r = await model.check(this.modelConfig())
-    this.setReady(r.readiness)
+    // A newer check or a request that finished meanwhile knows better.
+    if (seq === this.readySeq) this.setReady(r.readiness)
     return this.ready
   }
 
-  private onBlocked(e: HelpError | null): void {
-    if (!e) this.setReady('ready')
-    else this.setReady(e.code === 'no_credit' ? 'no_credit' : e.code === 'model_unavailable' ? 'unavailable' : 'key_rejected')
+  /** Every finished request updates the light, so it never disagrees with what HELP presses see. */
+  private onRequestResult(e: HelpError | null): void {
+    const readiness = e ? readinessFor(e) : 'ready'
+    if (!readiness) return
+    this.readySeq++
+    this.setReady(readiness)
   }
 
   // ---------------------------------------------------------------- settings / setup / knowledge
@@ -244,12 +281,18 @@ export class HelpService {
     }
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
-    if (this.memory) {
+    if (this.memory && this.callInProgress()) {
       // Editable mid-call: the next HELP press uses it, and the call's record keeps the latest.
+      // After Stop the strip is for the next call; the finished call's record keeps what it was.
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
     }
     return setup
+  }
+
+  /** Waiting to go live, live or paused: the call that `memory` belongs to is still going. */
+  private callInProgress(): boolean {
+    return this.sessionState === 'checking' || this.sessionState === 'live' || this.sessionState === 'paused'
   }
 
   importKnowledge(picked: string[], fromFolder: boolean): KnowledgeImport & { docs: KnowledgeDocMeta[] } {
@@ -332,6 +375,7 @@ export class HelpService {
     // Playbook edits made since the last call apply now, without restarting the app.
     this.playbook = this.loadPlaybook()
     this.sessionNow = nowSessionMs
+    this.endedCall = null
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
@@ -339,7 +383,8 @@ export class HelpService {
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
       sessionNowMs: () => this.sessionNow(), emit: this.emit, log: this.log, prefetch: this.settings.prefetch,
-      onBlocked: (e) => this.onBlocked(e),
+      // Practice mode (no key) stays "Practice mode" whatever the MOCK cards do.
+      onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
     })
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
     void this.checkReady()
@@ -347,6 +392,7 @@ export class HelpService {
 
   /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
   forgetCall(sessionId: string): void {
+    if (this.endedCall?.sessionId === sessionId) this.endedCall = null
     if (this.memory?.sessionId !== sessionId) return
     this.engine?.dispose()
     this.engine = null
@@ -357,18 +403,25 @@ export class HelpService {
   private endCall(): void {
     const m = this.memory
     if (m) {
-      try {
-        const dir = path.join(this.storage.root, 'reports')
-        fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(path.join(dir, `help-scorecard-${m.sessionId}.json`), JSON.stringify(buildScorecard(this.db, m.sessionId, this.sessionNow()), null, 2))
-      } catch (err) {
-        this.log('help_scorecard_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
-      }
+      // The session clock keeps running after Stop; the call's length is what it is now.
+      this.endedCall = { sessionId: m.sessionId, callMs: this.sessionNow() }
+      this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
     }
     // Account, goal, outcomes and deployment are per call; the call type often repeats. The finished
     // call's own record keeps what it was.
     this.setup = { ...DEFAULT_SETUP, call_type: this.setup.call_type }
     this.storage.writeJson('call-setup.json', this.setup)
+  }
+
+  /** reports/help-scorecard-<id>.json, numbers only. Rewritten as Keith rates the cards after the call. */
+  private writeScorecard(sessionId: string, callMs: number): void {
+    try {
+      const dir = path.join(this.storage.root, 'reports')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, `help-scorecard-${sessionId}.json`), JSON.stringify(buildScorecard(this.db, sessionId, callMs), null, 2))
+    } catch (err) {
+      this.log('help_scorecard_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+    }
   }
 
   /** HELP button / hotkey. Never gated by speaker role. */
@@ -393,6 +446,11 @@ export class HelpService {
     if (eng) eng.recordFeedback(ev)
     else this.db.sql.prepare('INSERT INTO feedback (card_id, origin, type, bad_reason, note, ts) VALUES (?, ?, ?, ?, ?, ?)')
       .run(ev.card_id, ev.origin, ev.type, ev.bad_reason, ev.optional_note, new Date().toISOString())
+    // The after-call review happens after Stop: bring the finished call's scorecard up to date.
+    const ended = this.endedCall
+    if (ended && this.db.sql.prepare('SELECT 1 FROM help_requests WHERE id = ? AND session_id = ?').get(ev.card_id, ended.sessionId)) {
+      this.writeScorecard(ended.sessionId, ended.callMs)
+    }
     return { ok: true }
   }
 
@@ -537,7 +595,15 @@ export class HelpService {
     }
   }
 
+  /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
+    if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
+      try {
+        this.endCall()
+      } catch (err) {
+        this.log('help_end_on_quit_failed', { message: (err as Error).message })
+      }
+    }
     this.engine?.dispose()
     try {
       this.db.close()

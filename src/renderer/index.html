@@ -238,14 +238,14 @@
     <div id="idleBanner" class="banner warning" hidden>
       <span class="banner-ico"></span>
       <div class="banner-body">
-        <div><b>Still on a call?</b> Nothing has been heard from the other side for 10 minutes. Stopping in <b id="idleLeft">60</b> s.</div>
+        <div><b>Still on a call?</b> Nothing has been said on the call for 10 minutes. Pausing in <b id="idleLeft">60</b> s (Resume carries on).</div>
         <div class="row"><button id="idleKeep" class="btn btn-sm btn-primary">Still on the call</button></div>
       </div>
     </div>
 
     <div id="checkCard" class="card check" hidden>
       <h2>Waiting for the call…</h2>
-      <p class="muted">It goes live as soon as it hears both sides: the meeting audio (or Zoom's <b>Test Speaker</b>) and you saying a few words. It keeps waiting up to 20 minutes; press <b>Stop</b> to cancel.</p>
+      <p class="muted">It goes live as soon as it hears both sides at about the same time: the meeting audio (or Zoom's <b>Test Speaker</b>) and you saying a few words. It keeps waiting up to 20 minutes; press <b>Stop</b> to cancel.</p>
       <ul class="checks">
         <li id="ckSys"><span class="ck"></span>Meeting audio</li>
         <li id="ckMic"><span class="ck"></span>Your mic</li>
@@ -280,7 +280,7 @@
         <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
       <p id="snapMsg" class="muted small"></p>
-      <label class="inline check small"><input type="checkbox" id="hideCapture" /> Hide this window from screen sharing, recordings and screenshots (untick only to take a screenshot for support)</label>
+      <label class="inline check small"><input type="checkbox" id="hideCapture" /> During calls, hide this window from screen sharing, recordings and screenshots (outside a call, screenshots just work; if you untick it, Start ticks it again)</label>
       <div class="row small">
         <span>Keep saved calls for</span>
         <select id="retention" class="input">

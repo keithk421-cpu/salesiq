@@ -79,7 +79,36 @@ export function describeError(err: unknown): HelpError {
 }
 
 /** HELP-ready light: is a real key there, and does Claude accept it? */
-export type HelpReadiness = 'ready' | 'practice' | 'key_rejected' | 'no_credit' | 'offline' | 'unavailable' | 'checking'
+export type HelpReadiness = 'ready' | 'practice' | 'key_rejected' | 'no_credit' | 'offline' | 'busy' | 'unavailable' | 'checking'
+
+/**
+ * What an error says about the HELP-ready light. null: nothing new about the key, credit or
+ * connection (a timeout, a cancel, an unexpected problem), so the light stays as it is.
+ */
+export function readinessFor(e: HelpError): HelpReadiness | null {
+  switch (e.code) {
+    case 'key_rejected':
+    case 'key_not_allowed':
+      return 'key_rejected'
+    case 'no_credit':
+      return 'no_credit'
+    case 'model_unavailable':
+      return 'unavailable'
+    case 'rate_limited':
+    case 'overloaded':
+    case 'server_error':
+      return 'busy'
+    case 'offline':
+      return 'offline'
+    default:
+      return null
+  }
+}
+
+/** Busy or a dropped connection: worth one quick retry by hand. A 429 comes straight back to Keith. */
+const RETRY_CODES: ReadonlySet<HelpError['code']> = new Set(['overloaded', 'server_error', 'offline'])
+/** Only retry if at least this much of the HELP deadline is left. */
+const RETRY_MIN_LEFT_MS = 3000
 
 export const DEFAULT_HELP_CONFIG: HelpModelConfig = {
   provider: 'anthropic',
@@ -96,9 +125,10 @@ export class ClaudeHelpModel implements HelpModel {
   readonly mock = false
   private client: Anthropic
 
-  constructor(apiKey: string) {
-    // One quick retry for a busy (429/529) or dropped request; the 8 s HELP deadline still applies.
-    this.client = new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com', maxRetries: 1 })
+  constructor(apiKey: string, client?: Anthropic) {
+    // No automatic retries: the client would wait out a 429's retry-after past the 8 s HELP deadline.
+    // run() retries once by hand when that can still finish in time.
+    this.client = client ?? new Anthropic({ apiKey, baseURL: 'https://api.anthropic.com', maxRetries: 0 })
   }
 
   label(c: HelpModelConfig): string {
@@ -124,13 +154,31 @@ export class ClaudeHelpModel implements HelpModel {
   }
 
   async run(req: HelpModelRun): Promise<HelpModelResult> {
+    const startedAt = Date.now()
+    let streamed = false
+    const onText = (t: string) => {
+      streamed = true
+      req.onText(t)
+    }
+    try {
+      return await this.runOnce(req, req.config.timeout_ms, onText)
+    } catch (err) {
+      // One quick retry for a busy or dropped request, only if nothing reached Keith yet and it can
+      // still finish inside the HELP deadline.
+      const left = req.config.timeout_ms - (Date.now() - startedAt)
+      if (streamed || req.signal.aborted || left < RETRY_MIN_LEFT_MS || !RETRY_CODES.has(describeError(err).code)) throw err
+      return this.runOnce(req, left, onText)
+    }
+  }
+
+  private async runOnce(req: HelpModelRun, timeoutMs: number, onText: (t: string) => void): Promise<HelpModelResult> {
     const c = req.config
     const stream = this.client.beta.messages.stream(this.params(req.system, req.user, c, c.max_tokens), {
       signal: req.signal,
-      timeout: c.timeout_ms,
+      timeout: timeoutMs,
     })
     for await (const ev of stream) {
-      if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') req.onText(ev.delta.text)
+      if (ev.type === 'content_block_delta' && ev.delta.type === 'text_delta') onText(ev.delta.text)
     }
     const msg = await stream.finalMessage()
     const u = msg.usage
@@ -152,7 +200,8 @@ export class ClaudeHelpModel implements HelpModel {
   async prewarm(system: string, c: HelpModelConfig): Promise<void> {
     // max_tokens 0: writes/refreshes the cached system prompt and opens the connection; no output billed.
     const p = this.params(system, 'warm-up', c, 0)
-    await this.client.beta.messages.create({ ...p, stream: false }, { timeout: 10_000 })
+    // Background, no deadline: one automatic retry is fine here.
+    await this.client.beta.messages.create({ ...p, stream: false }, { timeout: 10_000, maxRetries: 1 })
   }
 
   async check(c: HelpModelConfig): Promise<{ readiness: HelpReadiness; error?: HelpError }> {
@@ -162,8 +211,8 @@ export class ClaudeHelpModel implements HelpModel {
       return { readiness: 'ready' }
     } catch (err) {
       const error = describeError(err)
-      if (error.blocking) return { readiness: error.code === 'model_unavailable' ? 'unavailable' : 'key_rejected', error }
-      return { readiness: 'offline', error }
+      // A check that timed out or failed oddly most likely couldn't reach Claude.
+      return { readiness: readinessFor(error) ?? 'offline', error }
     }
   }
 }

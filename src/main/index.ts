@@ -16,8 +16,9 @@ import { saveSupportFiles } from './support'
 import { loadNative } from './native'
 import { HELP_HOTKEY, HelpService } from './helpService'
 import { IdleWatch } from './idleWatch'
+import { CallLogs, DEFAULT_APP_SETTINGS, HideToggle, RETENTION_CHOICES, StartWait, callActive, loadAppSettings, protectWindow, type AppSettings, type AwayReason } from './appRules'
 import { deleteCalls, listSavedCalls, olderThan } from './retention'
-import { SessionController, type SessionEvent } from './session'
+import { PAUSE_DETAIL, SessionController, type SessionEvent, type SessionState } from './session'
 import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
 
@@ -29,26 +30,30 @@ let storage: Storage
 let appLog: JsonlWriter
 let scanner: DeviceScanner
 let session: SessionController | null = null
-let sessionLog: JsonlWriter | null = null
-let transcriptLog: JsonlWriter | null = null
+let callLogs: CallLogs
 let help: HelpService | null = null
 let idle: IdleWatch | null = null
 let hideHotkeyRegistered = false
+const hideToggle = new HideToggle()
+/** Why the call was paused automatically, until it goes live again or ends. */
+let autoPausedFor: AwayReason | null = null
+/** Locking or sleep cancelled Start's wait: Keith sees why, not "Stopped by Keith". */
+const startWait = new StartWait()
 
-/** Show/hide the window without taking focus from Zoom. Registered only if no other app uses it. */
-const HIDE_HOTKEY = 'Control+Alt+Shift+H'
+/**
+ * Show/hide the window without taking focus from Zoom. Registering only fails if another program
+ * registered the same keys system-wide; it can't see shortcuts apps like Zoom handle inside their own
+ * windows, so this one is chosen from keys Zoom for Windows doesn't use (Ctrl+Alt+Shift+H is Zoom's
+ * "show/hide floating meeting controls").
+ */
+const HIDE_HOTKEY = 'Control+Alt+J'
+const HIDE_HOTKEY_LABEL = 'Ctrl+Alt+J'
 
-interface AppSettings {
-  /** Keep this window out of screen shares, recordings and screenshots (Windows 10 2004 and later). */
-  hide_from_capture: boolean
-  /** Delete saved calls older than this many days; null (the default) keeps them. */
-  retention_days: number | null
-  /** Keith said yes to the first deletion preview; after that, old calls are deleted without asking. */
-  retention_confirmed: boolean
-}
-const DEFAULT_APP_SETTINGS: AppSettings = { hide_from_capture: true, retention_days: null, retention_confirmed: false }
-const RETENTION_CHOICES = [7, 14, 30, 90]
 let appSettings: AppSettings = { ...DEFAULT_APP_SETTINGS }
+
+function saveAppSettings(): void {
+  storage.writeJson('app-settings.json', appSettings)
+}
 
 /** Knowledge file names can name a customer; logs keep a short fingerprint instead. */
 const docRef = (docId: string) => createHash('sha256').update(docId).digest('hex').slice(0, 8)
@@ -92,22 +97,35 @@ function snapshotDevices(label: string): string {
 }
 
 function onSessionEvent(ev: SessionEvent): void {
-  send('session-event', ev)
+  send('session-event', startWait.shown(ev))
   const s = session
   if (help && s) help.onSessionEvent(ev, s.sessionId, () => s.nowSessionMs())
   watchIdle(ev)
-  if (!transcriptLog) return
-  if (ev.type === 'turn' && ev.event.type === 'turn_final') transcriptLog.write({ kind: 'turn', ...ev.event.turn })
-  if (ev.type === 'gap_open' || ev.type === 'gap_close') transcriptLog.write({ kind: ev.type, ...ev.gap })
+  if (ev.type === 'state') onStateChange(ev.state)
+  if (ev.type === 'turn' && ev.event.type === 'turn_final') callLogs.transcript({ kind: 'turn', ...ev.event.turn })
+  if (ev.type === 'gap_open' || ev.type === 'gap_close') callLogs.transcript({ kind: ev.type, ...ev.gap })
   if (ev.type === 'state' && ev.state === 'stopped') {
-    const s = session
     if (s && s.sessionId) {
       fs.writeFileSync(path.join(storage.sessionDir(s.sessionId), 'summary.json'), JSON.stringify({ sessionId: s.sessionId, endedAt: new Date().toISOString(), counters: s.counters }, null, 2))
     }
+    // Skipped during the call; old calls (if Keith set a limit) are cleared now it's over, once
+    // Stop itself has finished.
+    setImmediate(runRetention)
   }
 }
 
-/** Forgotten-call guard: fresh per call; the clock restarts on resume and whenever the other side speaks. */
+function onStateChange(state: SessionState): void {
+  applyWindowSettings()
+  if (state === 'live' || state === 'idle' || state === 'stopped') {
+    autoPausedFor = null
+    win?.flashFrame(false)
+  }
+}
+
+/**
+ * Forgotten-call guard: fresh per call. The clock restarts on resume and whenever anyone on the call
+ * finishes saying something, and doesn't run while a device is disconnected.
+ */
 function watchIdle(ev: SessionEvent): void {
   if (ev.type === 'state') {
     if (ev.state === 'checking') idle = new IdleWatch(() => Date.now())
@@ -118,17 +136,19 @@ function watchIdle(ev: SessionEvent): void {
     }
     return
   }
-  const remote = (ev.type === 'turn' && ev.event.turn.stream === 'system_remote') || (ev.type === 'interim' && ev.stream === 'system_remote' && !!ev.text)
-  if (remote) clearIdleWarning()
+  const was = !!idle?.warning
+  if (idle?.observe(ev) && was) hideIdleWarning()
 }
 
 function clearIdleWarning(): void {
   const was = idle?.warning
   idle?.reset()
-  if (was) {
-    send('idle', { warning: false })
-    win?.flashFrame(false)
-  }
+  if (was) hideIdleWarning()
+}
+
+function hideIdleWarning(): void {
+  send('idle', { warning: false })
+  win?.flashFrame(false)
 }
 
 function checkIdle(): void {
@@ -137,22 +157,47 @@ function checkIdle(): void {
   if (v === 'warn') {
     log('idle_warning')
     send('idle', { warning: true, seconds: 60 })
+    // Up front (without taking Zoom's focus) and flashing, so Keith sees it even with the window hidden.
+    showWithoutFocus()
     win?.flashFrame(true)
-  } else if (v === 'stop') {
-    log('idle_stop')
+  } else if (v === 'pause') {
+    // Pause, not stop: if Keith was on the call after all, Resume carries on with the same call.
     clearIdleWarning()
-    idle = null
-    send('app-notice', { level: 'warning', text: 'Stopped: nothing was heard from the call for over 10 minutes, and nobody answered "Still on a call?".' })
-    void session?.stop()
+    const r = session.pause(PAUSE_DETAIL.nobodyHeard)
+    log('idle_pause', { ok: r.ok })
+    if (!r.ok) return
+    showWithoutFocus()
+    win?.flashFrame(true)
+    send('app-notice', { level: 'warning', text: 'Paused: nothing was said on the call for over 10 minutes, and nobody answered "Still on a call?". Press Resume if the call is still going.' })
   }
 }
 
-/** Locking the PC or sleep pauses a live call, so nothing is captured while Keith is away. */
-function autoPause(why: 'lock' | 'sleep'): void {
+/**
+ * Locking the PC or sleep pauses a live call, so nothing is captured while Keith is away. While
+ * Start is still waiting for the call, the wait is cancelled instead.
+ */
+function autoPause(why: AwayReason): void {
+  if (session?.state === 'checking') {
+    log('auto_cancel_start', { why })
+    startWait.cancel(why)
+    void session.stop()
+    return
+  }
   if (session?.state !== 'live') return
-  const r = session.pause()
+  const r = session.pause(PAUSE_DETAIL[why])
   log('auto_pause', { why, ok: r.ok })
-  if (r.ok) send('app-notice', { level: 'warning', text: `Paused because the PC ${why === 'lock' ? 'was locked' : 'went to sleep'}. Press Resume when you're back on the call.` })
+  if (!r.ok) return
+  autoPausedFor = why
+  send('app-notice', { level: 'warning', text: `Paused because the PC ${why === 'lock' ? 'was locked' : 'went to sleep'}. Press Resume when you're back on the call.` })
+}
+
+/** Back at the PC after an automatic pause: bring the window up (Zoom keeps focus) and say how to carry on. */
+function backAtPc(how: 'unlock' | 'wake'): void {
+  if (session?.state !== 'paused' || !autoPausedFor) return
+  log('back_at_pc', { how })
+  showWithoutFocus()
+  win?.flashFrame(true)
+  send('app-notice', { level: 'warning', text: `Still paused since the PC ${autoPausedFor === 'lock' ? 'was locked' : 'went to sleep'}. Press Resume to carry on listening.` })
 }
 
 /** The call that is running (or waiting to start), which is never deleted. */
@@ -166,13 +211,9 @@ function dueForDeletion() {
 }
 
 function purgeCalls(ids: string[], why: string): { deleted: number; failed: number } {
-  // The last call's files stay open until the next Start; close them so Windows lets them go.
-  if (session?.sessionId && ids.includes(session.sessionId)) {
-    sessionLog?.close()
-    transcriptLog?.close()
-    sessionLog = null
-    transcriptLog = null
-  }
+  // The last call's files stay open until the next Start: close them so Windows lets them go, and
+  // never reopen them (a log line at quit would otherwise bring the folder back).
+  callLogs.purge(ids)
   for (const id of ids) help?.forgetCall(id)
   const r = deleteCalls(storage.root, help?.db ?? null, ids)
   log('calls_deleted', { why, ...r })
@@ -181,13 +222,21 @@ function purgeCalls(ids: string[], why: string): { deleted: number; failed: numb
 
 /** Old calls: the first time any are due, show them and ask; once Keith agrees, delete without asking. */
 function runRetention(): void {
-  const due = dueForDeletion()
-  if (!due.length) return
-  if (!appSettings.retention_confirmed) {
-    send('retention-preview', { days: appSettings.retention_days, calls: due.map((c) => ({ started_at: c.started_at, account: c.account })) })
-    return
+  // Never during a call: the preview would cover HELP and compacting the database holds up the app.
+  // It runs again when the call stops. Without the database (HELP didn't start) it can't delete fully.
+  if (callActive(session?.state) || !help) return
+  try {
+    const due = dueForDeletion()
+    if (!due.length) return
+    if (!appSettings.retention_confirmed) {
+      send('retention-preview', { days: appSettings.retention_days, calls: due.map((c) => ({ started_at: c.started_at, account: c.account })) })
+      return
+    }
+    purgeCalls(due.map((c) => c.id), 'retention')
+  } catch (err) {
+    // E.g. the database is busy. Clean-up never takes down Stop, Settings or the app; it tries again later.
+    log('retention_failed', { message: (err as Error).message })
   }
-  purgeCalls(due.map((c) => c.id), 'retention')
 }
 
 function callsInfo() {
@@ -195,29 +244,32 @@ function callsInfo() {
   return { count: calls.length, oldest: calls[0]?.started_at ?? null, retention_days: appSettings.retention_days, choices: RETENTION_CHOICES }
 }
 
+/** Hidden from screen sharing only during a call (when the setting is on); Setup screenshots just work. */
 function applyWindowSettings(): void {
   if (!win || win.isDestroyed()) return
-  win.setContentProtection(appSettings.hide_from_capture)
+  win.setContentProtection(protectWindow(appSettings.hide_from_capture, session?.state))
 }
 
 function registerIpc(): void {
   ipcMain.handle('app:info', () => ({
     demoMode, nativeSource, platform: process.platform, version: app.getVersion(),
     userData: app.getPath('userData'), hasApiKey: !!storage.loadApiKey(), settings: appSettings,
-    hideHotkey: hideHotkeyRegistered ? 'Ctrl+Alt+Shift+H' : null,
+    hideHotkey: hideHotkeyRegistered ? HIDE_HOTKEY_LABEL : null,
   }))
   ipcMain.handle('app:setSettings', (_e, raw: unknown) => {
     const r = (raw ?? {}) as Record<string, unknown>
     if (typeof r.hide_from_capture === 'boolean') appSettings.hide_from_capture = r.hide_from_capture
+    let limitChanged = false
     if (r.retention_days === null || RETENTION_CHOICES.includes(r.retention_days as number)) {
       // A new limit is shown and confirmed again before anything is deleted under it.
-      if (r.retention_days !== appSettings.retention_days) appSettings.retention_confirmed = false
+      limitChanged = r.retention_days !== appSettings.retention_days
+      if (limitChanged) appSettings.retention_confirmed = false
       appSettings.retention_days = r.retention_days as number | null
     }
-    storage.writeJson('app-settings.json', appSettings)
+    saveAppSettings()
     applyWindowSettings()
     log('app_settings', { ...appSettings })
-    runRetention()
+    if (limitChanged) runRetention()
     return appSettings
   })
   ipcMain.handle('calls:info', () => callsInfo())
@@ -227,11 +279,16 @@ function registerIpc(): void {
       return { ok: true, deleted: 0 }
     }
     appSettings.retention_confirmed = true
-    storage.writeJson('app-settings.json', appSettings)
+    saveAppSettings()
     return { ok: true, ...purgeCalls(dueForDeletion().map((c) => c.id), 'retention') }
   })
   ipcMain.handle('calls:deleteAll', () => {
-    const ids = listSavedCalls(storage.root, help?.db ?? null).map((c) => c.id).filter((id) => id !== activeCallId())
+    // Without the database only the folders could go, and the calls' text would stay in it.
+    if (!help) {
+      log('calls_delete_all_no_db')
+      return { ok: false, deleted: 0, failed: 0, error: "Couldn't delete saved calls: the call database didn't open when the app started. Close the app, open it again and try again." }
+    }
+    const ids = listSavedCalls(storage.root, help.db).map((c) => c.id).filter((id) => id !== activeCallId())
     const r = purgeCalls(ids, 'keith_all')
     return { ok: r.failed === 0, ...r }
   })
@@ -302,11 +359,15 @@ function registerIpc(): void {
     scanner.stop()
     const config = storage.loadConfig()
     if (!config) return { ok: false, reason: 'Pick, test and save your devices first.' }
-    sessionLog?.close()
-    transcriptLog?.close()
-    sessionLog = null
-    transcriptLog = null
-    const pre: Array<{ event: string; data?: Record<string, unknown> }> = []
+    // Unticked for a screenshot last time? Hidden from screen sharing again for this call.
+    if (!appSettings.hide_from_capture) {
+      appSettings.hide_from_capture = true
+      saveAppSettings()
+      log('hide_from_capture_back_on')
+      send('app-settings', appSettings)
+    }
+    callLogs.begin()
+    startWait.begin()
     session = new SessionController({
       native,
       wsFactory,
@@ -314,23 +375,18 @@ function registerIpc(): void {
       config,
       emit: onSessionEvent,
       log: (event, data) => {
-        if (!sessionLog && session?.sessionId) {
-          const dir = storage.sessionDir(session.sessionId)
-          sessionLog = new JsonlWriter(path.join(dir, 'diagnostics.jsonl'))
-          transcriptLog = new JsonlWriter(path.join(dir, 'transcript.jsonl'))
-          for (const p of pre.splice(0)) sessionLog.write({ event: p.event, ...p.data })
-        }
-        if (sessionLog) sessionLog.write({ event, ...data })
-        else pre.push({ event, data })
+        callLogs.write(session?.sessionId ?? null, event, data)
         log(`session.${event}`, event === 'alert' || event === 'state' || event.startsWith('gap') || event.startsWith('start') ? data : undefined)
       },
     })
-    const r = await session.start()
-    if (r.ok) {
+    const done = startWait.finish(await session.start())
+    if (done.result.ok) {
       config.last_verified_at = new Date().toISOString()
       storage.saveConfig(config)
     }
-    return r
+    // Locked (or asleep) just as the call went live: pause it like any call on a locked PC.
+    if (done.pauseFor) autoPause(done.pauseFor)
+    return done.result
   })
 
   ipcMain.handle('session:pause', () => session?.pause() ?? { ok: false, reason: 'No session' })
@@ -468,6 +524,8 @@ function showWithoutFocus(): void {
   if (!win || win.isDestroyed()) return
   if (win.isMinimized() || !win.isVisible()) win.showInactive()
   win.moveTop()
+  // Up on top now, so the next hide/show press tucks it away.
+  hideToggle.markShown()
 }
 
 function tryRegister(accelerator: string, fn: () => void): boolean {
@@ -478,22 +536,22 @@ function tryRegister(accelerator: string, fn: () => void): boolean {
   }
 }
 
-/** Ctrl+Alt+H and Ctrl+Alt+Shift+H: only if they register without a conflict. The buttons always work. */
+/** Ctrl+Alt+H and Ctrl+Alt+J: only if Windows lets us register them. The buttons always work. */
 function registerHotkey(): void {
   hideHotkeyRegistered = tryRegister(HIDE_HOTKEY, () => {
     if (!win || win.isDestroyed()) return
-    if (win.isMinimized() || !win.isVisible()) showWithoutFocus()
+    // A window behind Zoom still counts as visible, so the hotkey goes by what it did last time.
+    if (hideToggle.next({ minimized: win.isMinimized(), visible: win.isVisible() }) === 'show') showWithoutFocus()
     else win.minimize()
   })
   log('hide_hotkey', { hotkey: HIDE_HOTKEY, registered: hideHotkeyRegistered })
   if (!help) return
   const ok = tryRegister(HELP_HOTKEY, () => {
     const r = help?.press()
+    // Up either way: the card is coming, or the reason it can't (e.g. paused) needs to be seen.
+    showWithoutFocus()
     if (r && !r.ok) send('help-notice', r.reason)
-    else {
-      showWithoutFocus()
-      send('help-focus', null)
-    }
+    else send('help-focus', null)
   })
   help.hotkeyRegistered = ok
   log('help_hotkey', { hotkey: HELP_HOTKEY, registered: ok })
@@ -536,7 +594,13 @@ if (!app.requestSingleInstanceLock()) {
     }
     // The module's file name only: its full path includes the Windows user name.
     log('app_start', { version: app.getVersion(), build: BUILD.build, sha: BUILD.sha, built: BUILD.date, demoMode, nativeSource: path.basename(nativeSource), platform: process.platform })
-    appSettings = { ...DEFAULT_APP_SETTINGS, ...storage.readJson('app-settings.json', DEFAULT_APP_SETTINGS) }
+    const loadedSettings = loadAppSettings(storage.readJson<Partial<AppSettings>>('app-settings.json', {}))
+    appSettings = loadedSettings.settings
+    if (loadedSettings.changed) {
+      saveAppSettings()
+      log('app_settings_updated', { retention_days: appSettings.retention_days })
+    }
+    callLogs = new CallLogs((id) => storage.sessionDir(id))
     scanner = new DeviceScanner(native, (e) => send('scan-event', e), log)
     try {
       help = new HelpService(storage, app.getAppPath(), (e) => send('help-event', e), log)
@@ -550,6 +614,8 @@ if (!app.requestSingleInstanceLock()) {
     void help?.checkReady()
     powerMonitor.on('lock-screen', () => autoPause('lock'))
     powerMonitor.on('suspend', () => autoPause('sleep'))
+    powerMonitor.on('unlock-screen', () => backAtPc('unlock'))
+    powerMonitor.on('resume', () => backAtPc('wake'))
     setInterval(checkIdle, 5000)
     win?.webContents.once('did-finish-load', () => runRetention())
     setInterval(runRetention, 6 * 3_600_000)
