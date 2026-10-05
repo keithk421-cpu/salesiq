@@ -361,8 +361,9 @@ body.compact .help-card .hc-passage { order: 5; margin-top: 4px; padding: 3px 8p
 /* "Wrapping up" stays (it says why the line is a next step), next to Ask/Say instead of on a row of its own. */
 body.compact .help-card .hc-top { display: none !important; }
 body.compact .help-card.wrap .hc-primary .kind::before { content: "Wrapping up · "; color: var(--ok); }
-/* On a wrap card, what Keith still owes them; and a warning (a gap HELP didn't hear): one line each. */
-body.compact .help-card:not(.wrap) #hcFollow { display: none !important; }
+/* On a wrap card, what Keith still owes them (or the next-step question after closing words); and a
+   warning (a gap HELP didn't hear): one line each. */
+body.compact .help-card:not(.wrap-ask) #hcFollow { display: none !important; }
 body.compact #hcFollow, body.compact #hcWarn { margin-top: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.compact .hc-foot, body.compact #hcBadReasons, body.compact .hcp-head, body.compact #hcpMore { display: none !important; }
 body.compact .hcp-snippet { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

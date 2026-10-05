@@ -126,3 +126,81 @@ describe('a call\'s wrap-up is what the next call with that account remembers', 
     expect(accountMemory(help.db, 'Larkspur Health', CALL_B)!.calls).toBe(1)
   })
 })
+
+describe('M2 parts together: review findings', () => {
+  function harness(settings: Record<string, unknown> = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'm2b-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    const model = new Scripted()
+    help.setSettings({ prefetch: false, ...settings })
+    help.createModel = () => model
+    const wraps: Array<CallWrapup | null> = []
+    help.onWrapup = (w) => wraps.push(w)
+    let t = 0
+    let n = 0
+    const state = (st: string, call: string) => help.onSessionEvent({ type: 'state', state: st, sessionId: call } as SessionEvent, call, () => t)
+    const say = (who: 'buyer' | 'keith', text: string, call: string, secs = 6) => {
+      const start = t
+      t += secs * 1000
+      const turn: Turn = {
+        turn_id: `t${++n}`, session_id: call, stream: who === 'keith' ? 'local_mic' : 'system_remote', speaker_cluster: who === 'keith' ? null : 'e1:s0',
+        speaker_identity_id: null, speaker_role: 'unknown', start_ms: start, end_ms: t, text, final: true, source_word_ids: [], gap_before: null,
+      }
+      help.onSessionEvent({ type: 'turn', event: { type: 'turn_final', turn } } as SessionEvent, call, () => t)
+    }
+    const memory = () => (help as unknown as { memory: CallMemory }).memory
+    return { dir, help, model, wraps, state, say, memory }
+  }
+  const setup = (account: string) => ({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account, deployment: 'saas' })
+  const WRAP_ANSWER = JSON.stringify({
+    we_owe: [{ text: 'Send the self-hosted tracing overview', who: 'Keith', when: 'by Friday', lines: ['L2'] }],
+    they_owe: [], agreed: [], proposed: [], open_questions: [],
+  })
+
+  it('a call with the same account that started before the last wrap-up landed gets it when it lands', async () => {
+    const h = harness()
+    h.help.setSetup(setup('Larkspur Health'))
+    h.state('checking', CALL_A)
+    h.state('live', CALL_A)
+    h.say('buyer', 'Could you send how tracing works on our own servers?', CALL_A)
+    h.say('keith', "Yes, I'll send you the self-hosted tracing overview by Friday.", CALL_A)
+    h.state('stopping', CALL_A)
+    h.state('stopped', CALL_A)
+    await flush()
+    // Keith reconnects with the same account before the closing notes and the wrap-up are back.
+    h.help.setSetup(setup('Larkspur Health'))
+    h.state('checking', CALL_B)
+    h.state('live', CALL_B)
+    expect(h.memory().sessionId).toBe(CALL_B)
+    expect(h.memory().earlierCalls).toEqual([])
+    h.model.of('notes')[0].release(notesAnswer({ buyer_wants: [{ text: 'Tracing on their own servers', lines: ['L1'] }] }))
+    await flush()
+    expect(h.memory().earlierCalls.map((i) => i.text).join(' ')).toMatch(/Tracing on their own servers/)
+    h.model.of('wrapup')[0].release(WRAP_ANSWER)
+    await flush()
+    expect(h.memory().earlierCalls.map((i) => i.text).join(' ')).toMatch(/Send the self-hosted tracing overview/)
+  })
+
+  it("a Start that never goes live leaves the review and ratings on the call that ended", async () => {
+    const h = harness()
+    h.help.setSetup(setup('Larkspur Health'))
+    h.state('checking', CALL_A)
+    h.state('live', CALL_A)
+    h.say('buyer', 'What does the deep-dive cover?', CALL_A)
+    h.help.db.sql.prepare(
+      `INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, card_json, timing_json, prefetch)
+       VALUES ('r1', ?, 'help_requested', '2026-09-29T15:01:00.000Z', 6000, 'complete', '{}', ?, '{}', 0)`,
+    ).run(CALL_A, JSON.stringify({ move: 'clarify_requirement', primary_kind: 'ask', primary: 'Which parts matter most to your team?', source_ids: [] }))
+    h.state('stopping', CALL_A)
+    h.state('stopped', CALL_A)
+    await flush()
+    expect(h.help.callCards().map((c) => c.id)).toEqual(['r1'])
+    // The next meeting's Start, but the buyer never joins.
+    h.state('checking', CALL_B)
+    h.state('idle', CALL_B)
+    expect(h.help.callCards().map((c) => c.id)).toEqual(['r1'])
+    h.help.feedback({ card_id: 'r1', type: 'useful' })
+    const card = JSON.parse(fs.readFileSync(path.join(h.dir, 'reports', `help-scorecard-${CALL_A}.json`), 'utf8'))
+    expect(card.feedback.useful).toBe(1)
+  })
+})

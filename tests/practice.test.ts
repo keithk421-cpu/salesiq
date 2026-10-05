@@ -503,3 +503,36 @@ describe('saving practice moments', () => {
     help.shutdown()
   })
 })
+
+describe('a practice moment from a WRAP press', () => {
+  it('remembers the WRAP and replays with the same wrap instruction', async () => {
+    const db = new Db(':memory:')
+    seedCall(db)
+    db.sql.prepare(`UPDATE help_requests SET origin = 'wrap_requested', timing_json = '{"wrap":"button"}' WHERE id = ?`).run(REQ)
+    const m = build(db)
+    expect(m.wrap).toBe('button')
+    expect(m.keith_notes).toMatch(/when Keith pressed WRAP/)
+    // Replay sends the wrap instruction (stored, not detected again).
+    class Capturing extends MockHelpModel {
+      users: string[] = []
+      override run(req: Parameters<MockHelpModel['run']>[0]) {
+        this.users.push(req.user)
+        return super.run(req)
+      }
+    }
+    const model = new Capturing(0)
+    const res = await runScenario(m, model, DEFAULT_HELP_CONFIG, playbook)
+    expect(res.status).toBe('complete')
+    expect(model.users[0]).toContain('<wrap_card>')
+    expect(model.users[0]).toContain('Keith pressed WRAP')
+    // A plain HELP moment replays without it.
+    db.sql.prepare(`UPDATE help_requests SET origin = 'help_requested', timing_json = '{}' WHERE id = ?`).run(REQ)
+    const plain = build(db)
+    expect(plain.wrap).toBeUndefined()
+    const model2 = new Capturing(0)
+    await runScenario(plain, model2, DEFAULT_HELP_CONFIG, playbook)
+    expect(model2.users[0]).not.toContain('<wrap_card>')
+    // Re-saving keeps it.
+    expect(refreshFeedback(plain, m).wrap).toBe('button')
+  })
+})

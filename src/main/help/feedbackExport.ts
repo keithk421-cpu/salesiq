@@ -17,6 +17,8 @@ export type ExportPeriod = keyof typeof EXPORT_PERIODS
 
 export interface ExportCard {
   at_session_ms: number | null
+  /** A WRAP press ('button'), or a HELP press as the call sounded like it was ending ('closing'). */
+  wrap: 'button' | 'closing' | null
   move: string | null
   primary_kind: 'ask' | 'say' | null
   primary: string | null
@@ -67,17 +69,17 @@ export function collectFeedbackCalls(db: Db, sinceIso: string | null, callMinute
   const sessions = db.sql.prepare('SELECT id, started_at, setup_json FROM sessions WHERE ? IS NULL OR started_at >= ? ORDER BY started_at, id')
     .all(sinceIso, sinceIso) as Array<{ id: string; started_at: string; setup_json: string }>
   const reqs = db.sql.prepare(
-    'SELECT id, at_session_ms, model_json, card_json, timing_json, usage_json, prefetch FROM help_requests WHERE session_id = ? ORDER BY at_session_ms, created_at, id',
+    'SELECT id, origin, at_session_ms, model_json, card_json, timing_json, usage_json, prefetch FROM help_requests WHERE session_id = ? ORDER BY at_session_ms, created_at, id',
   )
   return sessions.map((s) => {
     const setup = parse<CallSetup>(s.setup_json)
-    const rows = reqs.all(s.id) as Array<{ id: string; at_session_ms: number | null; model_json: string; card_json: string | null; timing_json: string | null; usage_json: string | null; prefetch: number }>
+    const rows = reqs.all(s.id) as Array<{ id: string; origin: string; at_session_ms: number | null; model_json: string; card_json: string | null; timing_json: string | null; usage_json: string | null; prefetch: number }>
     let cost = 0
     let noLine = 0
-    const shown: Array<{ id: string; row: (typeof rows)[number]; timing: Partial<HelpTiming> }> = []
+    const shown: Array<{ id: string; row: (typeof rows)[number]; timing: Partial<HelpTiming & { wrap: string }> }> = []
     for (const r of rows) {
       cost += parse<HelpUsage>(r.usage_json).cost_usd ?? 0
-      const timing = parse<HelpTiming>(r.timing_json)
+      const timing = parse<HelpTiming & { wrap: string }>(r.timing_json)
       if (r.prefetch && !timing.served_from_prefetch) continue
       if (r.card_json) shown.push({ id: r.id, row: r, timing })
       else noLine++
@@ -89,6 +91,7 @@ export function collectFeedbackCalls(db: Db, sinceIso: string | null, callMinute
       const f = fb.get(id)
       return {
         at_session_ms: row.at_session_ms,
+        wrap: timing.wrap === 'button' || timing.wrap === 'closing' ? timing.wrap : row.origin === 'wrap_requested' ? 'button' : null,
         move: c.move ?? null,
         primary_kind: c.primary_kind ?? null,
         primary: c.primary ?? null,
@@ -180,7 +183,8 @@ export function feedbackMarkdown(calls: ExportCall[], opts: { period: ExportPeri
     out.push(`## ${head.join(' · ')}`, '')
     if (!call.cards.length) out.push(call.no_line ? `No cards with a line (${call.no_line} press${call.no_line === 1 ? '' : 'es'} ended without one).` : 'No HELP presses.', '')
     call.cards.forEach((c, i) => {
-      out.push(`### ${i + 1}. ${c.at_session_ms === null ? 'time unknown' : `${fmtClock(c.at_session_ms)} into the call`}${c.move ? ` · move: ${c.move}` : ''}`)
+      const kind = c.wrap === 'button' ? ' · WRAP' : c.wrap === 'closing' ? ' · HELP as the call was ending' : ''
+      out.push(`### ${i + 1}. ${c.at_session_ms === null ? 'time unknown' : `${fmtClock(c.at_session_ms)} into the call`}${kind}${c.move ? ` · move: ${c.move}` : ''}`)
       out.push(`- ${c.primary_kind === 'say' ? 'Say' : 'Ask'}: ${c.primary ? quote(c.primary) : '(no line)'}`)
       if (c.follow_up) out.push(`- Follow-up: ${quote(c.follow_up)}`)
       const rating = c.rating ? `${RATING[c.rating] ?? c.rating}${c.bad_reasons.length ? ` (${c.bad_reasons.map(words).join(', ')})` : ''}` : 'not rated'

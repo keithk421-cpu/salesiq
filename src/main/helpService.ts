@@ -471,7 +471,8 @@ export class HelpService {
     // Playbook edits made since the last call apply now, without restarting the app.
     this.playbook = this.loadPlaybook()
     this.sessionNow = nowSessionMs
-    this.endedCall = null
+    // endedCall stays: a Start the buyer never joins goes back to idle, and the review and ratings are
+    // still about the call that ended (the next Stop replaces it).
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
@@ -609,17 +610,25 @@ export class HelpService {
       wrap.begin()
     } else this.onWrapup?.(null)
     const wrap = run.wrap
+    // A call with the same account may already be running (Keith reconnected): it gets this call's
+    // final notes and wrap-up as they land, not only what was saved when it started.
+    const refreshNext = () => {
+      const cur = this.memory
+      if (cur && cur.sessionId !== m.sessionId && this.callInProgress() && accountKey(cur.setup.account) === accountKey(m.setup.account)) this.refreshEarlierCalls()
+    }
     void (async () => {
       try {
         if (closing) {
           await closing
           if (run.cancelled) return
           this.writeScorecard(m.sessionId, callMs)
+          refreshNext()
         }
         if (!wrap) return
         await wrap.build()
         if (run.cancelled) return
         this.writeScorecard(m.sessionId, callMs)
+        refreshNext()
       } catch (err) {
         if (!run.cancelled) this.log('after_call_failed', { code: (err as NodeJS.ErrnoException).code ?? (err as Error).name ?? 'unknown' })
       } finally {
@@ -729,7 +738,8 @@ export class HelpService {
 
   /** The last call's cards with Keith's feedback so far, for the after-call review (stays on this PC). */
   callCards(): CallCard[] {
-    const id = this.memory?.sessionId
+    // Between calls (also after a Start that never went live): the call that ended last.
+    const id = this.callInProgress() ? this.memory?.sessionId : (this.endedCall?.sessionId ?? this.memory?.sessionId)
     if (!id) return []
     const rows = this.db.sql.prepare(
       'SELECT id, at_session_ms, status, card_json FROM help_requests WHERE session_id = ? AND card_json IS NOT NULL ORDER BY at_session_ms',

@@ -247,9 +247,12 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   const pressed = new Date(row.created_at)
   const title = `${setup.account.trim() || 'Call'} · ${Number.isNaN(pressed.getTime()) ? row.created_at : localStamp(pressed)}`
   // A card prepared in the background was built from the call a little before Keith pressed.
-  const built = parse<HelpTiming>(row.timing_json).served_from_prefetch
+  const timing = parse<HelpTiming & { wrap?: string }>(row.timing_json)
+  const wrap = timing.wrap === 'button' || timing.wrap === 'closing' ? timing.wrap : undefined
+  const press = wrap === 'button' ? 'Keith pressed WRAP' : wrap === 'closing' ? 'Keith pressed HELP as the call sounded like it was ending' : 'Keith pressed HELP'
+  const built = timing.served_from_prefetch
     ? `HELP's card was prepared at ${fmtClock(atMs)} into the call and shown when Keith pressed HELP shortly after`
-    : `HELP's context was built at ${fmtClock(atMs)} into the call, when Keith pressed HELP`
+    : `HELP's context was built at ${fmtClock(atMs)} into the call, when ${press}`
   const said = observed.primary ? `${observed.primary_kind === 'say' ? 'Say' : 'Ask'} "${observed.primary}"${observed.follow_up ? `, then "${observed.follow_up}"` : ''}` : '(no line)'
   const keithNotes = [
     `Saved from a real call: ${title}. ${built}.`,
@@ -279,6 +282,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     help_at_s: helpAtS,
     knowledge,
     ...(earlierCalls.length ? { earlier_calls: earlierCalls } : {}),
+    ...(wrap ? { wrap } : {}),
     best_moves: [],
     acceptable_moves: expected.acceptable,
     ...(expected.unacceptable.length ? { unacceptable_moves: expected.unacceptable } : {}),
@@ -324,6 +328,7 @@ export function refreshFeedback(saved: Scenario, fresh: Scenario): Scenario {
     unacceptable_moves: unacceptable,
     unacceptable_behaviors: [...list(saved.unacceptable_behaviors).filter((b) => !WRONG_MOVE_BEHAVIOR.test(b)), ...fresh.unacceptable_behaviors.filter((b) => WRONG_MOVE_BEHAVIOR.test(b))],
     keith_notes: notes.join('\n'),
+    ...(fresh.wrap ? { wrap: fresh.wrap } : {}),
   }
   if (!unacceptable.length) delete out.unacceptable_moves
   return out

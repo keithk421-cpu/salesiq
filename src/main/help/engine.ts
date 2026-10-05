@@ -517,7 +517,7 @@ export class HelpEngine {
         ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length,
         // Which approved passage Keith saw at the press, and whether the finished card cited it.
         passage_chunk_ids: run.passage?.chunk_ids ?? null, passage_used: run.passage ? this.passageUsed(run) : null,
-        // A wrap card ('button' or 'closing'), so the review and scorecard can tell them apart.
+        // A wrap card ('button' or 'closing'), so the feedback export and practice moments can tell them apart.
         ...(run.wrap ? { wrap: run.wrap } : {}),
       }),
       run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,

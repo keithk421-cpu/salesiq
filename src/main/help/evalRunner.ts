@@ -9,12 +9,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { HelpCardContent, HelpModelConfig, HelpUsage } from '../../shared/help'
+import { cleanEarlierItems } from './accountMemory'
 import { buildHelpContext } from './context'
 import type { HelpModel } from './models'
 import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
 import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
 import { replayAt, type Scenario } from './replay'
+import { wrapUserMessage } from './wrap'
 
 export { findCapabilityClaim }
 
@@ -81,7 +83,8 @@ export function level1(s: Scenario, card: HelpCardContent | null, issues: string
   }
   // Any category: pain, frustration or problems the transcript never voiced are invented.
   // Idioms such as "no problem" or "broken down by team" are not pain.
-  const transcript = s.transcript.map((l) => l.text).join(' ').toLowerCase()
+  // Pain the buyer voiced on an earlier call (<earlier_calls>) may be referred back to as a past statement.
+  const transcript = [...s.transcript.map((l) => l.text), ...cleanEarlierItems(s.earlier_calls).map((i) => i.text)].join(' ').toLowerCase()
   const invented = (visible.replace(NOT_PAIN, ' ').match(PAIN_WORDS) ?? []).filter((w) => !transcript.includes(w.toLowerCase()))
   if (invented.length) f.push(`assumed pain not voiced by the buyer: ${[...new Set(invented.map((w) => w.toLowerCase()))].join(', ')}`)
   // Approved knowledge merely being in context is not enough: the claim must cite it.
@@ -109,7 +112,8 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   let status: ScenarioResult['status'] = 'complete'
   try {
     const res = await model.run({
-      system: buildSystemPrompt(playbook), user: buildUserMessage(ctx.text), config, signal: abort.signal,
+      // A moment saved from a WRAP press replays with the wrap instruction it had (stored, not re-detected).
+      system: buildSystemPrompt(playbook), user: s.wrap === 'button' || s.wrap === 'closing' ? wrapUserMessage(ctx.text, s.wrap) : buildUserMessage(ctx.text), config, signal: abort.signal,
       onText: (c) => { firstTokenAt ??= performance.now(); raw += c; parser.feed(c) },
     })
     usage = res.usage

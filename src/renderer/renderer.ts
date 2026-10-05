@@ -728,6 +728,8 @@ function renderCard(): void {
   // A WRAP card is labelled "Wrapping up"; a HELP press while the call sounded like it was ending only
   // when the line is a next step (it may have answered a question they just asked instead).
   el.classList.toggle('wrap', card.origin === 'wrap_requested' || (card.wrap === true && c.move === 'confirm_next_step'))
+  // Any wrap request, whatever its move: after closing words the next-step question can be in FOLLOW.
+  el.classList.toggle('wrap-ask', card.origin === 'wrap_requested' || card.wrap === true)
   $('hcBadge').hidden = !card.mock
   // An answer that never finished (failed, timed out, cancelled by Pause/Stop) is never advice.
   const cut = card.status === 'cancelled' || card.status === 'superseded'

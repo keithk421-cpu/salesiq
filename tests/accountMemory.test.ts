@@ -374,3 +374,18 @@ describe('background requests Keith never saw', () => {
     }
   })
 })
+
+describe('Practice-mode wrap-ups', () => {
+  it('are placeholders, never "last time" (the call still counts)', () => {
+    const db = new Db(':memory:')
+    const w: CallWrapup = {
+      session_id: 's-2026-09-28T10-00-00-000Z-mock01', status: 'ready', account: 'Quillfield Labs', started_at: '2026-09-28T10:00:00.000Z',
+      items: [item('w1', 'we_owe', "[MOCK] Placeholder: something Keith said he'd send (no model was called)")], email: null, error: null, mock: true,
+    }
+    call(db, w.session_id, w.started_at, 'Quillfield Labs', { wrapup: JSON.stringify(w) })
+    const mem = accountMemory(db, 'Quillfield Labs')!
+    expect(mem.calls).toBe(1)
+    expect(mem.items).toEqual([])
+    expect(earlierCallsBlock(mem.items)).toBeNull()
+  })
+})

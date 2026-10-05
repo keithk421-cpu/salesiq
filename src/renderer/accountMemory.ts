@@ -145,6 +145,14 @@ export function initAccountMemory(api: CopilotApi): void {
   })
   // Saved calls were deleted (by Keith or by the keep-calls limit): show only what is left.
   api.onCallsDeleted(() => void recheck())
+  // The last call's wrap-up landing (it can finish after the next call with them started): look again
+  // once when it's done, not on each of Keith's edits.
+  let wrapStatus: string | null = null
+  api.onWrapup((w) => {
+    const status = (w as { status?: string } | null)?.status ?? null
+    if (status !== wrapStatus && (status === 'ready' || status === 'failed')) void recheck()
+    wrapStatus = status
+  })
   // The strip is also filled in by the app itself (on open, after Stop), which fires no input events.
   setInterval(() => void check(), 1000)
   void recheck()

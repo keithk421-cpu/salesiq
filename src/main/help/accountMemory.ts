@@ -165,7 +165,8 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     const found: Array<{ kind: AccountMemoryKind; text: string }> = []
     // A wrap-up still building or that failed has no items yet; one that can't be read is skipped.
     const wrap = parse<Partial<CallWrapup>>((wrapStmt.get(c.id) as { wrapup_json: string } | undefined)?.wrapup_json)
-    for (const it of Array.isArray(wrap?.items) ? wrap.items : []) {
+    // A Practice-mode (MOCK) wrap-up holds placeholders, not anything said: never "last time".
+    for (const it of wrap && wrap.mock !== true && Array.isArray(wrap.items) ? wrap.items : []) {
       const kind = it && typeof it === 'object' ? SECTION_KIND[it.section] : undefined
       if (kind && it.state !== 'removed' && textOf(it)) found.push({ kind, text: withWhoWhen(it) })
     }

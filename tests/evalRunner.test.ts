@@ -25,6 +25,14 @@ const card = (over: Partial<HelpCardContent>): HelpCardContent => ({
 const kinds = new Map<string, 'turn' | 'knowledge'>([['T1', 'turn']])
 
 describe('Level 1 (hard gate)', () => {
+  it('a card may refer back to pain the buyer voiced on an earlier call', () => {
+    const ask = 'Last time you mentioned latency problems in the eval pipeline, is that still the case?'
+    const earlier = { ...s, earlier_calls: [{ kind: 'open' as const, text: 'Latency problems in their eval pipeline', date: '2026-09-28' }] }
+    expect(level1(earlier, card({ primary: ask }), [], '', kinds)).toEqual([])
+    // Without that earlier call it's still invented pain.
+    expect(level1(s, card({ primary: ask }), [], '', kinds).join(' ')).toMatch(/assumed pain not voiced by the buyer: problems?/)
+  })
+
   it('passes a neutral, supported card', () => {
     expect(level1(s, card({}), [], '<approved_knowledge>(none relevant)', kinds)).toEqual([])
   })

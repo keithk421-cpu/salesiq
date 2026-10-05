@@ -12,6 +12,7 @@ import { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
 import { cleanEarlierItems, type EarlierCallItem } from './accountMemory'
 import { CallMemory } from './callMemory'
+import type { WrapWhy } from './wrap'
 
 export const FINAL_DELAY_MS = 1000
 const WORDS_PER_SEC = 2.5
@@ -64,6 +65,8 @@ export interface Scenario {
   observed?: ObservedCard
   /** What earlier calls with this account left behind, as HELP saw it at the press (the <earlier_calls> block). Absent on older moments. */
   earlier_calls?: EarlierCallItem[]
+  /** Saved from a WRAP press ('button'), or a HELP press as the call sounded like it was ending ('closing'): replayed with the same wrap instruction. */
+  wrap?: WrapWhy
 }
 
 export interface ObservedCard {

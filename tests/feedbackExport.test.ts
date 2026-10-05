@@ -91,7 +91,7 @@ describe('HELP feedback export', () => {
 
   it('a card prepared in the background is "ready at the press" only if it was complete by then', () => {
     const card = (first: number | null, prefetch: boolean) => ({
-      at_session_ms: 60_000, move: 'explore_process', primary_kind: 'ask' as const, primary: 'What happens next?', follow_up: null, first_usable_ms: first, from_prefetch: prefetch,
+      at_session_ms: 60_000, wrap: null, move: 'explore_process', primary_kind: 'ask' as const, primary: 'What happens next?', follow_up: null, first_usable_ms: first, from_prefetch: prefetch,
       model: null, playbook: null, rating: null, bad_reasons: [], used: false, note: null,
     })
     const call: ExportCall = {
@@ -134,5 +134,22 @@ describe('HELP feedback export', () => {
     // Nothing written into the data folder.
     expect(fs.readdirSync(dir).filter((f) => f.startsWith('SalesCopilot-feedback'))).toEqual([])
     help.shutdown()
+  })
+})
+
+describe('WRAP cards in the export', () => {
+  it('are marked, so the WRAP instruction can be tuned apart from HELP', () => {
+    const db = new Db(':memory:')
+    seed(db)
+    db.sql.prepare(`UPDATE help_requests SET origin = 'wrap_requested', timing_json = json_set(timing_json, '$.wrap', 'button') WHERE id = 'n3'`).run()
+    db.sql.prepare(`UPDATE help_requests SET timing_json = json_set(timing_json, '$.wrap', 'closing') WHERE id = 'o1'`).run()
+    const calls = collectFeedbackCalls(db, null)
+    const cards = calls.flatMap((c) => c.cards)
+    expect(cards.find((c) => c.primary?.startsWith("Let's book"))?.wrap).toBe('button')
+    expect(cards.find((c) => c.primary?.startsWith('What would make'))?.wrap).toBe('closing')
+    expect(cards.find((c) => c.primary?.startsWith('How does the weekly'))?.wrap).toBeNull()
+    const md = feedbackMarkdown(calls, { period: 'all', now: NOW })
+    expect(md).toMatch(/into the call · WRAP · move: confirm_next_step/)
+    expect(md).toMatch(/into the call · HELP as the call was ending · move: handle_objection/)
   })
 })

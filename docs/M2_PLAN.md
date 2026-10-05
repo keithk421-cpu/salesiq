@@ -132,7 +132,14 @@ checks replace them.
 - The wrap-up runs for the call that ended even if the next call starts meanwhile; a call where
   nothing was transcribed sends no wrap-up request. A failed build has "Try again" and still allows
   adding items and drafting from them. The Wrap-up button reopens it until the next call starts.
-- Quitting the app never waits: a wrap-up still building is saved as failed.
+- Quitting the app never waits: a wrap-up still building is saved as failed. The Wrap-up button
+  reopens it until the next call starts or the app quits; a saved wrap-up is not reloaded after a
+  restart (like the card review), though it still feeds account memory.
+- Practice-mode (MOCK) wrap-ups never feed account memory. A call with the same account that starts
+  while the last call's closing notes or wrap-up are still running gets them when they land.
+- A practice moment saved from a WRAP press (or a HELP press as the call was ending) replays with the
+  same wrap instruction; Level 1 accepts pain the buyer voiced on an earlier call when a card refers
+  back to it.
 - When the wrap-up window opens while the app is compact, the window goes back to full size.
 - An ASK/SAY line a little over its limit is kept whole (up to twice the limit) rather than cut
   mid-sentence after Keith has started reading it.
