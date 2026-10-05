@@ -10,6 +10,7 @@ Ctrl+Alt+H (registered only if free; otherwise the UI says so) or the **HELP** b
 - **Ask** or **Say**: the one useful next line.
 - An optional follow-up, only when it adds something.
 - Sources, collapsed. A small warning if part of the call wasn't heard (gap) or the last seconds are still being transcribed.
+- **Approved note** (`src/main/help/passage.ts`): in the press's very first card event, before Claude answers, a compact box with the best approved section for what the other side just said ("Approved note · file › section", first ~200 characters, expandable to the whole section and its Source line; scope shown when it isn't all deployments). Shown only on a strong match, judged on the question alone across every approved document: the best section overall must be current and in scope (else nothing, never a stand-in), its heading must name two of the question's concepts, or one rare named term (alias or the document's tag), concepts in many sections don't count, and the runner-up from another section must rank at most 0.65 of it. Marked "HELP used this" when the finished card cites it; kept when Claude fails, times out or is cut off. On the private pack candidate: shown for 21/20/12 of 31 buyer questions (not sure / SaaS / self-hosted), all the intended section, none for 22 off-topic or uncovered lines.
 - **Useful / Should've stayed quiet / Bad** (+ optional reason). Each tap records feedback. Nothing trains or rewrites itself.
 
 The sales move is chosen internally (logged and stored), never shown as a section.
@@ -28,6 +29,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - **Earlier in the call**: SQLite FTS5 search of older turns relevant to what's being discussed.
 - **Approved knowledge**: FTS5 + aliases + tags; no embeddings. Only approved, in-scope documents are searched. Search reads the newest words first (so the buyer's latest question is never cut by the term cap) and ranks by concepts: each spoken word counts once with its synonyms, rarer words count more, heading matches count extra, blended with bm25. Each section is indexed under its heading and file title; a file's tags only break ties between files (repeating them in every section made the most telling words, such as a competitor's name, rank worse).
 - **Transcript status**: gaps and lag, so HELP never pretends it heard something.
+- **The question** (`src/main/help/retrieval.ts`): the other side's latest words (their turns in the last 30 s, kept together across Keith's short acknowledgments, plus words still being transcribed). Knowledge for the model is searched with the question alone and with the whole last 30 s, merged by each chunk's best rank (each search scaled to its best hit), hits under half the best dropped, at most 3. With other talk earlier in the 30 s, the intended section came first for 29/28/17 of 31 questions instead of 20/19/13 (not sure / SaaS / self-hosted); with the question alone, the same hits with 1.7 sections sent instead of 2.7.
 
 ## Knowledge rules
 - Local folder (`%APPDATA%/Sales Copilot M0/knowledge`), never in Git. Only files directly in it are read; material still under review stays outside it.
@@ -65,6 +67,7 @@ The sales move is chosen internally (logged and stored), never shown as a sectio
 - Timeouts and failures.
 - Input, output (including billed thinking), cache-read and cache-write tokens, and USD cost (`PRICES` in `models.ts`).
 - Targets to test, not promises: usable line ~1–2 s, p95 ≤ 3 s.
+- Stages (`timing_json` and the speed-test report's "Speed by stage" table, all from the press): approved note on screen (`passage_ms`), first token, first usable line, plus context build (`context_ms`) and the knowledge search inside it (`knowledge_ms`). The note's section ids and whether the card cited it are kept too (`passage_chunk_ids`, `passage_used`); logs keep only the numbers. On the private pack: note on screen p50 5 ms, p95 9 ms.
 
 ## Evaluation
 - **Level 1 (hard gate, code)**:

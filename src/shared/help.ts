@@ -121,6 +121,35 @@ export interface HelpTiming {
   /** Hotkey -> first byte from the model. */
   first_token_ms: number | null
   served_from_prefetch: boolean
+  /** Hotkey -> the approved passage on screen (it rides on the press's first card event); null when none was shown. Absent on older rows. */
+  passage_ms?: number | null
+  /** How long building this request's context took, and the knowledge search inside it (ms). Absent on older rows. */
+  context_ms?: number
+  knowledge_ms?: number
+}
+
+/**
+ * The approved knowledge section shown the moment Keith presses HELP, before Claude answers: only
+ * from an approved, current, in-scope document, and only when it clearly matches what the other side
+ * just said (see help/passage.ts).
+ */
+export interface ApprovedPassage {
+  doc_id: string
+  /** The knowledge file's title. */
+  title: string
+  heading: string
+  /** Every chunk of the section ("k:<doc>#<n>"): a card citing any of them used this section. */
+  chunk_ids: string[]
+  /** The first sentence or two (about 200 characters), shown straight away. */
+  snippet: string
+  /** The whole section, shown when Keith opens the box. */
+  text: string
+  /** The section's "Source:" paragraph, in full. */
+  source_ref: string
+  /** The document's deployment scope ([] or "all" = every deployment). */
+  applies_to: string[]
+  /** The finished card cites this section (only ever true on a complete card). */
+  used_by_card: boolean
 }
 
 export interface HelpUsage {
@@ -179,6 +208,8 @@ export interface HelpCardEvent {
   setup: { account: string; deployment: Deployment }
   /** Sources resolved for display (collapsed by default). */
   sources: Array<{ id: string; kind: 'turn' | 'knowledge'; label: string; detail: string }>
+  /** The approved passage found at the press, carried on every event for this request (null or absent: none). */
+  passage?: ApprovedPassage | null
 }
 
 // ---------------- feedback ----------------

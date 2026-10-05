@@ -2,7 +2,8 @@
  * Builds the HELP context as of the press time:
  *   HOT   - last ~30 s verbatim from ALL speakers (+ provisional interim text, labelled)
  *   WARM  - call setup, who-is-who (manual labels; unknown is fine), the recent thread
- *   COLD  - relevant earlier-in-call turns (FTS5) + approved, current knowledge (FTS5 + aliases)
+ *   COLD  - relevant earlier-in-call turns (FTS5) + approved, current knowledge (FTS5 + aliases;
+ *           the other side's latest question and the last 30 s searched separately, then merged)
  *   STATUS- transcript gaps and lag, so HELP never pretends it heard something it didn't
  * Turn and knowledge references are short ids ([T3], [K1]) mapped back to real ids for validation.
  */
@@ -10,6 +11,7 @@ import type { Stream } from '../../shared/contracts'
 import type { HelpContextRefs, KnowledgeChunk, MemoryTurn } from '../../shared/help'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
+import { latestQuestion, retrieveKnowledge } from './retrieval'
 
 export const HOT_WINDOW_MS = 30_000
 export const THREAD_WINDOW_MS = 180_000
@@ -34,6 +36,8 @@ export interface BuiltContext {
   warnings: string[]
   /** Short id ("T3"/"K1") -> source. */
   sources: Map<string, SourceInfo>
+  /** How long the knowledge search took (ms, on the given clock). */
+  knowledge_ms: number
 }
 
 export function fmtClock(ms: number): string {
@@ -60,6 +64,8 @@ export function buildHelpContext(opts: {
   kb: KnowledgeBase | null
   atMs: number
   now?: Date
+  /** Clock for the stage timing (ms); the engine passes its own so tests stay deterministic. */
+  clock?: () => number
 }): BuiltContext {
   const { memory, kb, atMs } = opts
   const sources = new Map<string, SourceInfo>()
@@ -104,7 +110,11 @@ export function buildHelpContext(opts: {
   let usable: KnowledgeChunk[] = []
   let staleTitles: string[] = []
   let scopedOut: Array<{ title: string; applies_to: string[] }> = []
-  if (kb) ({ usable, staleTitles, scopedOut } = kb.search(hotText, KNOWLEDGE_MAX, opts.now, deployment))
+  const clock = opts.clock ?? (() => performance.now())
+  const k0 = clock()
+  // The other side's latest words searched on their own, merged with the whole last 30 s (retrieval.ts).
+  if (kb) ({ usable, staleTitles, scopedOut } = retrieveKnowledge(kb, { question: latestQuestion(memory, atMs), hotText, limit: KNOWLEDGE_MAX, today: opts.now, deployment }))
+  const knowledgeMs = Math.max(0, Math.round(clock() - k0))
   const kShort: string[] = []
   usable.forEach((c, i) => {
     const s = `K${i + 1}`
@@ -186,5 +196,5 @@ export function buildHelpContext(opts: {
     provisional_text: interims.length > 0,
     transcript_lag_ms: lag,
   }
-  return { text: parts.join('\n\n'), refs, warnings, sources }
+  return { text: parts.join('\n\n'), refs, warnings, sources, knowledge_ms: knowledgeMs }
 }

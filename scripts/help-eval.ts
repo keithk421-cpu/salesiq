@@ -15,6 +15,7 @@ import path from 'node:path'
 import { buildHelpContext } from '../src/main/help/context'
 import { benchmark, compareBaseline, comparisonText, loadScenarios, reportMarkdown, toBaseline, type Baseline } from '../src/main/help/evalRunner'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG } from '../src/main/help/models'
+import { findApprovedPassage } from '../src/main/help/passage'
 import { buildSystemPrompt, buildUserMessage, loadPlaybook } from '../src/main/help/prompt'
 import { loadScenario, replayAt, scenarioFromSession } from '../src/main/help/replay'
 
@@ -31,6 +32,8 @@ if (replayFile || sessionFile) {
   if (args.includes('--system')) console.log(buildSystemPrompt(playbook), '\n\n=====\n')
   console.log(buildUserMessage(ctx.text))
   console.log(`\n[hidden at this time: lines ${r.hiddenLineIndexes.join(', ') || 'none'}] [warnings: ${ctx.warnings.join(' | ') || 'none'}]`)
+  const passage = findApprovedPassage({ kb: r.kb, memory: r.memory, atMs: r.atMs })
+  console.log(`[approved note shown at the press: ${passage ? `${passage.title} > ${passage.heading}` : 'none'}] [knowledge search ${ctx.knowledge_ms} ms]`)
   process.exit(0)
 }
 
