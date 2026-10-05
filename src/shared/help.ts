@@ -242,3 +242,46 @@ export interface FeedbackEvent {
   optional_note: string | null
   timestamp: string
 }
+
+// ---------------- call notes ----------------
+
+/** What a stated fact is about. The first four are also the neutral "not covered yet" topics. */
+export const NOTE_FACT_KINDS = ['timeline', 'decision_process', 'current_tooling', 'success_criteria', 'team', 'budget', 'other'] as const
+export type NoteFactKind = (typeof NOTE_FACT_KINDS)[number]
+/** The fixed, neutral list "not covered yet" comes from (never a pain or a problem). */
+export const NOT_COVERED_TOPICS = ['timeline', 'decision_process', 'current_tooling', 'success_criteria'] as const
+export type NotCoveredTopic = (typeof NOT_COVERED_TOPICS)[number]
+
+/** One line of the notes, with the transcript turn(s) it came from. */
+export interface CallNoteItem {
+  text: string
+  turn_ids: string[]
+}
+
+/** Running notes of a live call, only from what was actually said. Each update replaces the whole set. */
+export interface CallNotes {
+  /** What they are talking about now. */
+  topic: CallNoteItem | null
+  buyer_wants: CallNoteItem[]
+  /** Questions the buyer's side asked that haven't been answered on the call yet (asked is not answered). */
+  open_questions: CallNoteItem[]
+  concerns: CallNoteItem[]
+  facts: Array<CallNoteItem & { kind: NoteFactKind }>
+  /** Proposed is not agreed: "agreed" only when the other side accepted it. */
+  next_steps: Array<CallNoteItem & { status: 'proposed' | 'agreed' }>
+  not_covered: NotCoveredTopic[]
+}
+
+/** What the call screen's notes panel shows. */
+export interface CallNotesState {
+  status: 'off' | 'waiting' | 'updating' | 'paused' | 'stopped' | 'blocked'
+  notes: CallNotes | null
+  /** Wall clock (epoch ms) of the last successful update, for "updated 40 s ago". */
+  updated_at: number | null
+  /** Session time the notes cover up to. */
+  as_of_ms: number | null
+  updates: number
+  mock: boolean
+  /** Plain words when updates stopped because of the Claude key, credit or model access. */
+  problem: string | null
+}

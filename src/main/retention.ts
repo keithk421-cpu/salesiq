@@ -61,7 +61,7 @@ export function deleteCall(root: string, db: Db | null, id: string): boolean {
   if (db) {
     db.tx(() => {
       db.sql.prepare('DELETE FROM feedback WHERE card_id IN (SELECT id FROM help_requests WHERE session_id = ?)').run(id)
-      for (const t of ['help_requests', 'turns', 'turns_fts', 'speaker_labels']) db.sql.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(id)
+      for (const t of ['help_requests', 'turns', 'turns_fts', 'speaker_labels', 'call_notes']) db.sql.prepare(`DELETE FROM ${t} WHERE session_id = ?`).run(id)
       db.sql.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     })
   }

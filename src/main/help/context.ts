@@ -11,6 +11,7 @@ import type { Stream } from '../../shared/contracts'
 import type { HelpContextRefs, KnowledgeChunk, MemoryTurn } from '../../shared/help'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
+import { callNotesBlock } from './callNotes'
 import { questionParts, retrieveKnowledge } from './retrieval'
 
 export const HOT_WINDOW_MS = 30_000
@@ -160,6 +161,10 @@ export function buildHelpContext(opts: {
     `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${deployment === 'unknown' ? 'not known (SaaS or self-hosted)' : deployment === 'saas' ? "Arize's SaaS" : 'self-hosted'}\n</call_setup>`,
   )
   parts.push(`<participants>\n${roster.join('\n')}\n</participants>`)
+  // Running call notes (live calls only): early facts and open questions, compact. Never in the cached system prompt.
+  const turnById = new Map(all.map((t) => [t.id, t]))
+  const notes = callNotesBlock(memory.callNotes, atMs, { ref: (id) => { const t = turnById.get(id); return t ? ref(t) : null }, clock: fmtClock })
+  if (notes) parts.push(notes)
   if (earlier.length) parts.push(`<earlier_in_call note="relevant moments from earlier; speaker statements, not verified facts">\n${earlier.map(line).join('\n')}\n</earlier_in_call>`)
   if (thread.length) parts.push(`<recent_thread>\n${thread.map(line).join('\n')}\n</recent_thread>`)
   const provisional = interims.map((i) => `(still being transcribed, may be inaccurate) ${i.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${i.text}`)

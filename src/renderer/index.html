@@ -109,6 +109,7 @@
           </select>
         </label>
         <label class="inline check"><input id="aiPrefetch" type="checkbox" /> Prepare a card in the background after each answer (faster HELP)</label>
+        <label class="inline check" title="A short summary of the call so far (their tools, team, timeline, open questions). HELP reads it too, so it doesn't forget early details. Up to 20 small background updates an hour."><input id="aiNotes" type="checkbox" /> Keep running call notes</label>
       </div>
     </div>
 
@@ -258,6 +259,12 @@
       </ul>
       <div class="muted small" id="ckLeft"></div>
     </div>
+
+    <details id="notesPanel" class="card notes-panel" open hidden>
+      <summary><span class="notes-title">Call notes</span> <span id="notesBadge" class="tag tag-warn" hidden>MOCK</span> <span id="notesStatus" class="muted small"></span></summary>
+      <div id="notesBody" class="notes-body"></div>
+      <p class="muted small notes-hint">Only from what was said. May lag a minute or two; if it disagrees with the transcript, the transcript is right.</p>
+    </details>
 
     <div class="card transcript-card">
       <div class="transcript-head">

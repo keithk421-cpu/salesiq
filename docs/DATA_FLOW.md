@@ -10,13 +10,17 @@ Sales Copilot is a Windows desktop app Keith runs during Zoom sales calls. It ca
   - up to 3 related lines from earlier in the call,
   - words still being transcribed,
   - the call setup Keith typed (call type, goal, outcomes, account name, deployment) and any speaker labels he set,
-  - up to 3 sections from knowledge files he approved in the app, and the titles of approved files that are out of date or cover the other deployment.
+  - up to 3 sections from knowledge files he approved in the app, and the titles of approved files that are out of date or cover the other deployment,
+  - the running call notes (below), up to about 800 characters.
 
   A request is sent when Keith presses HELP, **and in the background after the other side finishes speaking** (at most 4 a minute, so a suggestion is ready instantly). A small keep-alive every few minutes and a key check at app start and call start contain no call content.
+
+  **Call notes** (Setup, step 3, on by default): after about a minute of the other side talking, at most once every 3 minutes (20 times an hour), a background request sends the previous notes, the transcript lines said since them and the call setup, and gets back the updated notes (short lists of what was said: topic, what they want, open questions, concerns, facts they stated, next steps).
 - **Nothing is sent while paused or stopped**, except the optional speed test (Diagnostics), which sends the app's built-in practice scenarios and the playbook, plus, when "Include my saved moments" is ticked (the default once Keith has saved any), the practice moments he saved from his calls: each one is the same kind of request as the live HELP press it came from (the transcript up to that press, the call setup including the account name, speaker labels, and the approved knowledge sections that request used). Locking the PC or putting it to sleep pauses a live call automatically. If nothing is heard from the other side for 10 minutes, the app asks "Still on a call?" and stops a minute later if nobody answers.
 
 **Stored on the PC** (in the app's data folder):
 - Call transcripts (text), speaker labels, the call setup for each call (including the account name), the HELP requests and suggestions Keith actually saw, and his feedback (ratings, which lines he used, short notes), in a local database and per-call transcript files. Background requests he never saw keep only timings, cost, which sources were used, the call setup and speaker labels in use then (the same account and names the call already stores) and what kind of check failed, not the transcript or card text (older databases are cleaned when the app opens). Every request records the call setup and speaker labels it was built with, so a practice moment saved from it replays the same way even if they were edited later in the call.
+- The latest call notes for each call and how many updates ran and what they cost, in the local database; deleting the call deletes them. Logs and scorecards keep only those counts.
 - Copies of the knowledge files Keith added, and their text indexed for search.
 - API keys, encrypted with Windows DPAPI (tied to Keith's Windows account).
 - Logs and diagnostics: timings, counts, error codes, device names, short fingerprints of knowledge file names, and some local file paths (which include the Windows user name). Never transcript or card text: automated tests check the call's diagnostics log and the HELP log, including words still being transcribed.

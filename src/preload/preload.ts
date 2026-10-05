@@ -33,6 +33,8 @@ const api = {
   helpSetSetup: (s: unknown) => ipcRenderer.invoke('help:setSetup', s),
   helpSetLabel: (l: unknown) => ipcRenderer.invoke('help:setLabel', l),
   helpLabels: () => ipcRenderer.invoke('help:labels'),
+  helpCallNotes: () => ipcRenderer.invoke('help:callNotes'),
+  onCallNotes: (cb: (s: unknown) => void) => ipcRenderer.on('call-notes', (_e, s) => cb(s)),
   helpSetKey: (key: string) => ipcRenderer.invoke('help:setKey', key),
   knowledgeList: () => ipcRenderer.invoke('knowledge:list'),
   knowledgeReindex: () => ipcRenderer.invoke('knowledge:reindex'),

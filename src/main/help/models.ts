@@ -30,6 +30,27 @@ export interface HelpModel {
   prewarm(system: string, config: HelpModelConfig): Promise<void>
   /** Free check that the key works for this model (no tokens used). */
   check(config: HelpModelConfig): Promise<{ readiness: HelpReadiness; error?: HelpError }>
+  /** Background call notes: one structured-JSON request. A model without it keeps no notes. */
+  notes?(req: HelpNotesRun): Promise<HelpNotesResult>
+}
+
+/** One call-notes update: JSON in a fixed shape, not streamed (nothing is shown until it's checked). */
+export interface HelpNotesRun {
+  system: string
+  user: string
+  /** JSON schema the answer must follow (output_config.format). */
+  schema: Record<string, unknown>
+  config: HelpModelConfig
+  signal: AbortSignal
+  max_tokens: number
+  timeout_ms: number
+}
+
+export interface HelpNotesResult {
+  /** The JSON text, unchecked: the caller validates it. */
+  text: string
+  usage: HelpUsage
+  stop_reason: string | null
 }
 
 /** USD per million tokens. Output price applies to billed thinking tokens too. Edit when prices change. */
@@ -197,6 +218,28 @@ export class ClaudeHelpModel implements HelpModel {
     }
   }
 
+  /** Same model, thinking and effort as HELP, cached system prompt, plus a JSON schema for the answer. */
+  async notes(req: HelpNotesRun): Promise<HelpNotesResult> {
+    const p = this.params(req.system, req.user, req.config, req.max_tokens)
+    // Background, nobody waiting on it: one automatic retry is fine (the caller's deadline still applies).
+    const msg = await this.client.beta.messages.create(
+      { ...p, output_config: { effort: req.config.effort, format: { type: 'json_schema', schema: req.schema } }, stream: false },
+      { signal: req.signal, timeout: req.timeout_ms, maxRetries: 1 },
+    )
+    const u = msg.usage
+    const base = {
+      input_tokens: u.input_tokens ?? 0,
+      output_tokens: u.output_tokens ?? 0,
+      cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+    }
+    return {
+      text: msg.content.map((b) => (b.type === 'text' ? b.text : '')).join(''),
+      usage: { ...base, cost_usd: costUsd(msg.model, base) },
+      stop_reason: msg.stop_reason ?? null,
+    }
+  }
+
   async prewarm(system: string, c: HelpModelConfig): Promise<void> {
     // max_tokens 0: writes/refreshes the cached system prompt and opens the connection; no output billed.
     const p = this.params(system, 'warm-up', c, 0)
@@ -255,5 +298,22 @@ export class MockHelpModel implements HelpModel {
 
   async check(): Promise<{ readiness: HelpReadiness }> {
     return { readiness: 'practice' }
+  }
+
+  /** Placeholder notes citing the newest line sent, so the notes panel can be tried without a key. */
+  async notes(req: HelpNotesRun): Promise<HelpNotesResult> {
+    await new Promise((r) => setTimeout(r, this.delayMs))
+    if (req.signal.aborted) throw new Anthropic.APIUserAbortError()
+    const last = [...req.user.matchAll(/\[(L\d+)\]/g)].at(-1)?.[1]
+    const notes = {
+      topic: last ? { text: '[MOCK] Placeholder notes - no model was called', lines: [last] } : null,
+      buyer_wants: [], open_questions: [], concerns: [], facts: [], next_steps: [],
+      not_covered: ['timeline', 'decision_process', 'current_tooling', 'success_criteria'],
+    }
+    return {
+      text: JSON.stringify(notes),
+      usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 },
+      stop_reason: 'end_turn',
+    }
   }
 }

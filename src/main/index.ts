@@ -432,6 +432,7 @@ function registerIpc(): void {
   ipcMain.handle('help:setSetup', (_e, raw: unknown) => help?.setSetup(raw))
   ipcMain.handle('help:setLabel', (_e, raw: unknown) => help?.setLabel(raw) ?? { ok: false })
   ipcMain.handle('help:labels', () => help?.labels() ?? [])
+  ipcMain.handle('help:callNotes', () => help?.callNotes() ?? null)
   ipcMain.handle('help:setKey', (_e, key: unknown) => {
     if (typeof key !== 'string' || !/^sk-ant-[\x21-\x7e]{20,300}$/.test(key.trim())) return { ok: false, error: 'That does not look like an Anthropic API key (starts with sk-ant-).' }
     try {
@@ -608,6 +609,7 @@ if (!app.requestSingleInstanceLock()) {
       log('help_init_failed', { message: (err as Error).message })
     }
     if (help) help.onReadiness = (r) => send('help-ready', r)
+    if (help) help.onNotes = (s) => send('call-notes', s)
     registerIpc()
     createWindow()
     registerHotkey()
