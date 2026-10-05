@@ -9,7 +9,7 @@
  * HELP gets a compact <earlier_calls> block (earlierCallsBlock), computed once at call start (this
  * call left out). The items are things said on earlier calls, dated, never current fact.
  */
-import { CALL_TYPES, accountKey, type AccountMemory, type AccountMemoryKind, type CallNotes, type CallSetup, type CallWrapup, type HelpContextRefs } from '../../shared/help'
+import { CALL_TYPES, accountKey, type AccountMemory, type AccountMemoryKind, type CallNotes, type CallSetup, type CallWrapup, type HelpContextRefs, type WrapupItem } from '../../shared/help'
 import type { Db } from '../db'
 
 /** One dated item as HELP sees it (no call ids: a saved practice moment carries these as they were). */
@@ -116,6 +116,19 @@ function cleanSetup(raw: Partial<CallSetup> | null): CallSetup | null {
   }
 }
 
+/**
+ * A wrap-up item's text with who and when as said on the call ("Share their eval dataset (Dana, by
+ * Friday)"), unless the text already says them: the deadline is what Keith needs next time. The date
+ * the block and the box show keeps a relative "by Friday" tied to the call it was said on.
+ */
+function withWhoWhen(it: Partial<WrapupItem>): string {
+  const text = typeof it.text === 'string' ? it.text : ''
+  const extra = [it.who, it.when]
+    .filter((x): x is string => typeof x === 'string' && !!x.trim() && !text.toLowerCase().includes(x.trim().toLowerCase()))
+    .map((x) => x.trim())
+  return extra.length ? `${text.trim()} (${extra.join(', ')})` : text
+}
+
 const textOf = (x: unknown): string => (x && typeof x === 'object' && typeof (x as { text?: unknown }).text === 'string' ? (x as { text: string }).text : '')
 
 /**
@@ -154,7 +167,7 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     const wrap = parse<Partial<CallWrapup>>((wrapStmt.get(c.id) as { wrapup_json: string } | undefined)?.wrapup_json)
     for (const it of Array.isArray(wrap?.items) ? wrap.items : []) {
       const kind = it && typeof it === 'object' ? SECTION_KIND[it.section] : undefined
-      if (kind && it.state !== 'removed' && textOf(it)) found.push({ kind, text: it.text })
+      if (kind && it.state !== 'removed' && textOf(it)) found.push({ kind, text: withWhoWhen(it) })
     }
     const notes = parse<Partial<CallNotes>>((notesStmt.get(c.id) as { notes_json: string | null } | undefined)?.notes_json)
     for (const w of Array.isArray(notes?.buyer_wants) ? notes.buyer_wants : []) if (textOf(w)) found.push({ kind: 'wants', text: textOf(w) })

@@ -300,7 +300,7 @@ export class HelpService {
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
       // The account is often typed after Start: HELP then gets that account's earlier calls.
-      if (accountChanged) this.loadEarlierCalls()
+      if (accountChanged) this.refreshEarlierCalls()
     }
     return setup
   }
@@ -429,6 +429,17 @@ export class HelpService {
       m.earlierCalls = []
       this.log('account_memory_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
     }
+  }
+
+  /**
+   * Look again at the earlier calls for the running call (Keith changed its account, or deleted saved
+   * calls during it), so HELP never sends what is gone. A background card built from the old items is
+   * dropped too. Does nothing when no call is running.
+   */
+  refreshEarlierCalls(): void {
+    if (!this.memory) return
+    this.loadEarlierCalls()
+    this.engine?.discardPrefetch()
   }
 
   /** Running call notes for this call: same model and settings as HELP, never while a pressed HELP is answered. */

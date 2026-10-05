@@ -110,9 +110,10 @@ function capWords(s: string, max: number): { text: string; cut: boolean } {
 const FIGURE = /\$?\d[\d,]*(?:\.\d+)?%?/g
 /**
  * Digits in the context that are not figures anyone said: tags (<last_30_seconds>), ids ([T3], [K1]),
- * line clock stamps "(0:41)", the press and gap times, and knowledge version labels.
+ * line clock stamps "(0:41)", the press and gap times, knowledge version labels, and the call dates
+ * that start each <earlier_calls> line ("2026-09-28 · "), which would otherwise let a made-up 28% through.
  */
-const NOT_FIGURES = /<[^>\n]*>|\[[TK]\d+\]|\(\d{1,3}:\d{2}\)|pressed HELP at \d{1,3}:\d{2}|\bgap \d{1,3}:\d{2}–(?:\d{1,3}:\d{2}|now)|\bversion [^\s):;]+/g
+const NOT_FIGURES = /<[^>\n]*>|\[[TK]\d+\]|\(\d{1,3}:\d{2}\)|pressed HELP at \d{1,3}:\d{2}|\bgap \d{1,3}:\d{2}–(?:\d{1,3}:\d{2}|now)|\bversion [^\s):;]+|\b\d{4}-\d{2}-\d{2}(?= · )/g
 /** One figure's value as text: "1,500" and "1500" are the same, "05" is "5". */
 const figure = (n: string) => String(Number(n.replace(/[$,%]/g, '')))
 const SMALL: Record<string, number> = Object.fromEntries(

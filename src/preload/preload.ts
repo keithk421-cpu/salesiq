@@ -64,6 +64,7 @@ const api = {
   onScan: (cb: (ev: unknown) => void) => ipcRenderer.on('scan-event', (_e, ev) => cb(ev)),
   memoryAccounts: () => ipcRenderer.invoke('memory:accounts'),
   memoryAccount: (account: string) => ipcRenderer.invoke('memory:account', account),
+  onCallsDeleted: (cb: () => void) => ipcRenderer.on('calls-deleted', () => cb()),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

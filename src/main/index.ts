@@ -218,6 +218,9 @@ function purgeCalls(ids: string[], why: string): { deleted: number; failed: numb
   callLogs.purge(ids)
   for (const id of ids) help?.forgetCall(id)
   const r = deleteCalls(storage.root, help?.db ?? null, ids)
+  // Account memory: HELP and the "Last time" box stop showing what was just deleted.
+  help?.refreshEarlierCalls()
+  send('calls-deleted', { deleted: r.deleted })
   log('calls_deleted', { why, ...r })
   return r
 }

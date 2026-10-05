@@ -3,20 +3,24 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, it } from 'vitest'
-import type { CallWrapup, WrapupItem } from '../src/shared/help'
+import { describe, expect, it, vi } from 'vitest'
+import type { CallWrapup, HelpModelConfig, WrapupItem } from '../src/shared/help'
 import { Db } from '../src/main/db'
 import { EARLIER_CALLS_BLOCK_MAX_CHARS, accountMemory, callDay, earlierCallsBlock, listAccounts } from '../src/main/help/accountMemory'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
+import { HelpEngine } from '../src/main/help/engine'
+import type { HelpModel, HelpModelResult, HelpModelRun } from '../src/main/help/models'
 import { buildPracticeMoment } from '../src/main/help/practice'
 import { buildSystemPrompt, loadPlaybook } from '../src/main/help/prompt'
+import { LineProtocolParser, validateCard } from '../src/main/help/protocol'
 import { replayAt, type Scenario } from '../src/main/help/replay'
 import { HelpService } from '../src/main/helpService'
 import { deleteCall } from '../src/main/retention'
 import { Storage } from '../src/main/storage'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const playbook = loadPlaybook(path.join(ROOT, 'config', 'playbook.json'))
 const plainBox = { isEncryptionAvailable: () => false, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }
 
 function item(id: string, section: WrapupItem['section'], text: string, state: WrapupItem['state'] = 'pending'): WrapupItem {
@@ -124,6 +128,23 @@ describe('account memory', () => {
     expect(m2.items.filter((i) => i.kind === 'fact')).toHaveLength(4)
   })
 
+  it('keeps who and when from the wrap-up, unless the item already says them', () => {
+    const db = new Db(':memory:')
+    const withWho = (id: string, section: WrapupItem['section'], text: string, who: string | null, when: string | null) => ({ ...item(id, section, text), who, when })
+    call(db, 's-1', '2026-09-28T15:00:00.000Z', 'Northwind', {
+      items: [
+        withWho('w1', 'they_owe', 'Share a sample of their eval dataset', 'Dana', 'by Friday'),
+        withWho('w2', 'agreed', 'Technical deep-dive next Tuesday at 2', 'their ML lead', 'next Tuesday at 2'),
+        withWho('w3', 'we_owe', 'Send the deployment guide', null, '  '),
+      ],
+    })
+    expect(accountMemory(db, 'Northwind')!.items.map((i) => i.text)).toEqual([
+      'Send the deployment guide',
+      'Share a sample of their eval dataset (Dana, by Friday)',
+      'Technical deep-dive next Tuesday at 2 (their ML lead)',
+    ])
+  })
+
   it('a deleted call drops out of the memory by itself', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'am-'))
     const db = new Db(':memory:')
@@ -174,6 +195,28 @@ describe('the <earlier_calls> block HELP gets', () => {
     const ctx = buildHelpContext({ memory, kb: null, atMs: 5000 })
     expect(ctx.text).toContain(earlierCallsBlock(items)!.text)
     expect(ctx.refs.earlier_calls).toEqual(items)
+  })
+
+  it("the dates on each line don't count as figures anyone said (a made-up 28% is still flagged)", () => {
+    const memory = new CallMemory('s-now')
+    memory.setup = { call_type: 'follow_up', call_goal: '', desired_outcomes: [], account: 'Northwind', deployment: 'unknown' }
+    memory.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 3000, available_ms: 3500, text: 'So where did we land on the pilot?' }, true)
+    memory.earlierCalls = [
+      { kind: 'fact', text: 'Platform team of six engineers, 40 models in production', date: '2026-09-28' },
+      { kind: 'they_owe', text: 'Share their eval dataset', date: '2026-09-10' },
+    ]
+    const ctx = buildHelpContext({ memory, kb: null, atMs: 5000 })
+    expect(ctx.text).toContain('2026-09-28 · They told us')
+    const issues = (say: string) => {
+      const p = new LineProtocolParser()
+      p.feed(`MOVE: technical_answer\nSAY: ${say}\nHAPPENING: -\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n`)
+      p.end()
+      return validateCard(p.partial(), p.fieldOrder, { knownSourceIds: new Set(['T1']), contextText: ctx.text, limits: playbook.card_limits }).issues
+    }
+    const made = issues('Teams find regressions 28% faster and 9 times cheaper in 2026 within 10 days.')
+    for (const n of ['28%', '9', '2026', '10']) expect(made).toContain(`number not found in context: ${n}`)
+    // Figures inside an item were said (on that call), so they still count.
+    expect(issues('With your 40 models and six engineers, where does review slow down?').filter((i) => i.startsWith('number not found'))).toEqual([])
   })
 
   it('the prompt says they are past statements, asked about, never stated as current fact', () => {
@@ -237,5 +280,97 @@ describe('at call start', () => {
     expect(mem.map((l) => [l.data?.calls, l.data?.items])).toEqual([[1, 3], [1, 1], [0, 0]])
     expect(JSON.stringify(logs)).not.toMatch(/zebrafinch|Quokkaline|Marmoset|pangolin|Northwind|Fernhollow/i)
     help.shutdown()
+  })
+})
+
+describe('deleting saved calls during a call', () => {
+  it('HELP stops sending the deleted calls at once', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'amdel-'))
+    const logs: Array<{ event: string; data?: Record<string, unknown> }> = []
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, (event, data) => logs.push({ event, data }))
+    const old = 's-2026-09-28T15-00-00-000Z-aaaaaa'
+    call(help.db, old, '2026-09-28T15:00:00.000Z', 'Northwind', { notes: notes(['GONE regression alerts'], []) })
+    help.setSetup({ call_type: 'follow_up', call_goal: '', desired_outcomes: [], account: 'Northwind', deployment: 'unknown' })
+    help.onSessionEvent({ type: 'state', state: 'checking', sessionId: 's-new' }, 's-new', () => 0)
+    help.memory!.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 3000, available_ms: 3500, text: 'So where did we land?' }, true)
+    expect(buildHelpContext({ memory: help.memory!, kb: null, atMs: 5000 }).text).toContain('GONE regression alerts')
+    // As "Delete all saved calls" does: forget, delete, then look again.
+    help.forgetCall(old)
+    deleteCall(dir, help.db, old)
+    help.refreshEarlierCalls()
+    expect(help.memory!.earlierCalls).toEqual([])
+    expect(buildHelpContext({ memory: help.memory!, kb: null, atMs: 5000 }).text).not.toContain('<earlier_calls')
+    expect(JSON.stringify(logs)).not.toMatch(/GONE|Northwind/)
+    help.shutdown()
+  })
+})
+
+/** Answers when told to, so a background request can finish unseen. */
+class HeldModel implements HelpModel {
+  readonly mock = false
+  calls: Array<() => void> = []
+  label() { return 'held' }
+  async prewarm() {}
+  async check() { return { readiness: 'ready' as const } }
+  run(req: HelpModelRun): Promise<HelpModelResult> {
+    return new Promise((resolve) => {
+      this.calls.push(() => {
+        req.onText('MOVE: clarify_current_state\nASK: How is the pilot going so far?\nHAPPENING: -\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n')
+        resolve({ usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, cost_usd: 0 }, stop_reason: 'end_turn', served_model: 'held', fell_back: false })
+      })
+    })
+  }
+}
+
+describe('background requests Keith never saw', () => {
+  it("keep no earlier-call text; once he sees the card the row keeps what it showed", async () => {
+    vi.useFakeTimers()
+    try {
+      const db = new Db(':memory:')
+      const memory = new CallMemory('s-now', db)
+      memory.setup = { call_type: 'follow_up', call_goal: '', desired_outcomes: [], account: 'Northwind', deployment: 'unknown' }
+      memory.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 3000, available_ms: 3500, text: 'So where did we land on the pilot?' }, true)
+      memory.earlierCalls = [{ kind: 'promised', text: 'Send the wombatline deployment guide', date: '2026-09-28' }]
+      const model = new HeldModel()
+      const config: HelpModelConfig = { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low', thinking: 'off', timeout_ms: 8000, max_tokens: 400 }
+      let wall = 1000
+      const engine = new HelpEngine({ memory, kb: null, model, config, playbook, db, sessionNowMs: () => 5000, emit: () => {}, log: () => {}, prefetch: true, wallNow: () => wall })
+      engine.onFinalWords()
+      await vi.advanceTimersByTimeAsync(800)
+      model.calls[0]()
+      await vi.advanceTimersByTimeAsync(0)
+      const row = () => db.sql.prepare('SELECT context_refs_json, request_text FROM help_requests').get() as { context_refs_json: string; request_text: string | null }
+      expect(row().context_refs_json).not.toContain('wombatline')
+      expect(JSON.parse(row().context_refs_json).call_setup.account).toBe('Northwind')
+      wall += 2000
+      engine.press()
+      expect(JSON.parse(row().context_refs_json).earlier_calls).toEqual(memory.earlierCalls)
+      expect(row().request_text).toContain('wombatline')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a background card built before earlier calls changed is never served', async () => {
+    vi.useFakeTimers()
+    try {
+      const db = new Db(':memory:')
+      const memory = new CallMemory('s-now', db)
+      memory.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 3000, available_ms: 3500, text: 'So where did we land on the pilot?' }, true)
+      memory.earlierCalls = [{ kind: 'promised', text: 'Send the wombatline deployment guide', date: '2026-09-28' }]
+      const model = new HeldModel()
+      const config: HelpModelConfig = { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low', thinking: 'off', timeout_ms: 8000, max_tokens: 400 }
+      const engine = new HelpEngine({ memory, kb: null, model, config, playbook, db, sessionNowMs: () => 5000, emit: () => {}, log: () => {}, prefetch: true, wallNow: () => 1000 })
+      engine.onFinalWords()
+      await vi.advanceTimersByTimeAsync(800)
+      model.calls[0]()
+      await vi.advanceTimersByTimeAsync(0)
+      memory.earlierCalls = []
+      engine.discardPrefetch()
+      engine.press()
+      expect(model.calls).toHaveLength(2) // asked again, without the deleted items
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
