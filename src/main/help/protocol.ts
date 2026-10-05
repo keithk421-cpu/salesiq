@@ -184,17 +184,37 @@ const CAPABILITY_CLAIM_SOURCE =
     String.raw`(?:is|are) (?:fully |natively |officially )?supported`,
   ].join('|') +
   String.raw`)\b`
-/** A question or a subordinate lead right before the claim ("can we provide", "if that is supported", "which languages are supported"). */
-const CLAIM_LEAD = /\b(?:do|does|did|can|could|should|would|will|shall|if|what|which|once|when|until|before|after|suggest|propose|maybe|perhaps)\s+(?:[\w-]+\s+)?$/i
-/** A hedge earlier in the same sentence: the line is checking, not claiming ("let me confirm we support that"). */
+/** A subordinate lead right before the claim ("if that is supported", "which languages are supported"). */
+const CLAIM_LEAD = /\b(?:if|what|which|once|when|until|before|after|suggest|propose|maybe|perhaps)\s+(?:[\w-]+\s+)?$/i
+/**
+ * A question: the clause, or its part after the last comma, opens with the helper verb, before any
+ * subject ("can we provide", "got it, can we offer", "which of these teams would we support").
+ * "You can see we support SSO" is not a question.
+ */
+const CLAIM_QUESTION = /^\W*(?:(?:and|but|so|or|then|also|now|okay|ok|well|yes|no|great|sure)\W+)*(?:(?:how|what|which|where|why|who)(?:\s+[\w-]+){0,3}\s+)?(?:do|does|did|can|could|should|would|will|shall)\s+(?:[\w-]+\s+)?$/i
+/** A hedge earlier in the same clause: the line is checking, not claiming ("let me confirm we support that"). */
 const CLAIM_HEDGE = /\b(?:confirm|check|verify|whether|not sure|unsure|not certain|find out|look into|double-check|ask)\b/i
+/** Where a new clause starts: a sentence end, ';', ':', a dash between words, or ", but". */
+const CLAUSE_BREAK = /[.!?;:—]|\s[-–]\s|,\s*but\b/gi
 
-/** First unhedged Arize capability claim in the text, or null. */
+/** The clause the match sits in, up to the match ("let me check, but we support" -> " we support"). */
+function clauseBefore(text: string, at: number): string {
+  const before = text.slice(0, at)
+  let start = 0
+  for (const b of before.matchAll(CLAUSE_BREAK)) start = b.index + b[0].length
+  return before.slice(start)
+}
+
+/**
+ * First unhedged Arize capability claim in the text, or null. A hedge or question only counts in the
+ * claim's own clause, before it: "Let me check the details, but we support SAML" is still a claim.
+ */
 export function findCapabilityClaim(text: string): string | null {
   for (const m of text.matchAll(new RegExp(CAPABILITY_CLAIM_SOURCE, 'gi'))) {
-    const before = text.slice(0, m.index)
-    const sentence = before.slice(Math.max(...['.', '!', '?', ';'].map((c) => before.lastIndexOf(c))) + 1)
-    if (CLAIM_LEAD.test(sentence) || CLAIM_HEDGE.test(sentence)) continue
+    const clause = clauseBefore(text, m.index)
+    // A comma opener ("On self-hosted, do we support SAML?") doesn't stop it being a question.
+    const question = CLAIM_QUESTION.test(clause) || CLAIM_QUESTION.test(clause.slice(clause.lastIndexOf(',') + 1))
+    if (CLAIM_LEAD.test(clause) || question || CLAIM_HEDGE.test(clause)) continue
     // "Which languages are supported in your stack?" is about the buyer's side.
     if (/^(?:is|are)\b/i.test(m[0]) && /^\s+(?:in|on|by|across|within)\s+(?:your|their)\b/i.test(text.slice(m.index + m[0].length))) continue
     return m[0]

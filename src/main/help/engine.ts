@@ -40,6 +40,11 @@ export interface HelpEngineDeps {
   wallNow?: () => number
   /** A key, credit or model-access problem that pressing again won't fix (background work stops). */
   onBlocked?: (e: HelpError | null) => void
+  /**
+   * Every finished request, shown or background: null when Claude answered, else the error. Not called
+   * for HELP's own deadline or a cancel (they say nothing about the key or the connection).
+   */
+  onResult?: (e: HelpError | null) => void
 }
 
 interface Run {
@@ -285,6 +290,7 @@ export class HelpEngine {
       run.content = run.parser.partial()
       run.usage = res.usage
       this.setBlocked(null)
+      this.d.onResult?.(null)
       if (res.stop_reason === 'refusal') {
         run.error = 'Claude declined to answer this one. Press HELP again.'
         run.errorCode = 'refusal'
@@ -319,6 +325,7 @@ export class HelpEngine {
         run.error = e.message
         run.errorCode = e.code
         if (e.blocking) this.setBlocked(e)
+        this.d.onResult?.(e)
       }
       this.finish(run, timedOut ? 'timeout' : 'failed')
     } finally {

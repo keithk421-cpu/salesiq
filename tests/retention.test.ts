@@ -40,17 +40,32 @@ describe('saved calls and retention', () => {
     const kept = 's-2026-10-01T15-00-00-000Z-bbbbbb'
     call(root, db, gone, 'Northwind')
     call(root, db, kept, 'Fernhollow')
+    // Words said only in each call, stored only in its transcript and transcript search index.
+    const said = (id: string, text: string) => {
+      db.sql.prepare("INSERT INTO turns (session_id, turn_id, stream, start_ms, end_ms, available_ms, text) VALUES (?, 't2', 'system_remote', 2, 3, 3, ?)").run(id, text)
+      db.sql.prepare("INSERT INTO turns_fts (text, session_id, turn_id) VALUES (?, ?, 't2')").run(text, id)
+    }
+    said(gone, 'zanzibarite quokkaflux rollout')
+    said(kept, 'marmalith pilot')
     expect(deleteCalls(root, db, [gone])).toEqual({ deleted: 1, failed: 0 })
     for (const [t, col] of [['sessions', 'id'], ['turns', 'session_id'], ['turns_fts', 'session_id'], ['speaker_labels', 'session_id'], ['help_requests', 'session_id']]) {
-      const ids = (db.sql.prepare(`SELECT ${col} AS id FROM ${t}`).all() as Array<{ id: string }>).map((r) => r.id)
+      const ids = (db.sql.prepare(`SELECT DISTINCT ${col} AS id FROM ${t}`).all() as Array<{ id: string }>).map((r) => r.id)
       expect(ids, t).toEqual([kept])
     }
     expect((db.sql.prepare('SELECT card_id FROM feedback').all() as Array<{ card_id: string }>).map((r) => r.card_id)).toEqual([`r-${kept}`])
     expect(fs.existsSync(path.join(root, 'sessions', gone))).toBe(false)
     expect(fs.existsSync(path.join(root, 'sessions', kept, 'transcript.jsonl'))).toBe(true)
     // Compacted while the app keeps running: the deleted call's words are in neither the file nor its log.
-    for (const f of [file, `${file}-wal`]) if (fs.existsSync(f)) expect(fs.readFileSync(f).toString('latin1'), f).not.toContain('Northwind')
+    // That includes the transcript search index, whose deleted entries outlive VACUUM unless merged.
+    for (const f of [file, `${file}-wal`]) {
+      if (!fs.existsSync(f)) continue
+      const bytes = fs.readFileSync(f).toString('latin1')
+      for (const word of ['Northwind', 'zanzibar', 'quokkaflux']) expect(bytes.includes(word), `${word} in ${f}`).toBe(false)
+    }
     expect(fs.readFileSync(file).toString('latin1')).toContain('Fernhollow')
+    expect(fs.readFileSync(file).toString('latin1')).toContain('marmalith')
+    // The kept call is still searchable.
+    expect(db.sql.prepare("SELECT session_id FROM turns_fts WHERE turns_fts MATCH 'marmalith'").all()).toEqual([{ session_id: kept }])
     db.close()
   })
 

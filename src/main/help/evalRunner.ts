@@ -126,9 +126,31 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
     complete_ms: status === 'complete' ? Math.round(completeAt - t0) : null,
     usage,
     level1: { pass: failures.length === 0, failures },
-    move_ok: move ? [...s.best_moves, ...s.acceptable_moves].includes(move) : null,
+    move_ok: moveOk(s, move),
     error,
   }
+}
+
+/** A saved moment replay threw on (a hand-edited file): a failed result, so the run goes on. */
+function unreplayable(s: Scenario, model: HelpModel, config: HelpModelConfig, err: unknown): ScenarioResult {
+  return {
+    scenario_id: typeof s.id === 'string' ? s.id : '?', category: typeof s.category === 'string' ? s.category : 'real_call', approved: false,
+    model: config.model, config_label: model.label(config), status: 'failed', card: null, raw: '', first_usable_ms: null, complete_ms: null, usage: null,
+    level1: { pass: false, failures: [`could not replay: ${(err as Error)?.message ?? String(err)}`] }, move_ok: null, error: (err as Error)?.message ?? String(err),
+  }
+}
+
+/**
+ * Level 3 signal for one card. Built-in scenarios list every good move, so any other move disagrees.
+ * A moment saved from a real call knows only what Keith's feedback said about the move HELP gave
+ * then (fine, or wrong): other moves aren't judged until someone adds its best moves.
+ */
+export function moveOk(s: Scenario, move: string | undefined): boolean | null {
+  if (!move) return null
+  if (s.unacceptable_moves?.includes(move)) return false
+  const ok = [...s.best_moves, ...s.acceptable_moves]
+  if (ok.includes(move)) return true
+  return s.best_moves.length === 0 && (s.source === 'real_call' || ok.length === 0) ? null : false
 }
 
 export function percentile(xs: number[], p: number): number | null {
@@ -199,6 +221,17 @@ export interface BenchmarkReport {
   note: string
   summaries: ConfigSummary[]
   results: ScenarioResult[]
+  /**
+   * Keith's saved real-call moments, when the run included them: unapproved drafts, reported on
+   * their own and never part of the summaries, baselines or anything that gates.
+   */
+  mine?: {
+    scenarios: number
+    summaries: ConfigSummary[]
+    results: ScenarioResult[]
+    /** Readable name and the move HELP gave on the call, per moment id. */
+    moments: Array<{ id: string; title: string; observed_move: string | null }>
+  }
 }
 
 /**
@@ -207,6 +240,8 @@ export interface BenchmarkReport {
  */
 export async function benchmark(opts: {
   scenarios: Scenario[]
+  /** Keith's saved real-call moments: run in the same loop (same warm connection), reported apart. */
+  mine?: Scenario[]
   model: HelpModel
   configs: HelpModelConfig[]
   playbook: Playbook
@@ -214,7 +249,9 @@ export async function benchmark(opts: {
   onProgress?: (done: number, total: number, last: ScenarioResult) => void
 }): Promise<BenchmarkReport> {
   const results: ScenarioResult[] = []
-  const total = opts.scenarios.length * opts.configs.length * opts.repeats
+  const mineResults: ScenarioResult[] = []
+  const mine = opts.mine ?? []
+  const total = (opts.scenarios.length + mine.length) * opts.configs.length * opts.repeats
   let done = 0
   for (const config of opts.configs) {
     try {
@@ -223,15 +260,30 @@ export async function benchmark(opts: {
       /* measured anyway */
     }
     for (let rep = 0; rep < opts.repeats; rep++) {
-      for (const s of opts.scenarios) {
-        const r = await runScenario(s, opts.model, config, opts.playbook)
-        results.push(r)
-        opts.onProgress?.(++done, total, r)
+      for (const [list, out] of [[opts.scenarios, results], [mine, mineResults]] as const) {
+        for (const s of list) {
+          // One of Keith's moments that can't be replayed (hand-edited) is reported as failed, never
+          // stopping the run: his drafts never get in the way of the built-in results.
+          const run = runScenario(s, opts.model, config, opts.playbook)
+          const r = await (list === mine ? run.catch((err: unknown) => unreplayable(s, opts.model, config, err)) : run)
+          out.push(r)
+          opts.onProgress?.(++done, total, r)
+        }
       }
     }
   }
   const summaries = opts.configs.map((c) => summarize(c.model, results.filter((r) => r.model === c.model)))
   const approved = opts.scenarios.filter((s) => s.golden_approved).length
+  const mineReport = mine.length
+    ? {
+        mine: {
+          scenarios: mine.length,
+          summaries: opts.configs.map((c) => summarize(c.model, mineResults.filter((r) => r.model === c.model))),
+          results: mineResults,
+          moments: mine.map((s) => ({ id: s.id, title: s.title ?? s.id, observed_move: s.observed?.move ?? null })),
+        },
+      }
+    : {}
   return {
     created_at: new Date().toISOString(),
     playbook_version: opts.playbook.version,
@@ -243,6 +295,7 @@ export async function benchmark(opts: {
       : 'Level 3 move agreement is computed on Keith-approved scenarios only.',
     summaries,
     results,
+    ...mineReport,
   }
 }
 
@@ -392,7 +445,7 @@ export function reportMarkdown(r: BenchmarkReport): string {
   const fails = r.results.filter((x) => !x.level1.pass).map((x) => `- ${x.scenario_id} · ${x.config_label.split(' · ')[0]}: ${x.level1.failures.join('; ')}`)
   return `# HELP benchmark ${r.created_at}
 
-Playbook ${r.playbook_version} · ${r.scenarios} scenarios (${r.approved_scenarios} Keith-approved) · ${r.repeats} run(s) each.
+Playbook ${r.playbook_version} · ${r.scenarios} scenarios (${r.approved_scenarios} Keith-approved) · ${r.repeats} run(s) each.${r.mine ? ` Plus ${r.mine.scenarios} of your saved moments, reported separately at the end.` : ''}
 ${r.note}
 
 Targets: usable guidance ~1-2 s, p95 <= 3 s. "Usable" = a complete, validated Ask/Say line that passes Level 1.
@@ -402,6 +455,37 @@ Targets: usable guidance ~1-2 s, p95 <= 3 s. "Usable" = a complete, validated As
 ${rows.join('\n')}
 
 ## Level 1 failures
+${fails.join('\n') || 'None.'}
+${r.mine ? mineMarkdown(r.mine, ms, pc) : ''}`
+}
+
+/** Keith's saved moments: their own section, so they never mix with the numbers that decide anything. */
+function mineMarkdown(m: NonNullable<BenchmarkReport['mine']>, ms: (x: number | null) => string, pc: (x: number | null) => string): string {
+  const cell = (x: string) => x.replace(/\|/g, '/').replace(/\s+/g, ' ')
+  const byId = new Map(m.moments.map((x) => [x.id, x]))
+  const rows = m.summaries.map((s) =>
+    `| ${s.model} | ${ms(s.first_usable_median_ms)} | ${ms(s.first_usable_p95_ms)} | ${ms(s.complete_median_ms)} | ${pc(s.usable_within_3s)} | ${s.timeouts} | ${s.failures} | ${pc(s.level1_pass_rate)} | $${s.cost_per_request_usd.toFixed(4)} |`,
+  )
+  const fits = (x: ScenarioResult) => (x.move_ok === null ? 'not judged' : x.move_ok ? 'yes' : 'no')
+  const each = m.results.map((x) =>
+    `| ${cell(byId.get(x.scenario_id)?.title ?? x.scenario_id)} | ${x.model} | ${ms(x.first_usable_ms)} | ${x.level1.pass ? 'pass' : 'FAIL'} | ${x.card?.move ?? '–'} | ${byId.get(x.scenario_id)?.observed_move ?? '–'} | ${fits(x)} |`,
+  )
+  const fails = m.results.filter((x) => !x.level1.pass).map((x) => `- ${cell(byId.get(x.scenario_id)?.title ?? x.scenario_id)} · ${x.model}: ${x.level1.failures.join('; ')}`)
+  return `
+## Your saved moments (${m.scenarios}, from real calls)
+
+Unapproved drafts: reported here only, never part of the numbers above or of anything that picks a model.
+"Fits your feedback" is judged only where your rating said which move was fine or wrong.
+
+| Model | First usable p50 | First usable p95 | Full card p50 | Usable <=3 s | Timeouts | Failures | Level 1 pass | Cost / press |
+|---|---|---|---|---|---|---|---|---|
+${rows.join('\n')}
+
+| Moment | Model | First usable | Level 1 | Move now | Move on the call | Fits your feedback |
+|---|---|---|---|---|---|---|
+${each.join('\n')}
+
+### Level 1 failures (your moments)
 ${fails.join('\n') || 'None.'}
 `
 }

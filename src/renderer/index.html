@@ -238,14 +238,14 @@
     <div id="idleBanner" class="banner warning" hidden>
       <span class="banner-ico"></span>
       <div class="banner-body">
-        <div><b>Still on a call?</b> Nothing has been heard from the other side for 10 minutes. Stopping in <b id="idleLeft">60</b> s.</div>
+        <div><b>Still on a call?</b> Nothing has been said on the call for 10 minutes. Pausing in <b id="idleLeft">60</b> s (Resume carries on).</div>
         <div class="row"><button id="idleKeep" class="btn btn-sm btn-primary">Still on the call</button></div>
       </div>
     </div>
 
     <div id="checkCard" class="card check" hidden>
       <h2>Waiting for the call…</h2>
-      <p class="muted">It goes live as soon as it hears both sides: the meeting audio (or Zoom's <b>Test Speaker</b>) and you saying a few words. It keeps waiting up to 20 minutes; press <b>Stop</b> to cancel.</p>
+      <p class="muted">It goes live as soon as it hears both sides at about the same time: the meeting audio (or Zoom's <b>Test Speaker</b>) and you saying a few words. It keeps waiting up to 20 minutes; press <b>Stop</b> to cancel.</p>
       <ul class="checks">
         <li id="ckSys"><span class="ck"></span>Meeting audio</li>
         <li id="ckMic"><span class="ck"></span>Your mic</li>
@@ -280,7 +280,7 @@
         <button id="openFolder" class="btn btn-ghost btn-sm">Open data folder</button>
       </div>
       <p id="snapMsg" class="muted small"></p>
-      <label class="inline check small"><input type="checkbox" id="hideCapture" /> Hide this window from screen sharing, recordings and screenshots (untick only to take a screenshot for support)</label>
+      <label class="inline check small"><input type="checkbox" id="hideCapture" /> During calls, hide this window from screen sharing, recordings and screenshots (outside a call, screenshots just work; if you untick it, Start ticks it again)</label>
       <div class="row small">
         <span>Keep saved calls for</span>
         <select id="retention" class="input">
@@ -297,7 +297,22 @@
           <button id="benchOpen" class="btn btn-ghost btn-sm" hidden>Open report</button>
         </div>
         <p class="muted small">Replays the test scenarios through both models on this PC and network, measuring time to a usable line, failures and cost (roughly $1-2 per run). Not during a call.</p>
+        <div class="row small">
+          <label class="inline check"><input type="checkbox" id="benchMine" /> <span id="benchMineLabel">Include my saved moments (0)</span></label>
+          <span>My practice moments: <b id="practiceCount">0</b></span>
+          <button id="practiceOpen" class="btn btn-ghost btn-sm">Open folder</button>
+          <span id="practiceMsg" class="muted"></span>
+        </div>
+        <p class="muted small">Your saved moments come from your calls (save one from "Review this call's cards"). They're replayed too and reported in their own section; they never decide which model wins. That report stays on this PC: Save support files leaves it out.</p>
         <pre id="benchSummary" class="bench-summary" hidden></pre>
+      </div>
+      <div class="bench">
+        <div class="row">
+          <button id="fbExport" class="btn btn-secondary btn-sm">Export HELP feedback</button>
+          <select id="fbPeriod" class="input"><option value="7d" selected>Last 7 days</option><option value="30d">Last 30 days</option><option value="all">Everything</option></select>
+          <span id="fbExportMsg" class="muted small"></span>
+        </div>
+        <p class="muted small">Saves one file to your Downloads folder with every HELP card from your calls in that period: the lines, your ratings, the lines you used and your notes. Send it to me to improve HELP.</p>
       </div>
       <div id="activity" class="activity"></div>
     </details>

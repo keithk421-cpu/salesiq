@@ -1,10 +1,14 @@
 /**
  * "Save support files": copies only files that never contain conversation text or keys into a new
  * folder Keith can zip and send. Allowlist, not blocklist: anything not named here stays behind
- * (copilot.db, transcript.jsonl, call-setup.json, keys, knowledge files).
+ * (copilot.db, transcript.jsonl, call-setup.json, keys, knowledge files, practice/ moments saved
+ * from real calls). Feedback exports go to Downloads, never to the data folder.
  */
 import fs from 'node:fs'
 import path from 'node:path'
+
+/** Report names marking a speed test run on Keith's saved moments (real call text). */
+export const HOLDS_CALL_TEXT = /-mine\b/i
 
 export function saveSupportFiles(root: string, outParent: string, now = new Date()): { dir: string; files: string[]; skipped: string[] } {
   const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, '-')
@@ -52,8 +56,12 @@ export function saveSupportFiles(root: string, outParent: string, now = new Date
   for (const s of list(path.join(root, 'sessions'))) {
     for (const f of ['diagnostics.jsonl', 'summary.json']) copy(path.join(root, 'sessions', s, f), path.join('sessions', s, f))
   }
-  // HELP speed-test reports (synthetic practice moments) and numbers-only scorecards.
-  for (const f of list(path.join(root, 'reports'))) if (/\.(json|md)$/.test(f)) copy(path.join(root, 'reports', f), path.join('reports', f))
+  // HELP speed-test reports (built-in, made-up scenarios) and numbers-only scorecards: files directly
+  // in reports/ only. A speed test that included Keith's saved moments replayed real calls: its report
+  // is in reports/mine/ (never listed here), and the "-mine" name check is a second guard.
+  for (const f of list(path.join(root, 'reports'))) {
+    if (/\.(json|md)$/.test(f) && !HOLDS_CALL_TEXT.test(f)) copy(path.join(root, 'reports', f), path.join('reports', f))
+  }
   // Settings without secrets.
   copy(path.join(root, 'help-settings.json'), 'help-settings.json')
   copy(path.join(root, 'app-settings.json'), 'app-settings.json')

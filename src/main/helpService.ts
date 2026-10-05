@@ -11,10 +11,12 @@ import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
-import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
+import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
+import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
+import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
 
@@ -36,6 +38,8 @@ export interface PlaybookInfo {
   problem: string | null
   /** A different built-in version shipped since Keith's copy was made, and he hasn't chosen yet. */
   newer_built_in: boolean
+  /** "Use the new one" didn't work (e.g. Windows holds the file open); HELP keeps using what it was. */
+  error?: string | null
 }
 
 export interface HelpReadyState {
@@ -49,6 +53,7 @@ const READY_TEXT: Record<HelpReadiness, string> = {
   key_rejected: 'Claude key not working: check Setup, step 3',
   no_credit: 'Anthropic account is out of credit',
   offline: "Can't reach Claude: check the internet",
+  busy: 'Claude is busy right now; press HELP again',
   unavailable: "HELP's Claude model isn't available to this key",
   checking: 'Checking HELP…',
 }
@@ -97,6 +102,8 @@ export class HelpService {
   engine: HelpEngine | null = null
   private sessionState = 'idle'
   private sessionNow: () => number = () => 0
+  /** The call that just ended and how long it ran, so after-call ratings can update its scorecard. */
+  private endedCall: { sessionId: string; callMs: number } | null = null
   hotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
   onReadiness: ((r: HelpReadyState) => void) | null = null
@@ -116,8 +123,11 @@ export class HelpService {
     if (!fs.existsSync(readme) || fs.readFileSync(readme, 'utf8') !== KNOWLEDGE_README) fs.writeFileSync(readme, KNOWLEDGE_README)
     this.playbook = this.loadPlaybook()
     this.settings = storage.readJson('help-settings.json', DEFAULT_SETTINGS)
-    // Older saved setups have no deployment field; missing fields fall back to the defaults.
-    this.setup = { ...DEFAULT_SETUP, ...storage.readJson('call-setup.json', DEFAULT_SETUP) }
+    // Account, goal, outcomes and deployment belong to one call: if the app quit or crashed without
+    // Stop, they'd be the last call's. Only the call type (which often repeats) carries over.
+    const saved = storage.readJson<Partial<CallSetup>>('call-setup.json', DEFAULT_SETUP)
+    const callType = (CALL_TYPES as readonly string[]).includes(saved.call_type as string) ? (saved.call_type as CallType) : DEFAULT_SETUP.call_type
+    this.setup = { ...DEFAULT_SETUP, call_type: callType }
     try {
       this.kb.indexFolder(this.knowledgeDir)
     } catch (err) {
@@ -157,9 +167,30 @@ export class HelpService {
   /** Switch to the shipped playbook; Keith's copy is kept as a dated backup next to it. */
   useBuiltInPlaybook(now = new Date()): PlaybookInfo {
     const user = path.join(this.storage.root, 'playbook.json')
-    if (fs.existsSync(user)) fs.renameSync(user, path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`))
+    const backup = path.join(this.storage.root, `playbook-yours-${now.toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`)
+    if (fs.existsSync(user)) {
+      try {
+        fs.renameSync(user, backup)
+      } catch (err) {
+        // Windows can refuse a rename while another program has the file open: copy, then delete.
+        this.log('playbook_rename_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+        try {
+          fs.copyFileSync(user, backup)
+          fs.unlinkSync(user)
+        } catch (err2) {
+          this.log('playbook_switch_failed', { code: (err2 as NodeJS.ErrnoException).code ?? 'unknown' })
+          // His copy stays in use, so don't leave a second copy of it lying around.
+          try {
+            if (fs.existsSync(user)) fs.rmSync(backup, { force: true })
+          } catch {
+            /* best effort */
+          }
+          return { ...this.reloadPlaybook(), error: "Couldn't switch: close the playbook file and try again." }
+        }
+      }
+    }
     this.log('playbook_choice', { choice: 'built_in' })
-    return this.reloadPlaybook()
+    return { ...this.reloadPlaybook(), error: null }
   }
 
   /** Keep Keith's copy and stop offering this shipped version. */
@@ -198,13 +229,17 @@ export class HelpService {
   }
 
   private setReady(readiness: HelpReadiness): void {
+    if (this.ready.readiness !== readiness) this.log('help_readiness', { readiness })
     this.ready = { readiness, message: READY_TEXT[readiness] }
-    this.log('help_readiness', { readiness })
     this.onReadiness?.(this.ready)
   }
 
+  /** Bumped by every check and every finished request: only the newest news reaches the light. */
+  private readySeq = 0
+
   /** HELP-ready light: a free check that Claude accepts the saved key (no tokens used). */
   async checkReady(): Promise<HelpReadyState> {
+    const seq = ++this.readySeq
     const model = this.createModel()
     if (model.mock) {
       this.setReady('practice')
@@ -212,13 +247,17 @@ export class HelpService {
     }
     this.setReady('checking')
     const r = await model.check(this.modelConfig())
-    this.setReady(r.readiness)
+    // A newer check or a request that finished meanwhile knows better.
+    if (seq === this.readySeq) this.setReady(r.readiness)
     return this.ready
   }
 
-  private onBlocked(e: HelpError | null): void {
-    if (!e) this.setReady('ready')
-    else this.setReady(e.code === 'no_credit' ? 'no_credit' : e.code === 'model_unavailable' ? 'unavailable' : 'key_rejected')
+  /** Every finished request updates the light, so it never disagrees with what HELP presses see. */
+  private onRequestResult(e: HelpError | null): void {
+    const readiness = e ? readinessFor(e) : 'ready'
+    if (!readiness) return
+    this.readySeq++
+    this.setReady(readiness)
   }
 
   // ---------------------------------------------------------------- settings / setup / knowledge
@@ -242,12 +281,18 @@ export class HelpService {
     }
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
-    if (this.memory) {
+    if (this.memory && this.callInProgress()) {
       // Editable mid-call: the next HELP press uses it, and the call's record keeps the latest.
+      // After Stop the strip is for the next call; the finished call's record keeps what it was.
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
     }
     return setup
+  }
+
+  /** Waiting to go live, live or paused: the call that `memory` belongs to is still going. */
+  private callInProgress(): boolean {
+    return this.sessionState === 'checking' || this.sessionState === 'live' || this.sessionState === 'paused'
   }
 
   importKnowledge(picked: string[], fromFolder: boolean): KnowledgeImport & { docs: KnowledgeDocMeta[] } {
@@ -330,6 +375,7 @@ export class HelpService {
     // Playbook edits made since the last call apply now, without restarting the app.
     this.playbook = this.loadPlaybook()
     this.sessionNow = nowSessionMs
+    this.endedCall = null
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
@@ -337,7 +383,8 @@ export class HelpService {
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
       sessionNowMs: () => this.sessionNow(), emit: this.emit, log: this.log, prefetch: this.settings.prefetch,
-      onBlocked: (e) => this.onBlocked(e),
+      // Practice mode (no key) stays "Practice mode" whatever the MOCK cards do.
+      onResult: model.mock ? undefined : (e) => this.onRequestResult(e),
     })
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
     void this.checkReady()
@@ -345,6 +392,7 @@ export class HelpService {
 
   /** A deleted call: drop what's still in memory so nothing writes to it again (e.g. a late label). */
   forgetCall(sessionId: string): void {
+    if (this.endedCall?.sessionId === sessionId) this.endedCall = null
     if (this.memory?.sessionId !== sessionId) return
     this.engine?.dispose()
     this.engine = null
@@ -355,18 +403,25 @@ export class HelpService {
   private endCall(): void {
     const m = this.memory
     if (m) {
-      try {
-        const dir = path.join(this.storage.root, 'reports')
-        fs.mkdirSync(dir, { recursive: true })
-        fs.writeFileSync(path.join(dir, `help-scorecard-${m.sessionId}.json`), JSON.stringify(buildScorecard(this.db, m.sessionId, this.sessionNow()), null, 2))
-      } catch (err) {
-        this.log('help_scorecard_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
-      }
+      // The session clock keeps running after Stop; the call's length is what it is now.
+      this.endedCall = { sessionId: m.sessionId, callMs: this.sessionNow() }
+      this.writeScorecard(this.endedCall.sessionId, this.endedCall.callMs)
     }
     // Account, goal, outcomes and deployment are per call; the call type often repeats. The finished
     // call's own record keeps what it was.
     this.setup = { ...DEFAULT_SETUP, call_type: this.setup.call_type }
     this.storage.writeJson('call-setup.json', this.setup)
+  }
+
+  /** reports/help-scorecard-<id>.json, numbers only. Rewritten as Keith rates the cards after the call. */
+  private writeScorecard(sessionId: string, callMs: number): void {
+    try {
+      const dir = path.join(this.storage.root, 'reports')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, `help-scorecard-${sessionId}.json`), JSON.stringify(buildScorecard(this.db, sessionId, callMs), null, 2))
+    } catch (err) {
+      this.log('help_scorecard_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+    }
   }
 
   /** HELP button / hotkey. Never gated by speaker role. */
@@ -391,6 +446,11 @@ export class HelpService {
     if (eng) eng.recordFeedback(ev)
     else this.db.sql.prepare('INSERT INTO feedback (card_id, origin, type, bad_reason, note, ts) VALUES (?, ?, ?, ?, ?, ?)')
       .run(ev.card_id, ev.origin, ev.type, ev.bad_reason, ev.optional_note, new Date().toISOString())
+    // The after-call review happens after Stop: bring the finished call's scorecard up to date.
+    const ended = this.endedCall
+    if (ended && this.db.sql.prepare('SELECT 1 FROM help_requests WHERE id = ? AND session_id = ?').get(ev.card_id, ended.sessionId)) {
+      this.writeScorecard(ended.sessionId, ended.callMs)
+    }
     return { ok: true }
   }
 
@@ -432,29 +492,118 @@ export class HelpService {
     const configs = [DEFAULT_HELP_CONFIG, OPUS_HELP_CONFIG].filter((c) => which.includes(c.model))
     const scenarios = loadScenarios(path.join(this.appPath, 'evals', 'scenarios', 'help'))
     if (scenarios.length === 0) return { ok: false, reason: 'No scenarios found.' }
+    // Keith's saved moments (real calls) when he ticks the box: reported apart, never gating anything.
+    const mine = r.includeMine === true ? loadPracticeMoments(this.practiceDir).moments : []
     const model = this.createModel()
     this.benchmarking = true
     try {
-      this.log('help_benchmark_start', { scenarios: scenarios.length, repeats, configs: configs.map((c) => c.model), mock: model.mock })
+      this.log('help_benchmark_start', { scenarios: scenarios.length, mine: mine.length, repeats, configs: configs.map((c) => c.model), mock: model.mock })
       const report = await benchmark({
-        scenarios, model, configs, playbook: this.playbook, repeats,
+        scenarios, mine, model, configs, playbook: this.playbook, repeats,
         onProgress: (done, total, last) => progress({ done, total, scenario: last.scenario_id, ok: last.level1.pass }),
       })
-      const dir = path.join(this.storage.root, 'reports')
+      // reports/mine/, "-mine": the report quotes real calls, so Save support files leaves it behind.
+      const dir = path.join(this.storage.root, 'reports', ...(mine.length ? [MINE_REPORTS] : []))
       fs.mkdirSync(dir, { recursive: true })
       const stamp = report.created_at.replace(/[:.]/g, '-')
-      const file = path.join(dir, `help-benchmark-${stamp}${model.mock ? '-MOCK' : ''}.json`)
+      const file = path.join(dir, `help-benchmark-${stamp}${model.mock ? '-MOCK' : ''}${mine.length ? '-mine' : ''}.json`)
       fs.writeFileSync(file, JSON.stringify({ ...report, mock: model.mock }, null, 2))
       const md = (model.mock ? '> MOCK RUN - no model was called. Latency and quality numbers are meaningless.\n\n' : '') + reportMarkdown(report)
       fs.writeFileSync(file.replace(/\.json$/, '.md'), md)
       this.log('help_benchmark_done', { file, summaries: report.summaries.map((x) => ({ model: x.model, p50: x.first_usable_median_ms, p95: x.first_usable_p95_ms, l1: x.level1_pass_rate, cost: x.cost_usd })) })
       return { ok: true, reportFile: file, markdown: md }
+    } catch (err) {
+      // Never leave the button stuck: say what happened (the log keeps only a code).
+      this.log('help_benchmark_failed', { code: (err as NodeJS.ErrnoException).code ?? (err as Error).name ?? 'unknown' })
+      return { ok: false, reason: `The speed test stopped (${(err as Error).message}). Try again, or send me the support files.` }
     } finally {
       this.benchmarking = false
     }
   }
 
+  // ---------------------------------------------------------------- practice moments, feedback export
+
+  /** Keith's saved practice moments (real call text): in the data folder only. */
+  get practiceDir(): string {
+    return path.join(this.storage.root, PRACTICE_DIR)
+  }
+
+  /** How many moments are saved, and which cards they came from (the review shows those as saved). */
+  practiceInfo(): { count: number; saved: string[] } {
+    const { moments } = loadPracticeMoments(this.practiceDir)
+    return { count: moments.length, saved: moments.map((m) => m.request_id).filter((x): x is string => typeof x === 'string') }
+  }
+
+  /**
+   * After-call review: save the call as it stood when this card was asked for, as a practice moment.
+   * A card already saved keeps its moment; only Keith's current feedback on it is written in (the
+   * review calls this again when he changes a saved card's rating, tick or note).
+   */
+  saveMoment(raw: unknown): { ok: boolean; already?: boolean; updated?: boolean; title?: string; reason?: string } {
+    const id = typeof raw === 'string' ? raw.slice(0, 64) : ''
+    if (!id) return { ok: false, reason: 'Invalid card' }
+    try {
+      const already = savedRequestIds(this.practiceDir).has(id)
+      const gaps = (sid: string) => (/^[\w-]+$/.test(sid) ? readSessionGaps(path.join(this.storage.root, 'sessions', sid, 'transcript.jsonl')) : [])
+      const b = buildPracticeMoment(this.db, id, { gaps })
+      if (!b.ok) return already ? { ok: true, already: true } : { ok: false, reason: b.reason }
+      const r = savePracticeMoment(this.practiceDir, b.moment, { refresh: true })
+      this.log('practice_moment_saved', {
+        request_id: id, already: r.already, updated: r.updated === true, lines: b.moment.transcript.length, knowledge: b.moment.knowledge?.length ?? 0,
+        acceptable: b.moment.acceptable_moves.length, unacceptable: b.moment.unacceptable_moves?.length ?? 0,
+      })
+      return { ok: true, already: r.already, ...(r.updated ? { updated: true } : {}), title: b.moment.title }
+    } catch (err) {
+      this.log('practice_moment_failed', { request_id: id, code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      return { ok: false, reason: "Couldn't save this moment. Try again, or send me the support files." }
+    }
+  }
+
+  /**
+   * Diagnostics: write every card Keith saw in the period, with his feedback, to one Markdown file in
+   * `outDir` (his Downloads folder). Never overwrites an earlier export.
+   */
+  exportFeedback(raw: unknown, outDir: string, now = new Date()): { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string } {
+    const period: ExportPeriod = typeof raw === 'string' && Object.hasOwn(EXPORT_PERIODS, raw) ? (raw as ExportPeriod) : '7d'
+    const minutes = (sid: string): number | null => {
+      if (!/^[\w-]+$/.test(sid)) return null
+      const card = this.storage.readJson<{ call_minutes?: unknown }>(path.join('reports', `help-scorecard-${sid}.json`), {})
+      return typeof card.call_minutes === 'number' ? card.call_minutes : null
+    }
+    try {
+      const calls = collectFeedbackCalls(this.db, periodSince(period, now), minutes)
+      if (!calls.length) return { ok: false, reason: period === 'all' ? 'No saved calls yet.' : `No calls in the ${EXPORT_PERIODS[period].label.toLowerCase()}.` }
+      const md = feedbackMarkdown(calls, { period, now })
+      const base = exportFileName(now).replace(/\.md$/, '')
+      fs.mkdirSync(outDir, { recursive: true })
+      for (let n = 1; n < 100; n++) {
+        const file = path.join(outDir, `${base}${n === 1 ? '' : `-${n}`}.md`)
+        try {
+          fs.writeFileSync(file, md, { flag: 'wx' })
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code === 'EEXIST') continue
+          throw err
+        }
+        const cards = calls.reduce((a, c) => a + c.cards.length, 0)
+        this.log('help_feedback_exported', { period, calls: calls.length, cards })
+        return { ok: true, file, calls: calls.length, cards }
+      }
+      return { ok: false, reason: 'Too many exports today in that folder. Move some, then try again.' }
+    } catch (err) {
+      this.log('help_feedback_export_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      return { ok: false, reason: `Couldn't write the file: ${(err as Error).message}` }
+    }
+  }
+
+  /** App exit. A call that went live and wasn't stopped gets its end-of-call work first. */
   shutdown(): void {
+    if (this.memory && (this.sessionState === 'live' || this.sessionState === 'paused' || this.sessionState === 'stopping')) {
+      try {
+        this.endCall()
+      } catch (err) {
+        this.log('help_end_on_quit_failed', { message: (err as Error).message })
+      }
+    }
     this.engine?.dispose()
     try {
       this.db.close()

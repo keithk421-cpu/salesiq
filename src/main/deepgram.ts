@@ -30,6 +30,23 @@ export type WsFactory = (url: string, headers: Record<string, string>) => WsLike
 
 export type ProviderState = 'connecting' | 'open' | 'closing' | 'closed' | 'failed'
 
+/** Deepgram answered the connect with an HTTP status instead of opening the stream. */
+export class DeepgramHttpError extends Error {
+  constructor(readonly statusCode: number | undefined, message: string) {
+    super(message)
+  }
+}
+
+/**
+ * True when Deepgram turned the connect down in a way that trying again will not fix: the API key
+ * was rejected (401/403), or another 4xx such as no credit left. Timeouts (408), rate limits (429),
+ * server errors and network blips are worth retrying.
+ */
+export function isRefusal(err: unknown): boolean {
+  const code = err instanceof DeepgramHttpError ? err.statusCode : undefined
+  return code !== undefined && code >= 400 && code < 500 && code !== 408 && code !== 429
+}
+
 export interface DeepgramOptions {
   apiKey: string
   sessionId: string
@@ -136,7 +153,7 @@ export class DeepgramStream {
       ws.on('unexpected-response', (_req, res) => {
         const code = res?.statusCode
         const msg = code === 401 || code === 403 ? 'Deepgram rejected the API key' : `Deepgram HTTP ${code}`
-        settle(new Error(msg))
+        settle(new DeepgramHttpError(code, msg))
       })
       ws.on('open', () => {
         if (this.dead) return

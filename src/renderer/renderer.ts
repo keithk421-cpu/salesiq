@@ -5,6 +5,7 @@ import type { DeviceScanEvent, ProbeStats } from '../main/deviceTest'
 import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import { expiresLabel, isPastReview } from '../shared/dates'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -548,6 +549,97 @@ $('rvList').addEventListener('change', async (e) => {
 })
 $('rvDone').addEventListener('click', () => { $('reviewModal').hidden = true })
 
+// ---- after the call: keep a card's moment as a practice moment (stays on this PC) ----
+type PracticeInfo = { count: number; saved: string[] }
+type SaveResult = { ok: boolean; already?: boolean; updated?: boolean; title?: string; reason?: string }
+const SAVE_TEXT = { idle: 'Save as practice moment', saving: 'Saving…', saved: 'Saved as a practice moment' }
+function setSaveState(btn: HTMLButtonElement, state: keyof typeof SAVE_TEXT): void {
+  btn.textContent = SAVE_TEXT[state]
+  btn.disabled = state !== 'idle'
+  btn.dataset.state = state
+}
+// Each card the review lists gets its own button (added as the list is drawn), showing whether it's saved.
+async function addSaveButtons(): Promise<void> {
+  const fresh = [...$('rvList').querySelectorAll<HTMLElement>('.rv-card')].filter((c) => !c.querySelector('[data-save]'))
+  if (!fresh.length) return
+  const buttons = fresh.map((c) => {
+    const row = document.createElement('div')
+    row.className = 'row rv-save'
+    row.innerHTML = '<button class="btn btn-ghost btn-sm" data-save disabled></button><span class="muted small" data-save-msg></span>'
+    c.append(row)
+    const btn = row.querySelector<HTMLButtonElement>('[data-save]')!
+    btn.textContent = SAVE_TEXT.idle // enabled once we know whether it's already saved
+    return { id: c.dataset.id ?? '', btn }
+  })
+  const info = (await api.practiceInfo()) as PracticeInfo
+  const saved = new Set(info.saved)
+  for (const b of buttons) setSaveState(b.btn, saved.has(b.id) ? 'saved' : 'idle')
+}
+new MutationObserver(() => void addSaveButtons()).observe($('rvList'), { childList: true })
+$('rvList').addEventListener('click', async (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-save]')
+  const cardEl = btn?.closest<HTMLElement>('.rv-card')
+  const id = cardEl?.dataset.id
+  if (!btn || !id) return
+  const msg = cardEl.querySelector<HTMLElement>('[data-save-msg]')!
+  setSaveState(btn, 'saving')
+  msg.textContent = ''
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
+  if (!r.ok) {
+    setSaveState(btn, 'idle')
+    msg.textContent = r.reason ?? "Couldn't save it."
+    return
+  }
+  setSaveState(btn, 'saved')
+  msg.textContent = r.updated ? 'Already saved; your rating is updated in it.' : r.already ? 'Already saved as a practice moment.' : 'The speed test can replay it now.'
+  void refreshPractice()
+})
+// A saved card whose rating, tick or note changes: write the new feedback into its moment. These
+// listeners run after the ones above that store the feedback (same order in the main process).
+async function refreshSavedMoment(target: EventTarget | null): Promise<void> {
+  const cardEl = (target as HTMLElement | null)?.closest<HTMLElement>('.rv-card')
+  const btn = cardEl?.querySelector<HTMLButtonElement>('button[data-save]')
+  const id = cardEl?.dataset.id
+  if (!cardEl || !id || btn?.dataset.state !== 'saved') return
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
+  cardEl.querySelector<HTMLElement>('[data-save-msg]')!.textContent = r.ok ? 'Practice moment updated with your rating.' : "Couldn't update the practice moment."
+}
+$('rvList').addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('button[data-rate]')) void refreshSavedMoment(e.target)
+})
+$('rvList').addEventListener('change', (e) => {
+  if ((e.target as HTMLElement).matches('[data-used], .rv-note')) void refreshSavedMoment(e.target)
+})
+
+// ---- Diagnostics: my practice moments in the speed test, and the HELP feedback export ----
+let benchMineTouched = false
+async function refreshPractice(): Promise<void> {
+  const i = (await api.practiceInfo()) as PracticeInfo
+  $('practiceCount').textContent = String(i.count)
+  $('benchMineLabel').textContent = `Include my saved moments (${i.count})`
+  const box = $<HTMLInputElement>('benchMine')
+  box.disabled = i.count === 0
+  // On whenever there are any, unless Keith unticked it.
+  if (!benchMineTouched || i.count === 0) box.checked = i.count > 0
+}
+$('benchMine').addEventListener('change', () => { benchMineTouched = true })
+document.querySelector('details.diag')?.addEventListener('toggle', () => void refreshPractice())
+$('practiceOpen').addEventListener('click', async () => {
+  const r = (await api.practiceOpenFolder()) as { ok: boolean; error?: string }
+  $('practiceMsg').textContent = r.ok ? '' : r.error ?? "Couldn't open the folder."
+})
+$('fbExport').addEventListener('click', async () => {
+  const btn = $<HTMLButtonElement>('fbExport')
+  btn.disabled = true
+  $('fbExportMsg').textContent = 'Saving…'
+  const r = (await api.helpExportFeedback($<HTMLSelectElement>('fbPeriod').value).catch(() => ({ ok: false }))) as { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string }
+  btn.disabled = false
+  $('fbExportMsg').textContent = r.ok
+    ? `Saved ${r.cards} card${r.cards === 1 ? '' : 's'} from ${r.calls} call${r.calls === 1 ? '' : 's'} to ${r.file}. It has lines and notes from your calls: send me that file.`
+    : r.reason ?? "Couldn't export."
+})
+void refreshPractice()
+
 // ---- saved calls: delete this call, retention ----
 function clearCallView(): void {
   turns.clear(); gaps.clear(); supp.length = 0; echoFiltered = 0
@@ -568,13 +660,13 @@ $('retention').addEventListener('change', async () => {
 })
 $('deleteAll').addEventListener('click', async () => {
   if (!confirm("Delete every saved call from this PC? Transcripts, HELP cards and notes are removed. This can't be undone.")) return
-  const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number }
-  if (sessionState === 'stopped' || sessionState === 'idle') {
+  const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number; error?: string }
+  if (!r.error && (sessionState === 'stopped' || sessionState === 'idle')) {
     lastCallDeleted = true
     clearCallView()
     setButtons()
   }
-  $('snapMsg').textContent = r.ok ? `Deleted ${r.deleted} saved call(s).` : "Some files couldn't be deleted. Close the app and try again."
+  $('snapMsg').textContent = r.ok ? `Deleted ${r.deleted} saved call(s).` : r.error ?? "Some files couldn't be deleted. Close the app and try again."
   void renderCallsInfo()
 })
 api.onRetentionPreview((p) => {
@@ -597,8 +689,10 @@ $('rmNo').addEventListener('click', () => {
 $('hideCapture').addEventListener('change', async () => {
   const on = $<HTMLInputElement>('hideCapture').checked
   await api.setAppSettings({ hide_from_capture: on })
-  $('snapMsg').textContent = on ? 'This window is hidden from screen sharing and screenshots again.' : 'This window can now be captured. Take the screenshot, then tick the box again before your next call.'
+  $('snapMsg').textContent = on ? 'This window is hidden from screen sharing during calls.' : 'This window can now be captured, even during a call. It hides again when you next press Start.'
 })
+// Start switches the hiding back on if it was off for a screenshot.
+api.onAppSettings((s) => { $<HTMLInputElement>('hideCapture').checked = s.hide_from_capture })
 void (api.buildInfo() as Promise<{ version: string; build: string; sha: string; date: string }>).then((b) => {
   $('buildTag').textContent = `· build ${b.build} (${b.sha}${b.date ? `, ${b.date}` : ''})`
 })
@@ -628,20 +722,24 @@ function renderCard(): void {
   el.classList.toggle('pending', !usable)
   el.classList.toggle('stale', done && Date.now() - cardShownAt > STALE_MS)
   $('hcBadge').hidden = !card.mock
-  $('hcHappening').textContent = c.happening ?? ''
+  // An answer that never finished (failed, timed out, cancelled by Pause/Stop) is never advice.
+  const cut = card.status === 'cancelled' || card.status === 'superseded'
+  const broken = card.status === 'failed' || card.status === 'timeout' || cut
+  // Its read of the moment is hidden too: it never passed the checks.
+  $('hcHappening').textContent = broken ? '' : c.happening ?? ''
   const su = card.setup
   $('hcFor').textContent = su ? `For ${su.account || 'account not set'} · ${DEPLOY_LABEL[su.deployment] ?? 'deployment not sure'}` : ''
   const prim = $('hcPrimary')
-  const broken = card.status === 'failed' || card.status === 'timeout'
   if (usable && broken) {
-    // A line that streamed in but whose answer then failed is shown struck through, never as advice.
-    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(card.error ?? "the answer didn't finish its checks")}</span>`
+    // A line that streamed in but whose answer then failed or was cut off is shown struck through.
+    const why = card.error ?? (cut ? 'the answer was cut off before it finished its checks' : "the answer didn't finish its checks")
+    prim.innerHTML = `<span class="struck">${esc(c.primary!)}</span><span class="hc-dontuse">Don't use this line: ${esc(why)}</span>`
   } else if (usable) {
     prim.innerHTML = `<span class="kind">${c.primary_kind === 'say' ? 'Say' : 'Ask'}</span>${esc(c.primary_kind === 'ask' ? `"${c.primary}"` : c.primary!)}`
+  } else if (cut) {
+    prim.textContent = 'Cancelled.'
   } else if (broken) {
     prim.textContent = card.error ?? 'HELP could not produce a usable line. Press HELP again.'
-  } else if (card.status === 'cancelled') {
-    prim.textContent = 'Cancelled.'
   } else {
     prim.textContent = PENDING_TEXT[card.status] ?? ''
   }
@@ -694,7 +792,7 @@ const DEPLOY_LABEL: Record<string, string> = { saas: 'SaaS', self_hosted: 'self-
 function renderReady(r: ReadyState | undefined): void {
   const el = $('helpReady')
   const state = r?.readiness ?? 'checking'
-  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' ? 'warn' : 'bad'}`
+  el.className = `ready-light ${state === 'ready' ? 'ready' : state === 'practice' || state === 'checking' ? 'practice' : state === 'offline' || state === 'busy' ? 'warn' : 'bad'}`
   $('helpReadyText').textContent = r?.message ?? 'Checking HELP…'
 }
 api.onHelpReady((r) => renderReady(r))
@@ -823,11 +921,12 @@ async function renderKnowledge(docs?: KnowledgeDocMeta[]): Promise<void> {
   const today = new Date()
   $('kbList').innerHTML = list.length
     ? list.map((d) => {
-        const stale = d.review_by && new Date(d.review_by) < today
-        const daysLeft = d.review_by && !stale ? Math.ceil((new Date(d.review_by).getTime() - today.getTime()) / 86_400_000) : null
+        // Same rule as the knowledge index: review_by is a local calendar date, stale from the day after.
+        const stale = isPastReview(d.review_by, today)
+        const expires = expiresLabel(d.review_by, today)
         return `<div class="kb-doc"><span class="grow" title="${esc(d.source)}"><b>${esc(d.title)}</b> <span class="muted">· ${esc(d.category)} · v${esc(d.version)}${d.applies_to.length ? ` · ${esc(d.applies_to.join(', '))}` : ''}</span></span>
           ${stale ? '<span class="tag tag-warn" title="Past its review date: HELP mentions it exists but states nothing from it">Stale</span>' : ''}
-          ${daysLeft !== null && daysLeft <= 14 ? `<span class="tag tag-warn" title="After its review date HELP stops stating facts from it. Ask for a refresh before then.">Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}</span>` : ''}
+          ${expires ? `<span class="tag tag-warn" title="After its review date HELP stops stating facts from it. Ask for a refresh before then.">${expires}</span>` : ''}
           ${d.needs_reapproval ? '<span class="tag tag-warn" title="This file changed after you approved it. HELP will not use it until you approve the new content.">Changed: approve again</span>' : ''}
           <label class="inline check"><input type="checkbox" data-doc="${esc(d.doc_id)}" ${d.approved ? 'checked' : ''}/> Approved</label>
           <button class="btn btn-ghost btn-sm" data-remove="${esc(d.doc_id)}" title="Take this file out of use (moved to the _removed folder, not deleted)">Remove</button></div>`
@@ -871,7 +970,7 @@ $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.k
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
 
 // ---- playbook status: which one HELP uses, a broken edit, a newer built-in version ----
-type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean }
+type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean; error?: string | null }
 function renderPlaybook(pb: PlaybookInfo | null): void {
   const el = $('pbStatus')
   if (!pb) {
@@ -879,7 +978,10 @@ function renderPlaybook(pb: PlaybookInfo | null): void {
     return
   }
   const check = ' <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
-  if (pb.problem) {
+  if (pb.error) {
+    el.innerHTML = `<span class="err-text">${esc(pb.error)}</span> HELP still uses ${pb.using === 'yours' ? 'your edited playbook' : 'the built-in playbook'} (${esc(pb.version)}). ` +
+      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Try again</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>'
+  } else if (pb.problem) {
     el.innerHTML = `<span class="err-text">Your edited playbook has a mistake: ${esc(pb.problem)}. HELP uses the built-in one (${esc(pb.built_in_version)}) until it's fixed.</span>${check}`
   } else if (pb.newer_built_in) {
     el.innerHTML = `A different built-in playbook is available (${esc(pb.built_in_version)}); HELP is using your edited copy (${esc(pb.version)}). ` +
@@ -892,7 +994,11 @@ $('pbStatus').addEventListener('click', async (e) => {
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-pb]')
   if (!b) return
   const action = b.dataset.pb
-  renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  try {
+    renderPlaybook((await (action === 'builtIn' ? api.playbookUseBuiltIn() : action === 'mine' ? api.playbookKeepMine() : api.playbookInfo())) as PlaybookInfo | null)
+  } catch {
+    $('pbStatus').innerHTML = '<span class="err-text">That didn\'t work. Close the playbook file if it\'s open, then try again.</span> <button class="btn btn-ghost btn-sm" data-pb="check">Check again</button>'
+  }
 })
 $('aiKeySave').addEventListener('click', async () => {
   const r = await api.helpSetKey($<HTMLInputElement>('aiKeyInput').value)
@@ -911,7 +1017,7 @@ $('benchRun').addEventListener('click', async () => {
   $<HTMLButtonElement>('benchRun').disabled = true
   $('benchOpen').hidden = true
   $('benchStatus').textContent = 'Starting…'
-  const r = await api.helpBenchmark({ repeats: Number($<HTMLSelectElement>('benchRepeats').value) })
+  const r = await api.helpBenchmark({ repeats: Number($<HTMLSelectElement>('benchRepeats').value), includeMine: $<HTMLInputElement>('benchMine').checked })
   $<HTMLButtonElement>('benchRun').disabled = false
   if (!r.ok) {
     $('benchStatus').textContent = r.reason
