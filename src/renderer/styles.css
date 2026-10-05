@@ -367,3 +367,13 @@ body.compact #hcFollow, body.compact #hcWarn { margin-top: 3px; font-size: 12px;
 body.compact .hc-foot, body.compact #hcBadReasons, body.compact .hcp-head, body.compact #hcpMore { display: none !important; }
 body.compact .hcp-snippet { margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.compact .banner { padding: 6px 10px; font-size: 12px; }
+/* ---- account memory: "Last time with <account>" under the setup strip ---- */
+.am-box { padding: 10px 14px; }
+.am-head { display: flex; align-items: center; gap: 10px; }
+.am-toggle { flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: var(--text); font: inherit; font-weight: 620; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-toggle::before { content: "▾ "; color: var(--muted); }
+.am-chip .am-toggle::before { content: "▸ "; }
+.am-chip { padding: 6px 14px; }
+.am-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; margin-top: 8px; font-size: 13px; }
+.am-sec ul { margin: 2px 0 0; padding-left: 16px; }
+.am-sec li { margin: 1px 0; }

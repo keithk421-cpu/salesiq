@@ -24,6 +24,8 @@ import { JsonlWriter, Storage } from './storage'
 import { cleanLabel, isApiKeyInput, isEndpointId, isStream } from './validate'
 import { screen } from 'electron'
 import { defaultCompactRect, defaultNormalRect, placeFor, type Rect } from './compactWindow'
+import { accountMemory, listAccounts } from './help/accountMemory'
+import { accountKey } from '../shared/help'
 
 let win: BrowserWindow | null = null
 let native: NativeAudioModule
@@ -220,6 +222,9 @@ function purgeCalls(ids: string[], why: string): { deleted: number; failed: numb
   callLogs.purge(ids)
   for (const id of ids) help?.forgetCall(id)
   const r = deleteCalls(storage.root, help?.db ?? null, ids)
+  // Account memory: HELP and the "Last time" box stop showing what was just deleted.
+  help?.refreshEarlierCalls()
+  send('calls-deleted', { deleted: r.deleted })
   log('calls_deleted', { why, ...r })
   return r
 }
@@ -506,6 +511,12 @@ function registerIpc(): void {
   // ---- M2: WRAP button ("before you hang up") and the compact window ----
   ipcMain.handle('help:wrap', () => help?.press('wrap_requested') ?? { ok: false, reason: 'WRAP unavailable' })
   ipcMain.handle('window:compact', (_e, on: unknown) => setCompact(on === true))
+  // ---- account memory: "Last time with <account>" (read only, from saved calls; the running call is left out) ----
+  ipcMain.handle('memory:accounts', () => (help ? listAccounts(help.db, activeCallId()) : []))
+  ipcMain.handle('memory:account', (_e, account: unknown) => {
+    if (!help || typeof account !== 'string' || account.length > 120 || !accountKey(account)) return null
+    return accountMemory(help.db, account, activeCallId())
+  })
 }
 
 function createWindow(): void {

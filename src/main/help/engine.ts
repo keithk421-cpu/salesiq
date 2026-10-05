@@ -426,6 +426,11 @@ export class HelpEngine {
     if (run.pressedWall !== null || !run.prefetch) this.emit(run)
   }
 
+  /** Drop the background candidate (what it was built from changed, e.g. earlier calls were deleted). */
+  discardPrefetch(): void {
+    this.abortPrefetch()
+  }
+
   private abortPrefetch(): void {
     const pf = this.prefetchRun
     this.prefetchRun = null
@@ -494,16 +499,19 @@ export class HelpEngine {
     const t = this.timing(run)
     // A background prefetch Keith never saw keeps timings, cost and source ids, not the conversation text.
     const shown = !run.prefetch || run.pressedWall !== null
+    // Nor what earlier calls left behind: those copies would outlive deleting the earlier call. Once
+    // shown, the row is written again with them (a practice moment saved from it replays them).
+    const { earlier_calls: _earlier, ...unseenRefs } = run.ctx.refs
     db.sql.prepare(
       `INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, context_refs_json, request_text, output_raw, card_json, timing_json, usage_json, error, prefetch)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET status = excluded.status, origin = excluded.origin, request_text = COALESCE(excluded.request_text, help_requests.request_text),
-         output_raw = excluded.output_raw, card_json = excluded.card_json,
+         output_raw = excluded.output_raw, card_json = excluded.card_json, context_refs_json = excluded.context_refs_json,
          timing_json = excluded.timing_json, usage_json = excluded.usage_json, error = excluded.error`,
     ).run(
       run.id, this.d.memory.sessionId, run.origin, new Date().toISOString(), run.ctx.refs.at_session_ms, run.status,
       JSON.stringify({ ...this.d.config, label: this.d.model.label(this.d.config), mock: this.d.model.mock, playbook: this.d.playbook.version }),
-      JSON.stringify(run.ctx.refs), shown ? (requestText ?? null) : null, shown ? run.raw || null : null, shown && run.card ? JSON.stringify(run.card) : null,
+      JSON.stringify(shown ? run.ctx.refs : unseenRefs), shown ? (requestText ?? null) : null, shown ? run.raw || null : null, shown && run.card ? JSON.stringify(run.card) : null,
       // Issue details can quote the model's output; an unseen request keeps only what kind they were.
       JSON.stringify({
         ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length,

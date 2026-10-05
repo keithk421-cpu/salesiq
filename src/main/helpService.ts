@@ -8,9 +8,11 @@ import path from 'node:path'
 import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import type { HelpOrigin } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
+import { accountKey } from '../shared/help'
 import type { CallNotesState } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
+import { accountMemory } from './help/accountMemory'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
@@ -336,8 +338,11 @@ export class HelpService {
     if (this.memory && this.callInProgress()) {
       // Editable mid-call: the next HELP press uses it, and the call's record keeps the latest.
       // After Stop the strip is for the next call; the finished call's record keeps what it was.
+      const accountChanged = accountKey(this.memory.setup.account) !== accountKey(setup.account)
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
+      // The account is often typed after Start: HELP then gets that account's earlier calls.
+      if (accountChanged) this.refreshEarlierCalls()
     }
     return setup
   }
@@ -436,6 +441,7 @@ export class HelpService {
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
+    this.loadEarlierCalls()
     const model = this.createModel()
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
@@ -446,6 +452,36 @@ export class HelpService {
     this.log('help_ready', { model: model.label(this.modelConfig()), mock: model.mock, prefetch: this.settings.prefetch, playbook: this.playbook.version })
     this.startNotes(model)
     void this.checkReady()
+  }
+
+  /**
+   * Account memory for HELP: what earlier calls with this call's account left behind (this call left
+   * out). Computed at call start, and again if Keith changes the account during the call.
+   */
+  private loadEarlierCalls(): void {
+    const m = this.memory
+    if (!m) return
+    const t0 = Date.now()
+    try {
+      const mem = accountMemory(this.db, m.setup.account, m.sessionId)
+      m.earlierCalls = (mem?.items ?? []).map(({ kind, text, date }) => ({ kind, text, date }))
+      this.log('account_memory', { calls: mem?.calls ?? 0, items: m.earlierCalls.length, ms: Date.now() - t0 })
+    } catch (err) {
+      // Never stops a call: HELP just goes without it.
+      m.earlierCalls = []
+      this.log('account_memory_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+    }
+  }
+
+  /**
+   * Look again at the earlier calls for the running call (Keith changed its account, or deleted saved
+   * calls during it), so HELP never sends what is gone. A background card built from the old items is
+   * dropped too. Does nothing when no call is running.
+   */
+  refreshEarlierCalls(): void {
+    if (!this.memory) return
+    this.loadEarlierCalls()
+    this.engine?.discardPrefetch()
   }
 
   /** Running call notes for this call: same model and settings as HELP, never while a pressed HELP is answered. */

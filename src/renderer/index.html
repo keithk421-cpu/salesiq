@@ -194,6 +194,16 @@
       <span id="hotkeyHint" class="muted small"></span>
     </div>
 
+    <!-- account memory: suggestions for the account box, and "Last time with <account>" -->
+    <datalist id="amAccounts"></datalist>
+    <div id="amBox" class="card am-box" hidden>
+      <div class="am-head">
+        <button id="amToggle" class="am-toggle" aria-expanded="true"><span id="amTitle"></span> <span id="amCount" class="muted small"></span></button>
+        <button id="amReuse" class="btn btn-sm btn-secondary" title="Copy the last call's goal, outcomes and deployment, as a Follow-up">Reuse last setup</button>
+      </div>
+      <div id="amBody" class="am-body"></div>
+    </div>
+
     <div id="helpCard" class="help-card" hidden>
       <div class="hc-top">
         <span id="hcBadge" class="tag tag-warn" hidden>MOCK</span>

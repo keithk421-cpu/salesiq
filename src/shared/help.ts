@@ -191,6 +191,8 @@ export interface HelpContextRefs {
   call_setup?: CallSetup
   /** Speaker labels the request was built with (they can be renamed later). Absent on older rows. */
   labels?: SpeakerLabel[]
+  /** The <earlier_calls> items the request showed (account memory, dated). Absent when there were none, and on older rows. */
+  earlier_calls?: Array<{ kind: AccountMemoryKind; text: string; date: string }>
   gaps_noted: string[]
   provisional_text: boolean
   transcript_lag_ms: number | null
