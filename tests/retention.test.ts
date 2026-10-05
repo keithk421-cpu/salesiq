@@ -48,9 +48,10 @@ describe('saved calls and retention', () => {
     expect((db.sql.prepare('SELECT card_id FROM feedback').all() as Array<{ card_id: string }>).map((r) => r.card_id)).toEqual([`r-${kept}`])
     expect(fs.existsSync(path.join(root, 'sessions', gone))).toBe(false)
     expect(fs.existsSync(path.join(root, 'sessions', kept, 'transcript.jsonl'))).toBe(true)
+    // Compacted while the app keeps running: the deleted call's words are in neither the file nor its log.
+    for (const f of [file, `${file}-wal`]) if (fs.existsSync(f)) expect(fs.readFileSync(f).toString('latin1'), f).not.toContain('Northwind')
+    expect(fs.readFileSync(file).toString('latin1')).toContain('Fernhollow')
     db.close()
-    // Compacted: the deleted call's words aren't left in the file.
-    expect(fs.readFileSync(file).toString('latin1').split('Northwind').length - 1).toBe(0)
   })
 
   it('refuses anything that is not a session id (no path tricks)', () => {

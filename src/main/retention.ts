@@ -73,6 +73,15 @@ export function deleteCall(root: string, db: Db | null, id: string): boolean {
   }
 }
 
+/**
+ * Rebuild the database file without the deleted rows, then flush and empty the write-ahead log, so
+ * deleted text is left neither in free pages nor in the -wal file while the app keeps running.
+ */
+export function compact(db: Db): void {
+  db.sql.exec('VACUUM')
+  db.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+}
+
 /** Delete these calls, then compact the database so the removed text doesn't linger in free pages. */
 export function deleteCalls(root: string, db: Db | null, ids: string[]): { deleted: number; failed: number } {
   let deleted = 0
@@ -81,6 +90,6 @@ export function deleteCalls(root: string, db: Db | null, ids: string[]): { delet
     if (deleteCall(root, db, id)) deleted++
     else failed++
   }
-  if (db && ids.length) db.sql.exec('VACUUM')
+  if (db && ids.length) compact(db)
   return { deleted, failed }
 }

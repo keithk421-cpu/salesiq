@@ -64,7 +64,10 @@ export class Db {
        WHERE prefetch = 1 AND COALESCE(json_extract(timing_json, '$.served_from_prefetch'), 0) = 0
          AND (request_text IS NOT NULL OR output_raw IS NOT NULL OR card_json IS NOT NULL)`,
     ).run()
-    if (Number(unseen.changes) > 0 && path !== ':memory:') this.sql.exec('VACUUM')
+    if (Number(unseen.changes) > 0 && path !== ':memory:') {
+      this.sql.exec('VACUUM')
+      this.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    }
     this.sql.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run('schema_version', '1')
   }
 
