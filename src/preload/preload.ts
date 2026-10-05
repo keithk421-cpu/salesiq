@@ -67,6 +67,13 @@ const api = {
   memoryAccounts: () => ipcRenderer.invoke('memory:accounts'),
   memoryAccount: (account: string) => ipcRenderer.invoke('memory:account', account),
   onCallsDeleted: (cb: () => void) => ipcRenderer.on('calls-deleted', () => cb()),
+  // M2 wrap-up after Stop and the follow-up draft
+  wrapupGet: () => ipcRenderer.invoke('wrapup:get'),
+  wrapupUpdateItem: (change: unknown) => ipcRenderer.invoke('wrapup:updateItem', change),
+  wrapupAddItem: (item: unknown) => ipcRenderer.invoke('wrapup:addItem', item),
+  wrapupDraft: () => ipcRenderer.invoke('wrapup:draft'),
+  wrapupRetry: () => ipcRenderer.invoke('wrapup:retry'),
+  onWrapup: (cb: (w: unknown) => void) => ipcRenderer.on('wrapup', (_e, w) => cb(w)),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

@@ -11,6 +11,7 @@ import { passageLabel } from '../shared/passageLabel'
 import { HEALTH_LABEL } from '../shared/captureHealth'
 import { initCompact } from './compact'
 import { initAccountMemory } from './accountMemory'
+import { initWrapup } from './wrapup'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -939,6 +940,7 @@ function notesStatusText(s: CallNotesState): string {
     case 'blocked': return `not updating: ${s.problem ?? "Claude can't be used right now"}`
     case 'updating': return withAge('updating…')
     case 'paused': return withAge('paused')
+    case 'finishing': return withAge('finishing the last minutes…')
     case 'stopped': return withAge('call ended')
     default: return age || 'starts after about a minute of the other side talking'
   }
@@ -1148,6 +1150,8 @@ void (async () => {
   await refreshHelpInfo()
   await renderKnowledge()
 })()
+
+initWrapup(api)
 
 void (async () => {
   const info = await api.info()

@@ -5,6 +5,7 @@
 import { RATINGS } from '../../shared/help'
 import type { Db } from '../db'
 import type { CallNotesStats } from './callNotesKeeper'
+import type { WrapupStats } from './wrapup'
 
 export interface HelpScorecard {
   kind: 'help_scorecard'
@@ -28,7 +29,12 @@ export interface HelpScorecard {
   feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
   /** Background call notes (counts and codes only). cost_usd above is HELP's; total_cost_usd adds the notes. */
-  call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }
+  call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; closing: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }
+  /** The wrap-up after Stop and the follow-up draft (counts, cost and codes only; null when none was made). total_cost_usd adds both. */
+  wrapup: {
+    status: string; items: Record<string, number>; confirmed: number; removed: number; added: number; edited: number; dropped: number
+    requests: number; build_ms: number | null; cost_usd: number; drafts: number; draft_failed: number; draft_checks: number; draft_cost_usd: number; errors: Record<string, number>
+  } | null
   total_cost_usd: number
 }
 
@@ -62,7 +68,8 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     first_usable_ms: { median: null, p95: null }, cards_with_checks: 0,
     prefetch: { started: 0, used: 0, unused: 0, unused_cost_usd: 0 }, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 },
     feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {}, used: 0, notes: 0 }, errors: {},
-    call_notes: { started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, capped: 0, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 }, errors: {} },
+    call_notes: { started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, closing: 0, capped: 0, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 }, errors: {} },
+    wrapup: null,
     total_cost_usd: 0,
   }
   const firstUsable: number[] = []
@@ -109,12 +116,26 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
   const ns = parse<CallNotesStats>(notesRow?.stats_json ?? null)
   const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : 0)
   card.call_notes = {
-    started: num(ns.started), updated: num(ns.updated), invalid: num(ns.invalid), failed: num(ns.failed), cancelled: num(ns.cancelled), capped: num(ns.capped),
+    started: num(ns.started), updated: num(ns.updated), invalid: num(ns.invalid), failed: num(ns.failed), cancelled: num(ns.cancelled), closing: num(ns.closing), capped: num(ns.capped),
     cost_usd: Math.round(num(ns.cost_usd) * 10000) / 10000,
     tokens: { input: num(ns.input_tokens), output: num(ns.output_tokens), cache_read: num(ns.cache_read_input_tokens) },
     errors: Object.fromEntries(Object.entries(ns.errors ?? {}).filter(([k, v]) => /^[a-z_]{1,40}$/.test(k) && typeof v === 'number')),
   }
-  card.total_cost_usd = Math.round((card.cost_usd + card.call_notes.cost_usd) * 10000) / 10000
+  // The wrap-up keeps numbers-only counts beside it (never read the wrap-up or email text here).
+  const wrapRow = db.sql.prepare('SELECT stats_json FROM call_wrapups WHERE session_id = ?').get(sessionId) as { stats_json: string } | undefined
+  if (wrapRow) {
+    const ws = parse<WrapupStats>(wrapRow.stats_json)
+    const codes = (o: unknown) => Object.fromEntries(Object.entries(o && typeof o === 'object' ? o : {}).filter(([k, v]) => /^[a-z_]{1,40}$/.test(k) && typeof v === 'number'))
+    const usd = (x: unknown) => Math.round(num(x) * 10000) / 10000
+    card.wrapup = {
+      status: typeof ws.status === 'string' && /^[a-z_]{1,20}$/.test(ws.status) ? ws.status : 'unknown',
+      items: codes(ws.items), confirmed: num(ws.confirmed), removed: num(ws.removed), added: num(ws.added), edited: num(ws.edited), dropped: num(ws.dropped),
+      requests: num(ws.requests), build_ms: typeof ws.build_ms === 'number' ? ws.build_ms : null, cost_usd: usd(ws.cost_usd),
+      drafts: num(ws.drafts), draft_failed: num(ws.draft_failed), draft_checks: num(ws.draft_checks), draft_cost_usd: usd(ws.draft_cost_usd), errors: codes(ws.errors),
+    }
+  }
+  const wrapCost = card.wrapup ? card.wrapup.cost_usd + card.wrapup.draft_cost_usd : 0
+  card.total_cost_usd = Math.round((card.cost_usd + card.call_notes.cost_usd + wrapCost) * 10000) / 10000
   return card
 }
 
