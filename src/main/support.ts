@@ -56,8 +56,9 @@ export function saveSupportFiles(root: string, outParent: string, now = new Date
   for (const s of list(path.join(root, 'sessions'))) {
     for (const f of ['diagnostics.jsonl', 'summary.json']) copy(path.join(root, 'sessions', s, f), path.join('sessions', s, f))
   }
-  // HELP speed-test reports (built-in, made-up scenarios) and numbers-only scorecards. A speed test
-  // that included Keith's saved moments replayed real calls: its report ("-mine") stays behind.
+  // HELP speed-test reports (built-in, made-up scenarios) and numbers-only scorecards: files directly
+  // in reports/ only. A speed test that included Keith's saved moments replayed real calls: its report
+  // is in reports/mine/ (never listed here), and the "-mine" name check is a second guard.
   for (const f of list(path.join(root, 'reports'))) {
     if (/\.(json|md)$/.test(f) && !HOLDS_CALL_TEXT.test(f)) copy(path.join(root, 'reports', f), path.join('reports', f))
   }

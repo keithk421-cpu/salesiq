@@ -47,6 +47,10 @@ describe('Save support files', () => {
     put('reports/help-benchmark-2026-10-05T13-00-00-000Z-mine.json', 'THE BUYER SAID REAL THINGS')
     put('reports/help-benchmark-2026-10-05T13-00-00-000Z-mine.md', 'THE BUYER SAID REAL THINGS')
     put('reports/help-benchmark-2026-10-05T14-00-00-000Z-MOCK-mine.json', 'THE BUYER SAID REAL THINGS')
+    // Where the app writes them: reports/mine/, which is never listed (whatever the file names).
+    put('reports/mine/help-benchmark-2026-10-05T15-00-00-000Z-mine.json', 'THE BUYER SAID REAL THINGS')
+    put('reports/mine/help-benchmark-2026-10-05T15-00-00-000Z.md', 'THE BUYER SAID REAL THINGS')
+    put('reports/mine/renamed-by-hand.json', 'THE BUYER SAID REAL THINGS')
     put('practice/real-20261005143210-a1b2c3d4.json', 'THE BUYER SAID REAL THINGS')
     put('SalesCopilot-feedback-2026-10-05.md', 'THE BUYER SAID REAL THINGS')
     const out = saveSupportFiles(root, fs.mkdtempSync(path.join(os.tmpdir(), 'dl-')))

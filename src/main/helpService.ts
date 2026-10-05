@@ -16,7 +16,7 @@ import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
-import { PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
+import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
 
@@ -444,16 +444,20 @@ export class HelpService {
         scenarios, mine, model, configs, playbook: this.playbook, repeats,
         onProgress: (done, total, last) => progress({ done, total, scenario: last.scenario_id, ok: last.level1.pass }),
       })
-      const dir = path.join(this.storage.root, 'reports')
+      // reports/mine/, "-mine": the report quotes real calls, so Save support files leaves it behind.
+      const dir = path.join(this.storage.root, 'reports', ...(mine.length ? [MINE_REPORTS] : []))
       fs.mkdirSync(dir, { recursive: true })
       const stamp = report.created_at.replace(/[:.]/g, '-')
-      // "-mine": the report quotes real calls, so Save support files leaves it behind.
       const file = path.join(dir, `help-benchmark-${stamp}${model.mock ? '-MOCK' : ''}${mine.length ? '-mine' : ''}.json`)
       fs.writeFileSync(file, JSON.stringify({ ...report, mock: model.mock }, null, 2))
       const md = (model.mock ? '> MOCK RUN - no model was called. Latency and quality numbers are meaningless.\n\n' : '') + reportMarkdown(report)
       fs.writeFileSync(file.replace(/\.json$/, '.md'), md)
       this.log('help_benchmark_done', { file, summaries: report.summaries.map((x) => ({ model: x.model, p50: x.first_usable_median_ms, p95: x.first_usable_p95_ms, l1: x.level1_pass_rate, cost: x.cost_usd })) })
       return { ok: true, reportFile: file, markdown: md }
+    } catch (err) {
+      // Never leave the button stuck: say what happened (the log keeps only a code).
+      this.log('help_benchmark_failed', { code: (err as NodeJS.ErrnoException).code ?? (err as Error).name ?? 'unknown' })
+      return { ok: false, reason: `The speed test stopped (${(err as Error).message}). Try again, or send me the support files.` }
     } finally {
       this.benchmarking = false
     }
@@ -472,21 +476,25 @@ export class HelpService {
     return { count: moments.length, saved: moments.map((m) => m.request_id).filter((x): x is string => typeof x === 'string') }
   }
 
-  /** After-call review: save the call as it stood when this card was asked for, as a practice moment. */
-  saveMoment(raw: unknown): { ok: boolean; already?: boolean; title?: string; reason?: string } {
+  /**
+   * After-call review: save the call as it stood when this card was asked for, as a practice moment.
+   * A card already saved keeps its moment; only Keith's current feedback on it is written in (the
+   * review calls this again when he changes a saved card's rating, tick or note).
+   */
+  saveMoment(raw: unknown): { ok: boolean; already?: boolean; updated?: boolean; title?: string; reason?: string } {
     const id = typeof raw === 'string' ? raw.slice(0, 64) : ''
     if (!id) return { ok: false, reason: 'Invalid card' }
     try {
-      if (savedRequestIds(this.practiceDir).has(id)) return { ok: true, already: true }
+      const already = savedRequestIds(this.practiceDir).has(id)
       const gaps = (sid: string) => (/^[\w-]+$/.test(sid) ? readSessionGaps(path.join(this.storage.root, 'sessions', sid, 'transcript.jsonl')) : [])
       const b = buildPracticeMoment(this.db, id, { gaps })
-      if (!b.ok) return { ok: false, reason: b.reason }
-      const r = savePracticeMoment(this.practiceDir, b.moment)
+      if (!b.ok) return already ? { ok: true, already: true } : { ok: false, reason: b.reason }
+      const r = savePracticeMoment(this.practiceDir, b.moment, { refresh: true })
       this.log('practice_moment_saved', {
-        request_id: id, already: r.already, lines: b.moment.transcript.length, knowledge: b.moment.knowledge?.length ?? 0,
+        request_id: id, already: r.already, updated: r.updated === true, lines: b.moment.transcript.length, knowledge: b.moment.knowledge?.length ?? 0,
         acceptable: b.moment.acceptable_moves.length, unacceptable: b.moment.unacceptable_moves?.length ?? 0,
       })
-      return { ok: true, already: r.already, title: b.moment.title }
+      return { ok: true, already: r.already, ...(r.updated ? { updated: true } : {}), title: b.moment.title }
     } catch (err) {
       this.log('practice_moment_failed', { request_id: id, code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
       return { ok: false, reason: "Couldn't save this moment. Try again, or send me the support files." }
@@ -498,7 +506,7 @@ export class HelpService {
    * `outDir` (his Downloads folder). Never overwrites an earlier export.
    */
   exportFeedback(raw: unknown, outDir: string, now = new Date()): { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string } {
-    const period: ExportPeriod = typeof raw === 'string' && raw in EXPORT_PERIODS ? (raw as ExportPeriod) : '7d'
+    const period: ExportPeriod = typeof raw === 'string' && Object.hasOwn(EXPORT_PERIODS, raw) ? (raw as ExportPeriod) : '7d'
     const minutes = (sid: string): number | null => {
       if (!/^[\w-]+$/.test(sid)) return null
       const card = this.storage.readJson<{ call_minutes?: unknown }>(path.join('reports', `help-scorecard-${sid}.json`), {})

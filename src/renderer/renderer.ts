@@ -568,10 +568,12 @@ $('rvDone').addEventListener('click', () => { $('reviewModal').hidden = true })
 
 // ---- after the call: keep a card's moment as a practice moment (stays on this PC) ----
 type PracticeInfo = { count: number; saved: string[] }
-const SAVE_TEXT = { idle: 'Save as practice moment', saving: 'Saving…', saved: 'Saved as a practice moment', already: 'Already saved as a practice moment' }
+type SaveResult = { ok: boolean; already?: boolean; updated?: boolean; title?: string; reason?: string }
+const SAVE_TEXT = { idle: 'Save as practice moment', saving: 'Saving…', saved: 'Saved as a practice moment' }
 function setSaveState(btn: HTMLButtonElement, state: keyof typeof SAVE_TEXT): void {
   btn.textContent = SAVE_TEXT[state]
   btn.disabled = state !== 'idle'
+  btn.dataset.state = state
 }
 // Each card the review lists gets its own button (added as the list is drawn), showing whether it's saved.
 async function addSaveButtons(): Promise<void> {
@@ -599,15 +601,31 @@ $('rvList').addEventListener('click', async (e) => {
   const msg = cardEl.querySelector<HTMLElement>('[data-save-msg]')!
   setSaveState(btn, 'saving')
   msg.textContent = ''
-  const r = (await api.helpSaveMoment(id)) as { ok: boolean; already?: boolean; title?: string; reason?: string }
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
   if (!r.ok) {
     setSaveState(btn, 'idle')
     msg.textContent = r.reason ?? "Couldn't save it."
     return
   }
-  setSaveState(btn, r.already ? 'already' : 'saved')
-  if (!r.already) msg.textContent = 'The speed test can replay it now.'
+  setSaveState(btn, 'saved')
+  msg.textContent = r.updated ? 'Already saved; your rating is updated in it.' : r.already ? 'Already saved as a practice moment.' : 'The speed test can replay it now.'
   void refreshPractice()
+})
+// A saved card whose rating, tick or note changes: write the new feedback into its moment. These
+// listeners run after the ones above that store the feedback (same order in the main process).
+async function refreshSavedMoment(target: EventTarget | null): Promise<void> {
+  const cardEl = (target as HTMLElement | null)?.closest<HTMLElement>('.rv-card')
+  const btn = cardEl?.querySelector<HTMLButtonElement>('button[data-save]')
+  const id = cardEl?.dataset.id
+  if (!cardEl || !id || btn?.dataset.state !== 'saved') return
+  const r = (await api.helpSaveMoment(id).catch(() => ({ ok: false }))) as SaveResult
+  cardEl.querySelector<HTMLElement>('[data-save-msg]')!.textContent = r.ok ? 'Practice moment updated with your rating.' : "Couldn't update the practice moment."
+}
+$('rvList').addEventListener('click', (e) => {
+  if ((e.target as HTMLElement).closest('button[data-rate]')) void refreshSavedMoment(e.target)
+})
+$('rvList').addEventListener('change', (e) => {
+  if ((e.target as HTMLElement).matches('[data-used], .rv-note')) void refreshSavedMoment(e.target)
 })
 
 // ---- Diagnostics: my practice moments in the speed test, and the HELP feedback export ----
@@ -631,7 +649,7 @@ $('fbExport').addEventListener('click', async () => {
   const btn = $<HTMLButtonElement>('fbExport')
   btn.disabled = true
   $('fbExportMsg').textContent = 'Saving…'
-  const r = (await api.helpExportFeedback($<HTMLSelectElement>('fbPeriod').value)) as { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string }
+  const r = (await api.helpExportFeedback($<HTMLSelectElement>('fbPeriod').value).catch(() => ({ ok: false }))) as { ok: boolean; file?: string; calls?: number; cards?: number; reason?: string }
   btn.disabled = false
   $('fbExportMsg').textContent = r.ok
     ? `Saved ${r.cards} card${r.cards === 1 ? '' : 's'} from ${r.calls} call${r.calls === 1 ? '' : 's'} to ${r.file}. It has lines and notes from your calls: send me that file.`

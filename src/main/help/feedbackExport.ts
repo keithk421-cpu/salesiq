@@ -153,6 +153,7 @@ export function feedbackMarkdown(calls: ExportCall[], opts: { period: ExportPeri
     '',
     `Exported ${localStamp(now)} from Sales Copilot.${models.length ? ` Model: ${models.join(', ')}.` : ''}${playbooks.length ? ` Playbook: ${playbooks.join(', ')}.` : ''}`,
     'Move = the sales move HELP chose (not shown on the card). Rating = Keith\'s last tap. Used = he ticked "I used this line".',
+    'Times are when HELP read the call: for a card prepared in the background, a little before Keith pressed HELP.',
     '',
     '## Summary',
     '',
@@ -183,8 +184,10 @@ export function feedbackMarkdown(calls: ExportCall[], opts: { period: ExportPeri
       out.push(`- ${c.primary_kind === 'say' ? 'Say' : 'Ask'}: ${c.primary ? quote(c.primary) : '(no line)'}`)
       if (c.follow_up) out.push(`- Follow-up: ${quote(c.follow_up)}`)
       const rating = c.rating ? `${RATING[c.rating] ?? c.rating}${c.bad_reasons.length ? ` (${c.bad_reasons.map(words).join(', ')})` : ''}` : 'not rated'
-      const first = c.from_prefetch ? 'ready at the press (prepared in the background)' : c.first_usable_ms === null ? 'unknown' : `after ${secs(c.first_usable_ms)}`
-      out.push(`- Rating: ${rating} · Used: ${c.used ? 'yes' : 'no'} · First line: ${first}`)
+      // A background card is served even while still coming in: "ready" only when it was complete.
+      const first = c.first_usable_ms === null ? 'unknown' : c.from_prefetch && c.first_usable_ms === 0 ? 'ready at the press' : `after ${secs(c.first_usable_ms)}`
+      const prepared = c.from_prefetch ? ' (prepared in the background)' : ''
+      out.push(`- Rating: ${rating} · Used: ${c.used ? 'yes' : 'no'} · First line: ${first}${prepared}`)
       if (c.note) out.push(`- Note: ${quote(c.note)}`)
       out.push('')
     })

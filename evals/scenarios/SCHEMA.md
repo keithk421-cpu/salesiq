@@ -69,11 +69,13 @@ folder (`practice/`), never in this repo. Extra fields:
 }
 ```
 
-Only what HELP could see at the press is saved: turns available by then (a line still being spoken is cut at the press), labels
-set by then, and the approved knowledge sections the request used (copied in, review dates left out). Expected moves come only
+Only what HELP could see at the press is saved: turns available by then (a line still being spoken is cut at the press), the
+labels and call setup the request was built with, and the knowledge sections the request used that are still approved and
+unchanged (copied in, review dates left out). Expected moves come only
 from Keith's feedback: Useful or "I used this line" makes the call's move acceptable, Bad with "wrong move" puts it in
 `unacceptable_moves`; otherwise none. With no `best_moves`, any other move is not judged. The speed test runs them only when
-Keith ticks "Include my saved moments", reports them in their own section, and names that report `-mine` (never in support files).
+Keith ticks "Include my saved moments", reports them in their own section, and writes that report to `reports/mine/` as `-mine`
+(never in support files). A moment that can't be replayed is reported as failed without stopping the run.
 
 Rules every scenario encodes:
 - A neutral answer is not an objection or a problem. Never invent pain, urgency, dissatisfaction or ownership.

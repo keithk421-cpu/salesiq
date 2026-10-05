@@ -89,6 +89,21 @@ describe('HELP feedback export', () => {
     expect(md).not.toContain('UNSEEN')
   })
 
+  it('a card prepared in the background is "ready at the press" only if it was complete by then', () => {
+    const card = (first: number | null, prefetch: boolean) => ({
+      at_session_ms: 60_000, move: 'explore_process', primary_kind: 'ask' as const, primary: 'What happens next?', follow_up: null, first_usable_ms: first, from_prefetch: prefetch,
+      model: null, playbook: null, rating: null, bad_reasons: [], used: false, note: null,
+    })
+    const call: ExportCall = {
+      session_id: 's', started_at: '2026-10-05T10:00:00.000Z', account: 'Harbor Mills', call_type: 'demo', deployment: 'saas', minutes: null,
+      cards: [card(0, true), card(1800, true), card(1200, false), card(null, true)], no_line: 0, cost_usd: 0,
+    }
+    const firsts = feedbackMarkdown([call], { period: '7d', now: NOW }).split('\n').filter((l) => l.startsWith('- Rating:')).map((l) => l.split('First line: ')[1])
+    expect(firsts).toEqual(['ready at the press (prepared in the background)', 'after 1.8 s (prepared in the background)', 'after 1.2 s', 'unknown (prepared in the background)'])
+    expect(feedbackMarkdown([call], { period: '7d', now: NOW })).toContain('- Median time to first usable line: 1.2 s (over 3 cards)')
+    expect(feedbackMarkdown([call], { period: '7d', now: NOW })).toContain('Times are when HELP read the call: for a card prepared in the background, a little before Keith pressed HELP.')
+  })
+
   it('says so when there is nothing in the period', () => {
     expect(feedbackMarkdown([], { period: '7d', now: NOW })).toMatch(/- Calls: 0[\s\S]*No calls in this period\./)
     const quiet: ExportCall = { session_id: 's', started_at: '2026-10-05T10:00:00.000Z', account: 'Harbor Mills', call_type: 'demo', deployment: 'saas', minutes: null, cards: [], no_line: 0, cost_usd: 0 }
@@ -110,6 +125,9 @@ describe('HELP feedback export', () => {
     expect(fs.readFileSync(a.file!, 'utf8')).toMatch(/Bluefin Logistics · discovery · self-hosted · 42 min/)
     const b = help.exportFeedback('nonsense', downloads, NOW)
     expect(b.file).toBe(a.file!.replace(/\.md$/, '-2.md'))
+    // Names every object has are not periods either: the 7-day default, not an error.
+    for (const odd of ['toString', 'constructor', '__proto__']) expect(help.exportFeedback(odd, downloads, NOW)).toMatchObject({ ok: true, calls: 1, cards: 3 })
+    expect(fs.readFileSync(path.join(downloads, exportFileName(NOW).replace(/\.md$/, '-3.md')), 'utf8')).toMatch(/^# HELP feedback: last 7 days/)
     expect(help.exportFeedback('all', downloads, NOW)).toMatchObject({ ok: true, calls: 2, cards: 4 })
     // Logs: counts only.
     expect(JSON.stringify(logs)).not.toMatch(/Bluefin|weekly review|Exactly/)

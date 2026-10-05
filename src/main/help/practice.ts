@@ -5,21 +5,24 @@
  * Built from the call as it stood at the press, so replay stays time-honest:
  * - only turns HELP could see then (available_ms <= the press); words spoken after the press are cut;
  *   every kept line is timed so replay shows it as a finished line, as the live request did;
- * - speaker labels set by then, the call setup (type, goal, outcomes, account, deployment);
- * - the approved knowledge sections the request used, copied in (approved, with source, version and
- *   scope) so later edits to the knowledge folder don't change the moment. Review dates are dropped:
- *   the moment replays as it was then.
- * Expected moves come only from Keith's own feedback, conservatively (see expectedFrom).
+ * - speaker labels and the call setup (type, goal, outcomes, account, deployment) the request was
+ *   built with (both can change later in the call; older rows fall back to the call's latest, noted);
+ * - the knowledge sections the request used that are still approved and unchanged, copied in
+ *   (approved, with source, version and scope) so later edits to the knowledge folder don't change
+ *   the moment. Review dates are dropped: the moment replays as it was then.
+ * Expected moves come only from Keith's own feedback, conservatively (see expectedFrom). Saving the
+ * same card again refreshes only what his feedback decides (see refreshFeedback).
  *
  * Saved as <userData>/practice/<id>.json. They hold real call text: never in the repo, never copied
- * by "Save support files".
+ * by "Save support files" (nor are speed-test reports that replayed them, kept in reports/mine/).
  */
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Stream } from '../../shared/contracts'
-import type { CallSetup, HelpCardContent, HelpContextRefs, KnowledgeDocMeta } from '../../shared/help'
+import type { CallSetup, HelpCardContent, HelpContextRefs, HelpTiming, KnowledgeDocMeta } from '../../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../../shared/help'
 import type { Db } from '../db'
+import { KnowledgeBase } from '../knowledge'
 import { DEFAULT_SETUP } from './callMemory'
 import { fmtClock } from './context'
 import { localStamp } from './feedbackExport'
@@ -28,6 +31,8 @@ import { readFeedback } from './scorecard'
 
 /** Folder under the app's data folder. */
 export const PRACTICE_DIR = 'practice'
+/** Speed-test reports from runs that included these moments: reports/mine/ (never in support files). */
+export const MINE_REPORTS = 'mine'
 
 /** A transcript gap as the call's transcript.jsonl records it (session ms). */
 export interface PracticeGap {
@@ -49,6 +54,7 @@ interface RequestRow {
   model_json: string
   context_refs_json: string | null
   card_json: string | null
+  timing_json: string | null
 }
 
 function parse<T>(s: string | null | undefined): Partial<T> {
@@ -59,6 +65,10 @@ function parse<T>(s: string | null | undefined): Partial<T> {
   }
 }
 
+/** Notes lines that come from Keith's feedback: a re-save rewrites only these. */
+const FEEDBACK_NOTE = /^(Keith's feedback|Expected moves):/
+/** The behavior a Bad: wrong move rating adds (a re-save replaces only these). */
+const WRONG_MOVE_BEHAVIOR = /^Picks the move HELP gave on the call \(/
 
 /** File-safe id that only depends on the request (never on time zone or later setup edits). */
 export function practiceId(requestId: string, createdAt: string): string {
@@ -94,14 +104,20 @@ export function expectedFrom(move: string | null, f: { rating: string | null; re
  */
 export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (sessionId: string) => PracticeGap[] } = {}): PracticeBuild {
   const row = db.sql.prepare(
-    'SELECT id, session_id, created_at, at_session_ms, model_json, context_refs_json, card_json FROM help_requests WHERE id = ?',
+    'SELECT id, session_id, created_at, at_session_ms, model_json, context_refs_json, card_json, timing_json FROM help_requests WHERE id = ?',
   ).get(requestId) as RequestRow | undefined
   if (!row || !row.session_id) return { ok: false, reason: "That card isn't saved any more." }
   if (row.at_session_ms === null || !row.card_json) return { ok: false, reason: 'This card has no line to practice on.' }
   const atMs = row.at_session_ms
   const sid = row.session_id
-  const session = db.sql.prepare('SELECT setup_json FROM sessions WHERE id = ?').get(sid) as { setup_json: string } | undefined
-  const raw = parse<CallSetup>(session?.setup_json)
+  const refs = parse<HelpContextRefs>(row.context_refs_json)
+  const notes: string[] = []
+
+  // The call setup the request was built with. Older rows didn't record it: the call's latest then.
+  const atPress = refs.call_setup && typeof refs.call_setup === 'object' ? refs.call_setup : null
+  const session = atPress ? undefined : (db.sql.prepare('SELECT setup_json FROM sessions WHERE id = ?').get(sid) as { setup_json: string } | undefined)
+  const raw: Partial<CallSetup> = atPress ?? parse<CallSetup>(session?.setup_json)
+  if (!atPress) notes.push("The call setup is the call's latest (older versions of the app didn't record it with each press): it may have changed after this press.")
   const setup: CallSetup = {
     ...DEFAULT_SETUP,
     call_type: (CALL_TYPES as readonly string[]).includes(raw.call_type ?? '') ? raw.call_type! : DEFAULT_SETUP.call_type,
@@ -110,8 +126,6 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     account: typeof raw.account === 'string' ? raw.account : '',
     deployment: (DEPLOYMENTS as readonly string[]).includes(raw.deployment ?? '') ? raw.deployment! : 'unknown',
   }
-  const refs = parse<HelpContextRefs>(row.context_refs_json)
-  const notes: string[] = []
 
   // Turns HELP could see at the press. A turn still being spoken is cut at the press (by time, as
   // replay does), and every kept line ends over a second before it, so replay shows it as finished.
@@ -137,12 +151,19 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   if (cut) notes.push(`${cut} line(s) still being spoken at the press are cut at the press.`)
   if (refs.provisional_text) notes.push("Words still being transcribed at the press aren't saved, so they aren't in this moment.")
 
-  // Labels as they were at the press (the request's context was built then); unlabeled speakers stay unknown.
+  // Labels as the request had them; unlabeled speakers stay unknown. Older rows didn't record them:
+  // the call's labels then, minus any set or changed after the press (only the latest is kept).
   const speakers: Scenario['speakers'] = {}
-  const labels = db.sql.prepare('SELECT cluster, role, name, updated_at FROM speaker_labels WHERE session_id = ? ORDER BY cluster').all(sid) as Array<{ cluster: string; role: string; name: string | null; updated_at: string }>
-  for (const l of labels) {
-    if (l.updated_at > row.created_at) continue
-    speakers[l.cluster] = { role: l.role === 'buyer' || l.role === 'teammate' ? l.role : 'unknown', name: l.name }
+  const label = (l: { cluster?: unknown; role?: unknown; name?: unknown }) => {
+    if (typeof l.cluster !== 'string') return
+    speakers[l.cluster] = { role: l.role === 'buyer' || l.role === 'teammate' ? l.role : 'unknown', name: typeof l.name === 'string' ? l.name : null }
+  }
+  if (Array.isArray(refs.labels)) refs.labels.forEach(label)
+  else {
+    const labels = db.sql.prepare('SELECT cluster, role, name, updated_at FROM speaker_labels WHERE session_id = ? ORDER BY cluster').all(sid) as Array<{ cluster: string; role: string; name: string | null; updated_at: string }>
+    const later = labels.filter((l) => l.updated_at > row.created_at)
+    labels.filter((l) => !later.includes(l)).forEach(label)
+    if (later.length) notes.push(`${later.length} speaker label(s) were set or changed after this press and are left unlabeled (older versions of the app didn't record labels with each press).`)
   }
   for (const l of transcript) if (l.who !== 'keith' && l.who !== 'remote' && !speakers[l.who]) speakers[l.who] = { role: 'unknown', name: null }
 
@@ -154,17 +175,20 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     .filter((g) => g.cause !== 'pause' && g.start_ms <= atMs)
     .map((g) => ({ start: g.start_ms / 1000, end: g.end_ms !== null && g.end_ms <= atMs ? g.end_ms / 1000 : helpAtS + 1, stream: g.stream, cause: g.cause }))
 
-  // Approved knowledge the request used, copied as it is now. A section that's gone or changed since the call is left out.
+  // Approved knowledge the request used, copied as it is now. A section that's gone, changed or no
+  // longer approved since the call is left out (revoking always wins: replay would approve it again).
   const chunkIds = Array.isArray(refs.knowledge_chunk_ids) ? refs.knowledge_chunk_ids : []
   const hashes = Array.isArray(refs.knowledge_hashes) ? refs.knowledge_hashes : null
   const knowledge: NonNullable<Scenario['knowledge']> = []
   let missing = 0
   let changed = 0
+  let revoked = 0
+  const kb = new KnowledgeBase(db, null)
   const chunkStmt = db.sql.prepare(
-    'SELECT c.chunk_id, c.heading, c.text, c.source_ref, d.meta_json FROM knowledge_chunks c JOIN knowledge_docs d ON d.doc_id = c.doc_id WHERE c.chunk_id = ?',
+    'SELECT c.chunk_id, c.doc_id, c.heading, c.text, c.source_ref, d.meta_json FROM knowledge_chunks c JOIN knowledge_docs d ON d.doc_id = c.doc_id WHERE c.chunk_id = ?',
   )
   chunkIds.forEach((id, i) => {
-    const c = chunkStmt.get(id) as { chunk_id: string; heading: string; text: string; source_ref: string; meta_json: string } | undefined
+    const c = chunkStmt.get(id) as { chunk_id: string; doc_id: string; heading: string; text: string; source_ref: string; meta_json: string } | undefined
     if (!c) {
       missing++
       return
@@ -172,6 +196,10 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     const meta = parse<KnowledgeDocMeta>(c.meta_json)
     if (hashes && hashes[i] !== meta.content_hash) {
       changed++
+      return
+    }
+    if (!kb.getDoc(c.doc_id)?.approved) {
+      revoked++
       return
     }
     knowledge.push({
@@ -190,6 +218,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   if (knowledge.length && !hashes) notes.push("This card came from an older version of the app: the knowledge copied in couldn't be checked against what HELP used on the call.")
   if (changed) notes.push(`${changed} knowledge section(s) HELP used were edited since the call and are left out.`)
   if (missing) notes.push(`${missing} knowledge section(s) HELP used are no longer in the knowledge folder and are left out.`)
+  if (revoked) notes.push(`${revoked} knowledge section(s) HELP used are no longer approved and are left out.`)
 
   // The card HELP gave, and Keith's feedback on it.
   const card = parse<HelpCardContent>(row.card_json)
@@ -210,12 +239,15 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
 
   const pressed = new Date(row.created_at)
   const title = `${setup.account.trim() || 'Call'} · ${Number.isNaN(pressed.getTime()) ? row.created_at : localStamp(pressed)}`
+  // A card prepared in the background was built from the call a little before Keith pressed.
+  const built = parse<HelpTiming>(row.timing_json).served_from_prefetch
+    ? `HELP's card was prepared at ${fmtClock(atMs)} into the call and shown when Keith pressed HELP shortly after`
+    : `HELP's context was built at ${fmtClock(atMs)} into the call, when Keith pressed HELP`
   const said = observed.primary ? `${observed.primary_kind === 'say' ? 'Say' : 'Ask'} "${observed.primary}"${observed.follow_up ? `, then "${observed.follow_up}"` : ''}` : '(no line)'
-  const rating = observed.rating ? `${RATING_TEXT[observed.rating] ?? observed.rating}${observed.bad_reasons.length ? ` (${observed.bad_reasons.map((r) => r.replace(/_/g, ' ')).join(', ')})` : ''}` : 'not rated'
   const keithNotes = [
-    `Saved from a real call: ${title}, HELP pressed at ${fmtClock(atMs)} into the call.`,
+    `Saved from a real call: ${title}. ${built}.`,
     `On the call HELP said: ${said}${observed.move ? ` (move: ${observed.move})` : ''}.`,
-    `Keith's feedback: ${rating}${observed.used ? '; used the line' : ''}${observed.note ? `; note: "${observed.note}"` : ''}.`,
+    feedbackLine(observed),
     expected.why,
     ...notes,
   ].join('\n')
@@ -242,12 +274,51 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     best_moves: [],
     acceptable_moves: expected.acceptable,
     ...(expected.unacceptable.length ? { unacceptable_moves: expected.unacceptable } : {}),
-    unacceptable_behaviors: expected.unacceptable.map((m) => `Picks the move HELP gave on the call (${m}), which Keith rated Bad: wrong move`),
+    unacceptable_behaviors: expected.unacceptable.map(wrongMoveBehavior),
     silence_preferred: false,
     observed,
     keith_notes: keithNotes,
   }
   return { ok: true, moment }
+}
+
+function feedbackLine(o: ObservedCard): string {
+  const rating = o.rating ? `${RATING_TEXT[o.rating] ?? o.rating}${o.bad_reasons.length ? ` (${o.bad_reasons.map((r) => r.replace(/_/g, ' ')).join(', ')})` : ''}` : 'not rated'
+  return `Keith's feedback: ${rating}${o.used ? '; used the line' : ''}${o.note ? `; note: "${o.note.replace(/\s+/g, ' ')}"` : ''}.`
+}
+
+const wrongMoveBehavior = (m: string) => `Picks the move HELP gave on the call (${m}), which Keith rated Bad: wrong move`
+
+/**
+ * A saved moment with Keith's current feedback on its card. Only what his feedback decides changes:
+ * `observed`, the move it marked fine or wrong, that "wrong move" behavior, and the feedback and
+ * expected-moves lines of the notes. Everything else (best moves, moves or notes he added, the
+ * transcript and knowledge as saved) is kept.
+ */
+export function refreshFeedback(saved: Scenario, fresh: Scenario): Scenario {
+  const before = saved.observed?.move ?? null
+  const now = fresh.observed?.move ?? null
+  const list = (x: unknown): string[] => (Array.isArray(x) ? x.filter((y): y is string => typeof y === 'string') : [])
+  const merge = (mine: unknown, derived: unknown) => {
+    const kept = list(mine).filter((m) => m !== before && m !== now)
+    return [...kept, ...list(derived).filter((m) => !kept.includes(m))]
+  }
+  const unacceptable = merge(saved.unacceptable_moves, fresh.unacceptable_moves)
+  const lines = typeof saved.keith_notes === 'string' && saved.keith_notes ? saved.keith_notes.split('\n') : []
+  const fb = (fresh.keith_notes ?? '').split('\n').filter((l) => FEEDBACK_NOTE.test(l))
+  const at = lines.findIndex((l) => FEEDBACK_NOTE.test(l))
+  const others = lines.filter((l) => !FEEDBACK_NOTE.test(l))
+  const notes = at < 0 ? [...others, ...fb] : [...others.slice(0, at), ...fb, ...others.slice(at)]
+  const out: Scenario = {
+    ...saved,
+    observed: fresh.observed,
+    acceptable_moves: merge(saved.acceptable_moves, fresh.acceptable_moves),
+    unacceptable_moves: unacceptable,
+    unacceptable_behaviors: [...list(saved.unacceptable_behaviors).filter((b) => !WRONG_MOVE_BEHAVIOR.test(b)), ...fresh.unacceptable_behaviors.filter((b) => WRONG_MOVE_BEHAVIOR.test(b))],
+    keith_notes: notes.join('\n'),
+  }
+  if (!unacceptable.length) delete out.unacceptable_moves
+  return out
 }
 
 /** Gaps from a call's transcript.jsonl (gap_close records, plus any gap still open when the call ended). */
@@ -273,10 +344,21 @@ export function readSessionGaps(transcriptJsonl: string): PracticeGap[] {
   return [...byId.values()].sort((a, b) => a.start_ms - b.start_ms)
 }
 
+/** Enough shape to replay without throwing (a hand-edited or half-copied file must not stop the speed test). */
+function replayable(m: Partial<Scenario>): boolean {
+  const str = (x: unknown) => typeof x === 'string'
+  const obj = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null
+  if (!str(m.id) || typeof m.help_at_s !== 'number' || !obj(m.speakers) || !Array.isArray(m.transcript)) return false
+  if (!m.transcript.every((l) => obj(l) && typeof l.t === 'number' && str(l.who) && str(l.text) && (l.end === undefined || typeof l.end === 'number'))) return false
+  if (m.knowledge !== undefined && !(Array.isArray(m.knowledge) && m.knowledge.every((k) => obj(k) && str(k.id) && str(k.title) && str(k.text)))) return false
+  if (m.gaps !== undefined && !(Array.isArray(m.gaps) && m.gaps.every((g) => obj(g) && typeof g.start === 'number' && typeof g.end === 'number'))) return false
+  return true
+}
+
 function readMoment(file: string): Scenario | null {
   try {
     const m = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Scenario>
-    if (typeof m.id !== 'string' || !Array.isArray(m.transcript) || typeof m.help_at_s !== 'number' || typeof m.speakers !== 'object' || !m.speakers) return null
+    if (!replayable(m)) return null
     return {
       ...(m as Scenario),
       category: typeof m.category === 'string' ? m.category : 'real_call',
@@ -321,10 +403,21 @@ export function savedRequestIds(dir: string): Set<string> {
   return new Set(loadPracticeMoments(dir).moments.map((m) => m.request_id).filter((x): x is string => typeof x === 'string'))
 }
 
-/** Write a new moment. Never overwrites: the same card saved twice reports it's already saved. */
-export function savePracticeMoment(dir: string, m: Scenario): { already: boolean; file: string } {
+/**
+ * Write a new moment. Never replaces a file: the same card saved again reports it's already saved
+ * and, with `refresh`, updates only Keith's feedback in it (refreshFeedback), wherever it is now.
+ */
+export function savePracticeMoment(dir: string, m: Scenario, opts: { refresh?: boolean } = {}): { already: boolean; updated?: boolean; file: string } {
   fs.mkdirSync(dir, { recursive: true })
   const existing = readAll(dir).found.find((x) => m.request_id && x.moment.request_id === m.request_id)
+  if (existing && opts.refresh) {
+    // As written in the file (readMoment fills defaults the file may not have).
+    const saved = JSON.parse(fs.readFileSync(existing.file, 'utf8')) as Scenario
+    const tmp = `${existing.file}.tmp`
+    fs.writeFileSync(tmp, JSON.stringify(refreshFeedback(saved, m), null, 2))
+    fs.renameSync(tmp, existing.file)
+    return { already: true, updated: true, file: existing.file }
+  }
   if (existing) return { already: true, file: existing.file }
   const file = path.join(dir, `${m.id}.json`)
   try {

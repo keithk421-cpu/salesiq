@@ -131,6 +131,15 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   }
 }
 
+/** A saved moment replay threw on (a hand-edited file): a failed result, so the run goes on. */
+function unreplayable(s: Scenario, model: HelpModel, config: HelpModelConfig, err: unknown): ScenarioResult {
+  return {
+    scenario_id: typeof s.id === 'string' ? s.id : '?', category: typeof s.category === 'string' ? s.category : 'real_call', approved: false,
+    model: config.model, config_label: model.label(config), status: 'failed', card: null, raw: '', first_usable_ms: null, complete_ms: null, usage: null,
+    level1: { pass: false, failures: [`could not replay: ${(err as Error)?.message ?? String(err)}`] }, move_ok: null, error: (err as Error)?.message ?? String(err),
+  }
+}
+
 /**
  * Level 3 signal for one card. Built-in scenarios list every good move, so any other move disagrees.
  * A moment saved from a real call knows only what Keith's feedback said about the move HELP gave
@@ -253,7 +262,10 @@ export async function benchmark(opts: {
     for (let rep = 0; rep < opts.repeats; rep++) {
       for (const [list, out] of [[opts.scenarios, results], [mine, mineResults]] as const) {
         for (const s of list) {
-          const r = await runScenario(s, opts.model, config, opts.playbook)
+          // One of Keith's moments that can't be replayed (hand-edited) is reported as failed, never
+          // stopping the run: his drafts never get in the way of the built-in results.
+          const run = runScenario(s, opts.model, config, opts.playbook)
+          const r = await (list === mine ? run.catch((err: unknown) => unreplayable(s, opts.model, config, err)) : run)
           out.push(r)
           opts.onProgress?.(++done, total, r)
         }
