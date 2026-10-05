@@ -57,6 +57,8 @@ export type GapCause =
   | 'device_stalled'
   | 'capture_error'
   | 'provider_disconnect'
+  /** The speech service stayed connected but stopped answering while there was sound. */
+  | 'provider_stalled'
   | 'wasapi_discontinuity'
   | 'capture_overflow'
 

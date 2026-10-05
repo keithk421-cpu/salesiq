@@ -7,6 +7,8 @@
  *   audio activity, and both Deepgram connections are open.
  * - Device loss: surface immediately, mark a gap, never switch endpoints, reconnect only
  *   to the same confirmed ID (or one Keith explicitly picks), resume from current audio.
+ * - Speech service open but silent while sound is sent (transcriptWatch.ts): mark a gap, reconnect the
+ *   same stream's connection (same device, new epoch), never replay.
  * - Pause stops BOTH native captures (threads joined) and drops everything queued.
  *   Resume opens fresh captures + fresh STT epochs. Nothing buffered is ever replayed.
  * - Stop / app exit leaves nothing capturing.
@@ -23,12 +25,14 @@ import type {
   Stream,
 } from '../shared/contracts'
 import type { EndpointInfo, NativeAudioModule, NativeCaptureEvent } from '../shared/nativeApi'
+import { captureHealth, type CaptureHealth } from '../shared/captureHealth'
 import { MIC_THRESHOLDS, StreamActivity, SYSTEM_THRESHOLDS, type Level } from './activity'
 import { DeepgramStream, isRefusal, type ProviderState, type WsFactory } from './deepgram'
 import { DuplicateGate, type Suppressed } from './duplicateGate'
 import { ResidualEchoGate } from './echoGate'
 import { resolveConfig } from './endpoints'
-import { samplesToMs } from './pcm'
+import { rmsDbfs, samplesToMs, toInt16 } from './pcm'
+import { TranscriptWatch } from './transcriptWatch'
 import { invalidNativeEvent } from './validate'
 
 /** Level above which a chunk counts as audible sound for duplicate-overlap checks. */
@@ -54,6 +58,8 @@ export interface StreamStatusEvent extends EndpointStatus {
   capture: CaptureState
   provider: ProviderState | 'none'
   epoch: number
+  /** What the source tile shows: listening, quiet, no audio arriving, not transcribing, ... */
+  health: CaptureHealth
 }
 
 export type SessionEvent =
@@ -115,6 +121,10 @@ interface StreamRt {
   lastRecoveredAt: number
   recoveryBackoffMs: number
   lostAt: number
+  /** Notices when the speech service stops answering although sound is going out. */
+  watch: TranscriptWatch
+  /** The pending speech-service reconnect is because it stopped responding (changes the alert wording). */
+  stallReconnect: boolean
 }
 
 export class SessionController {
@@ -137,6 +147,7 @@ export class SessionController {
     droppedWhileUnavailableMs: { local_mic: 0, system_remote: 0 } as Record<Stream, number>,
     gaps: 0,
     providerReconnects: 0,
+    providerStalls: 0,
     deviceRecoveries: 0,
   }
 
@@ -150,6 +161,7 @@ export class SessionController {
       silentWarned: false, lastStatusKey: '', lastChunkEndMono: null,
       lagSamples: [], sttDelays: [], audible: [],
       lastRecoveredAt: 0, recoveryBackoffMs: 0, lostAt: 0,
+      watch: new TranscriptWatch(), stallReconnect: false,
     })
     this.rt = {
       local_mic: mk('local_mic', 'Microphone', deps.config.microphone.endpoint_id, deps.config.microphone.friendly_name),
@@ -411,6 +423,8 @@ export class SessionController {
     if (this.state !== 'live' || rt.capture !== 'capturing') return
     const sMs = this.sessionMs(monoMs)
     const dg = rt.dg
+    // Stall watch: audio offered to an open connection counts, even if a backed-up socket dropped it.
+    if (dg && dg.state === 'open') rt.watch.offered(this.now(), samplesToMs(samples), rmsDbfs(toInt16(pcm)) > rt.activity.thresholds.activeDbfs)
     if (!dg || dg.state !== 'open' || !dg.send(pcm, samples, sMs)) {
       // Provider unavailable: drop (never buffer for replay) and make sure a gap is open.
       this.counters.droppedWhileUnavailableMs[rt.stream] += samplesToMs(samples)
@@ -538,6 +552,9 @@ export class SessionController {
       log: (e, d) => this.deps.log(e, d),
       onWords: (words, info) => this.onWords(rt, words, info.isFinal),
       onUnexpectedClose: (detail) => this.onProviderClosed(rt, dg, detail),
+      onMessage: () => {
+        if (rt.dg === dg) rt.watch.heard(this.now())
+      },
     })
     this.pendingConnects.add(dg)
     try {
@@ -558,6 +575,8 @@ export class SessionController {
     }
     rt.dg?.abort()
     rt.dg = dg
+    rt.watch.reset()
+    rt.stallReconnect = false
     rt.providerAttempts = 0
     this.emitStatuses()
   }
@@ -604,17 +623,39 @@ export class SessionController {
       rt.providerRetryTimer = null
       const waiting = this.state === 'checking'
       if ((this.state !== 'live' && !waiting) || rt.dg || rt.capture !== 'capturing') return
+      const stalled = rt.stallReconnect
       try {
         await this.connectProvider(rt)
         if (waiting) return
         this.counters.providerReconnects++
-        this.alert('info', `${rt.label}: speech service reconnected (new connection epoch ${rt.epoch}; speaker labels restart).`)
+        this.alert('info', `${rt.label}: speech service ${stalled ? 'stopped responding; reconnected' : 'reconnected'} (new connection epoch ${rt.epoch}; speaker labels restart).`)
       } catch (err) {
         this.deps.log('provider_retry_failed', { stream: rt.stream, attempt: rt.providerAttempts, message: (err as Error).message })
         if (this.state === 'checking') this.onWaitingConnectFailed(rt, err as Error)
         else if (this.state === 'live') this.scheduleProviderRetry(rt)
       }
     }, delay)
+  }
+
+  /**
+   * The speech service stopped answering although sound kept going out: the socket looks open but the
+   * transcript is frozen. Close it and reconnect through the usual retry path (same device, new epoch,
+   * nothing switched). Nothing is replayed: the gap covers everything since it last answered.
+   */
+  private onTranscriptStalled(rt: StreamRt, dg: DeepgramStream, now: number): void {
+    const silentMs = Math.round(now - rt.watch.heardAt)
+    const secs = Math.round(silentMs / 1000)
+    this.counters.providerStalls++
+    this.deps.log('provider_stalled', { stream: rt.stream, epoch: dg.epoch, code: 'stt_stall', silent_ms: silentMs, sound_sent_ms: Math.round(rt.watch.soundMs) })
+    rt.dg = null
+    dg.abort() // anything it sends late is ignored: the gap already says this stretch wasn't heard
+    if (rt.openGap) this.closeGap(rt, this.sessionMs(now), 'not_recovered')
+    this.openGap(rt, 'provider_stalled', `Speech service stopped responding: nothing came back for ${secs} s although there was sound. Not transcribed; no audio replayed.`, undefined, Math.max(0, this.sessionMs(rt.watch.heardAt)))
+    this.deps.emit({ type: 'interim', stream: rt.stream, text: '' }) // provisional text from the stalled connection won't firm up
+    this.alert('warning', `${rt.label}: speech service stopped responding (nothing back for ${secs} s while there was sound). Reconnecting; gap marked; no audio will be replayed.`)
+    rt.stallReconnect = true
+    this.emitStatuses()
+    this.scheduleProviderRetry(rt)
   }
 
   private onWords(rt: StreamRt, words: DiarizedWord[], isFinal: boolean): void {
@@ -673,12 +714,12 @@ export class SessionController {
 
   // ------------------------------------------------------------------ gaps
 
-  private openGap(rt: StreamRt, cause: GapCause, detail: string, deviceState = this.deps.native.getEndpointState(rt.endpointId)): void {
+  private openGap(rt: StreamRt, cause: GapCause, detail: string, deviceState = this.deps.native.getEndpointState(rt.endpointId), startMs = this.sessionMs()): void {
     const gap: GapRecord = {
       gap_id: `g${++this.counters.gaps}`,
       stream: rt.stream,
       cause,
-      start_ms: this.sessionMs(),
+      start_ms: startMs,
       end_ms: null,
       duration_ms: null,
       device_state: deviceState,
@@ -735,6 +776,9 @@ export class SessionController {
     if (this.state !== 'live') return { ok: false, reason: `Cannot pause while ${this.state}` }
     this.setState('paused')
     this.clearTimers()
+    // A speech-service reconnect still opening would otherwise land (and announce itself) during the pause.
+    for (const dg of this.pendingConnects) dg.abort()
+    this.pendingConnects.clear()
     for (const rt of this.streams) {
       this.closeCapture(rt) // joins the native thread: nothing is capturing after this line
       rt.capture = 'off'
@@ -809,6 +853,8 @@ export class SessionController {
     }
     this.setState('stopping')
     this.clearTimers()
+    for (const dg of this.pendingConnects) dg.abort() // e.g. a reconnect still opening
+    this.pendingConnects.clear()
     for (const rt of this.streams) {
       if (rt.recoveryTimer) clearInterval(rt.recoveryTimer)
       if (rt.providerRetryTimer) clearTimeout(rt.providerRetryTimer)
@@ -937,6 +983,7 @@ export class SessionController {
             this.handleLoss(rt, 'device_stalled', `No audio data from Windows for ${Math.round(since)} ms`)
             continue
           }
+          if (rt.dg?.state === 'open' && rt.watch.reconnectDue(now)) this.onTranscriptStalled(rt, rt.dg, now)
           if (rt.stream === 'local_mic') {
             // Many headsets (e.g. Razer BlackShark V2 Pro) noise-gate the mic to exact zeros whenever
             // Keith is not talking, so short digital silence is normal. Only a long run is worth a note.
@@ -977,6 +1024,7 @@ export class SessionController {
   }
 
   private emitStatuses(): void {
+    const now = this.now()
     for (const rt of this.streams) {
       const st = this.deps.native.getEndpointState(rt.endpointId)
       let state: EndpointStatusState = st
@@ -987,6 +1035,7 @@ export class SessionController {
         else reason = rt.capture === 'capturing' ? 'Capturing' : 'Ready'
       }
       const info = this.endpointsAtStart.find((e) => e.id === rt.endpointId)
+      const provider = rt.dg ? rt.dg.state : rt.connecting ? 'connecting' : 'none'
       const status: StreamStatusEvent = {
         stream: rt.stream,
         endpoint_id: rt.endpointId,
@@ -996,8 +1045,14 @@ export class SessionController {
         reason,
         is_windows_default: !!info && (info.isDefaultConsole || info.isDefaultCommunications),
         capture: rt.capture,
-        provider: rt.dg ? rt.dg.state : rt.connecting ? 'connecting' : 'none',
+        provider,
         epoch: rt.epoch,
+        health: captureHealth({
+          session: this.state, device: st, capture: rt.capture, provider,
+          soundRecently: rt.activity.recentActiveMs(now) > 0,
+          muted: rt.stream === 'local_mic' && rt.silentWarned,
+          unanswered: rt.watch.stalled(now),
+        }),
       }
       const key = `${status.state}|${status.capture}|${status.provider}|${status.epoch}|${status.endpoint_id}`
       if (key !== rt.lastStatusKey) {

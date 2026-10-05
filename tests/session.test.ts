@@ -3,6 +3,7 @@ import type { AudioEndpointConfig, AudioFrame } from '../src/shared/contracts'
 import { toEndpointRef } from '../src/main/endpoints'
 import { MOCK_IDS, MockNative } from '../src/main/mockNative'
 import { PAUSE_DETAIL, START_WAIT_MS, SessionController, type SessionEvent } from '../src/main/session'
+import { STT_STALL_COOLDOWN_MS, STT_STALL_MS } from '../src/main/transcriptWatch'
 import { noise, tone, zeros } from './helpers/audio'
 import { dgResults, fakeWsFactory, type FakeWs } from './helpers/fakeWs'
 
@@ -34,10 +35,10 @@ function setup(opts: { checkTimeoutMs?: number; autoOpen?: boolean } = {}) {
 
 type Ctx = ReturnType<typeof setup>
 
-/** Feed 20 ms chunks to both streams for `ms`. */
-async function feed(ctx: Ctx, ms: number, mic: 'voice' | 'zero' | 'none' = 'voice', sys: 'audio' | 'zero' | 'none' = 'audio') {
+/** Feed 20 ms chunks to both streams for `ms`. `hiss` is a quiet room: real samples, below the activity threshold. */
+async function feed(ctx: Ctx, ms: number, mic: 'voice' | 'zero' | 'none' = 'voice', sys: 'audio' | 'zero' | 'none' | 'hiss' = 'audio') {
   for (let t = 0; t < ms; t += 20) {
-    if (sys !== 'none') ctx.native.emitAudio('system_remote', sys === 'audio' ? noise(320, 5000, t + 1) : zeros(320), { syntheticSilence: sys === 'zero' })
+    if (sys !== 'none') ctx.native.emitAudio('system_remote', sys === 'audio' ? noise(320, 5000, t + 1) : sys === 'hiss' ? noise(320, 40, t + 1) : zeros(320), { syntheticSilence: sys === 'zero' })
     if (mic !== 'none') ctx.native.emitAudio('local_mic', mic === 'voice' ? tone(320, 7000, 210, t * 16) : zeros(320))
     await vi.advanceTimersByTimeAsync(20)
   }
@@ -53,6 +54,10 @@ async function startLive(ctx: Ctx) {
 }
 
 const others = (ctx: Ctx) => ctx.native.startCalls.filter((c) => c.endpointId !== MOCK_IDS.RAZER_MIC && c.endpointId !== MOCK_IDS.RAZER_OUT)
+
+/** The newest status the source tile would show for a stream. */
+const lastStatus = (ctx: Ctx, stream: 'system_remote' | 'local_mic') =>
+  (ctx.events.filter((e) => e.type === 'stream_status' && e.status.stream === stream).at(-1) as Extract<SessionEvent, { type: 'stream_status' }>).status
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -690,6 +695,259 @@ describe('turns during continuous speech', () => {
     await feed(ctx, 4000, 'voice', 'zero')
     const finals = ctx.events.filter((e) => e.type === 'turn' && e.event.type === 'turn_final' && e.event.turn.stream === 'system_remote').map((e) => (e as any).event.turn)
     expect(finals.map((t: any) => t.text)).toEqual(['As much as the first spacewalk with a team'])
+    await ctx.session.stop()
+  })
+})
+
+describe('speech service stops answering (stall watchdog)', () => {
+  const sys = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=true'))
+  const mic = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=false'))
+  const stallGaps = (ctx: Ctx) => ctx.events.flatMap((e) => (e.type === 'gap_open' && e.gap.cause === 'provider_stalled' ? [e.gap] : []))
+  const alerts = (ctx: Ctx, re: RegExp) => ctx.events.filter((e) => e.type === 'alert' && re.test(e.message))
+  const emptyResult = { type: 'Results', is_final: false, channel: { alternatives: [{ transcript: '', words: [] }] } }
+  /** Feed in 20 ms steps until `done()`; returns the ms fed. */
+  async function feedUntil(ctx: Ctx, done: () => boolean, maxMs: number) {
+    let t = 0
+    while (!done() && t < maxMs) {
+      await feed(ctx, 20, 'zero', 'audio')
+      t += 20
+    }
+    return t
+  }
+
+  it('the meeting-audio socket stays open but goes quiet while the buyer talks: one gap, one reconnect on the same device, nothing replayed', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const sys1 = sys(ctx)[0]
+    ;(sys1 as any).send = function (d: Buffer | string) { this.sent.push(d) } // a stuck connection never closes by itself
+    const starts = ctx.native.startCalls.length
+    // The buyer talks (Keith listens, mic gated to zeros); the speech service never answers.
+    await feed(ctx, STT_STALL_MS - 1000, 'zero', 'audio')
+    expect(stallGaps(ctx)).toHaveLength(0)
+    expect(sys1.closed).toBe(false)
+    const waited = await feedUntil(ctx, () => stallGaps(ctx).length > 0, 3000)
+    expect(STT_STALL_MS - 1000 + waited).toBeGreaterThanOrEqual(STT_STALL_MS - 200)
+    // Closed at once, not left to finish: anything it sends late is ignored (that stretch is a gap).
+    expect(sys1.closed).toBe(true)
+    sys1.message(dgResults([['Late', 0.5, 0.9, 0]]))
+    // Gap marked from when the service last had a chance to answer (audio first went out), in plain words.
+    const gaps = stallGaps(ctx)
+    expect(gaps).toHaveLength(1)
+    expect(gaps[0].stream).toBe('system_remote')
+    expect(gaps[0].start_ms).toBeLessThan(500)
+    expect(gaps[0].detail).toMatch(/Speech service stopped responding: nothing came back for 1[56] s although there was sound/)
+    expect(ctx.logs.find((l) => l.event === 'provider_stalled')?.data).toMatchObject({ stream: 'system_remote', code: 'stt_stall' })
+    expect(alerts(ctx, /Meeting audio.*speech service stopped responding .*Reconnecting; gap marked; no audio will be replayed/)).toHaveLength(1)
+    // Provisional text from the stalled connection is cleared (it will never firm up).
+    expect(ctx.events.some((e) => e.type === 'interim' && e.stream === 'system_remote' && e.text === '')).toBe(true)
+    // Closed without a second "disconnected" gap; reconnected through the retry path (new epoch).
+    expect(ctx.events.some((e) => e.type === 'gap_open' && e.gap.cause === 'provider_disconnect')).toBe(false)
+    await feed(ctx, 2000, 'zero', 'audio')
+    expect(sys(ctx)).toHaveLength(2)
+    expect(mic(ctx)).toHaveLength(1)
+    expect(alerts(ctx, /Meeting audio \(system output\): speech service stopped responding; reconnected \(new connection epoch 2/)).toHaveLength(1)
+    expect(lastStatus(ctx, 'system_remote')).toMatchObject({ provider: 'open', epoch: 2, health: 'listening' })
+    // No replay: the ~500 ms before the new connection opened was dropped; the new socket only got audio fed after it opened.
+    const dropped = ctx.session.counters.droppedWhileUnavailableMs.system_remote
+    expect(dropped).toBeGreaterThanOrEqual(460)
+    expect(dropped).toBeLessThanOrEqual(540)
+    expect(sys(ctx)[1].audioChunks().length * 20).toBeLessThanOrEqual(2000 + 20 - 460)
+    const close = ctx.events.find((e) => e.type === 'gap_close' && e.gap.cause === 'provider_stalled')
+    expect(close && close.type === 'gap_close' && close.gap.recovery).toBe('recovered')
+    // Same device, nothing switched or reopened.
+    expect(ctx.native.startCalls.length).toBe(starts)
+    expect(others(ctx)).toHaveLength(0)
+    expect(ctx.session.counters.providerStalls).toBe(1)
+    await ctx.session.stop()
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+    expect(ctx.events.some((e) => e.type === 'turn' && /Late/.test(e.event.turn.text))).toBe(false)
+  })
+
+  it('no reconnect storm: a second silent connection waits out the cool-down, shows "not transcribing", and its gap covers the whole stretch', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feedUntil(ctx, () => sys(ctx)[0].closed, STT_STALL_MS + 2000)
+    const firstStallAt = ctx.session.nowSessionMs()
+    await feedUntil(ctx, () => sys(ctx).length === 2 && sys(ctx)[1].audioChunks().length > 0, 2000)
+    const reopenedAt = ctx.session.nowSessionMs()
+    // The new connection is silent too. Past its own 15 s, but inside the cool-down: no second reconnect.
+    await feed(ctx, STT_STALL_COOLDOWN_MS - 2000, 'zero', 'audio')
+    expect(sys(ctx)).toHaveLength(2)
+    expect(stallGaps(ctx)).toHaveLength(1)
+    expect(lastStatus(ctx, 'system_remote')).toMatchObject({ provider: 'open', health: 'not_transcribing' })
+    // After the cool-down it reconnects again, and the gap starts where that connection's audio began.
+    await feed(ctx, 3000, 'zero', 'audio')
+    expect(sys(ctx)).toHaveLength(3)
+    const gaps = stallGaps(ctx)
+    expect(gaps).toHaveLength(2)
+    expect(gaps[1].start_ms).toBeGreaterThanOrEqual(reopenedAt - 60)
+    expect(gaps[1].start_ms).toBeLessThanOrEqual(reopenedAt + 60)
+    expect(ctx.session.nowSessionMs() - firstStallAt).toBeGreaterThanOrEqual(STT_STALL_COOLDOWN_MS)
+    expect(ctx.session.counters.providerStalls).toBe(2)
+    expect(others(ctx)).toHaveLength(0)
+    await ctx.session.stop()
+  })
+
+  it('a long wait for the call to begin does not count as the speech service being silent', async () => {
+    const ctx = setup({ checkTimeoutMs: START_WAIT_MS })
+    const p = ctx.session.start()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 60_000, 'voice', 'zero') // nothing is sent while waiting, so nothing comes back either
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    await feed(ctx, STT_STALL_MS / 2, 'zero', 'audio') // the buyer talks; the service hasn't answered yet
+    expect(stallGaps(ctx)).toHaveLength(0)
+    expect(ctx.ws.sockets.every((s) => !s.closed)).toBe(true)
+    await ctx.session.stop()
+  })
+
+  it('silence never triggers it: a quiet room for a long stretch with no answer from the speech service', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 50_000, 'zero', 'hiss')
+    expect(stallGaps(ctx)).toHaveLength(0)
+    expect(ctx.ws.sockets).toHaveLength(2)
+    expect(ctx.ws.sockets.every((s) => !s.closed)).toBe(true)
+    expect(alerts(ctx, /stopped responding/)).toHaveLength(0)
+    expect(lastStatus(ctx, 'system_remote').health).toBe('quiet')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('quiet')
+    await ctx.session.stop()
+  })
+
+  it('a normal stream of messages (even ones with no words) never triggers it', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    for (let i = 0; i < 30; i++) {
+      await feed(ctx, 2000, 'voice', 'audio')
+      for (const s of ctx.ws.sockets) s.message(i % 3 === 2 ? { type: 'UtteranceEnd', last_word_end: 1 } : emptyResult)
+    }
+    expect(stallGaps(ctx)).toHaveLength(0)
+    expect(ctx.ws.sockets).toHaveLength(2)
+    expect(ctx.session.counters.providerStalls).toBe(0)
+    expect(lastStatus(ctx, 'system_remote').health).toBe('listening')
+    await ctx.session.stop()
+  })
+
+  it('late messages from a connection still finishing up do not count as the new one answering', async () => {
+    const ctx = setup()
+    ;(ctx.session as any).deps.finalizeGraceMs = 60_000 // the old connection lingers while it finalizes
+    await startLive(ctx)
+    const old = mic(ctx)[0]
+    ;(old as any).send = function (d: Buffer | string) { this.sent.push(d) } // never closes by itself
+    // A headset blip: the mic comes back on the same device with a new connection.
+    ctx.native.unplug(MOCK_IDS.RAZER_MIC)
+    await vi.advanceTimersByTimeAsync(10)
+    ctx.native.replug(MOCK_IDS.RAZER_MIC)
+    await feed(ctx, 1500, 'voice', 'zero')
+    expect(mic(ctx)).toHaveLength(2)
+    expect(old.closed).toBe(false)
+    for (let i = 0; i < 9; i++) {
+      await feed(ctx, 2000, 'voice', 'zero')
+      old.message(emptyResult) // only the old connection talks; the new one says nothing
+    }
+    expect(stallGaps(ctx).filter((g) => g.stream === 'local_mic')).toHaveLength(1)
+    expect(others(ctx)).toHaveLength(0)
+    await ctx.session.stop()
+  })
+
+  it('a connection so backed up that nothing gets through is reconnected too', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    const sys1 = sys(ctx)[0]
+    sys1.bufferedAmount = 10_000_000
+    await feed(ctx, STT_STALL_MS + 1000, 'zero', 'audio')
+    expect(sys1.closed).toBe(true)
+    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect' && e.gap.recovery === 'not_recovered')).toBe(true)
+    expect(stallGaps(ctx)).toHaveLength(1)
+    await feed(ctx, 1000, 'zero', 'audio')
+    expect(sys(ctx)[1].audioChunks().length).toBeGreaterThan(0)
+    await ctx.session.stop()
+  })
+
+  it('Stop while the stall reconnect is still opening leaves nothing open and nothing reconnects later', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    for (const s of ctx.ws.sockets) s.open()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    await feedUntil(ctx, () => sys(ctx).length === 2, STT_STALL_MS + 3000)
+    expect(sys(ctx)[0].closed).toBe(true)
+    expect(sys(ctx)[1].readyState).toBe(0) // the reconnect is still opening
+    await ctx.session.stop()
+    expect(ctx.session.state).toBe('stopped')
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+    expect(ctx.native.isCapturing('local_mic') || ctx.native.isCapturing('system_remote')).toBe(false)
+    const n = ctx.ws.sockets.length
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(ctx.ws.sockets).toHaveLength(n)
+    expect(alerts(ctx, /reconnected/)).toHaveLength(0)
+  })
+
+  it('Pause while the stall reconnect is still opening closes it; Resume starts fresh', async () => {
+    const ctx = setup({ autoOpen: false })
+    const p = ctx.session.start()
+    for (const s of ctx.ws.sockets) s.open()
+    await vi.advanceTimersByTimeAsync(0)
+    await feed(ctx, 600)
+    expect(await p).toEqual({ ok: true })
+    await feedUntil(ctx, () => sys(ctx).length === 2, STT_STALL_MS + 3000)
+    const retry = sys(ctx)[1]
+    expect(retry.readyState).toBe(0)
+    ctx.session.pause()
+    expect(retry.closed).toBe(true)
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(alerts(ctx, /reconnected/)).toHaveLength(0)
+    expect(lastStatus(ctx, 'system_remote').health).toBe('paused')
+    const r = ctx.session.resume()
+    await vi.advanceTimersByTimeAsync(0)
+    for (const s of ctx.ws.sockets) if (!s.closed && s.readyState === 0) s.open()
+    expect(await r).toEqual({ ok: true })
+    expect(ctx.ws.sockets.filter((s) => !s.closed)).toHaveLength(2)
+    await ctx.session.stop()
+    expect(ctx.ws.sockets.every((s) => s.closed)).toBe(true)
+  })
+})
+
+describe('capture health on the source tiles', () => {
+  const sysLatest = (ctx: Ctx) => ctx.ws.sockets.filter((s) => s.url.includes('diarize=true')).at(-1)!
+
+  it('tells "the buyer is quiet" from "no audio arriving" from "not transcribing", and never switches devices', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 500)
+    expect(lastStatus(ctx, 'system_remote').health).toBe('listening')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('listening')
+    // The buyer stops talking: audio still arrives, just no sound.
+    await feed(ctx, 11_000, 'voice', 'zero')
+    expect(lastStatus(ctx, 'system_remote').health).toBe('quiet')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('listening')
+    // The speech service drops: audio arrives but isn't being turned into text.
+    sysLatest(ctx).serverClose(1011, 'internal')
+    await feed(ctx, 100, 'voice', 'zero')
+    expect(lastStatus(ctx, 'system_remote')).toMatchObject({ capture: 'capturing', provider: 'none', health: 'not_transcribing' })
+    await feed(ctx, 1000, 'voice', 'audio')
+    expect(lastStatus(ctx, 'system_remote').health).toBe('listening')
+    // The headset stops delivering audio: that's a loss, not quiet.
+    ctx.native.unplug(MOCK_IDS.RAZER_MIC)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(lastStatus(ctx, 'local_mic').health).toBe('no_audio')
+    await feed(ctx, 2000, 'none', 'audio')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('no_audio')
+    expect(others(ctx)).toHaveLength(0)
+    ctx.session.pause()
+    expect(lastStatus(ctx, 'system_remote').health).toBe('paused')
+    await ctx.session.stop()
+    expect(lastStatus(ctx, 'system_remote').health).toBe('idle')
+  })
+
+  it('a mic that has been pure silence for a minute reads "muted?", not just quiet', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 30_000, 'zero', 'audio')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('quiet')
+    await feed(ctx, 31_000, 'zero', 'audio')
+    expect(lastStatus(ctx, 'local_mic').health).toBe('muted')
     await ctx.session.stop()
   })
 })

@@ -43,6 +43,12 @@ What's normal:
 - Faded, dashed bubbles marked **live, not final** are words still being heard. They firm up into normal bubbles a moment later.
 - The transcript header shows **delay**: how far behind real time the final text is running.
 - Your BlackShark mic goes fully silent between your words (it has a noise gate). That's fine; you'll only see a note if it's silent for 60+ seconds.
+- The word next to each device says how that side is doing:
+  - **Listening** (green, pulsing): sound is coming in and being turned into text.
+  - **Quiet** (steady green dot): audio is coming in, nobody has spoken for a few seconds. Normal: the buyer is just quiet. Your mic shows **Quiet (muted?)** after a minute of pure silence; fine if you've been listening.
+  - **No audio arriving** (red): the headset stopped sending sound (see the headset test above). It never switches to another device by itself.
+  - **Not transcribing** (amber): sound is coming in but no text is coming back from the speech service. The app reconnects it by itself.
+- If the speech service goes silent while someone is talking (about 15 seconds with no text), the app reconnects it on its own. An amber bar says **speech service stopped responding**, then a blue one says **stopped responding; reconnected**, and the transcript shows a gap line ("speech service stopped responding") for the stretch that wasn't transcribed. Nothing is replayed, and devices are never changed for this.
 
 ## 4. Check nothing changed
 - Open **Diagnostics & test report** → **Save device snapshot · AFTER**.
@@ -63,6 +69,7 @@ Do one real-length Zoom call (60+ minutes) with the app running. Don't babysit i
 - **"Start blocked: … not found"**: the headset is off or plugged into a different USB port. Turn it on. If it's on a different port, Windows may have given it a new ID: pick it again in Step 2, test, and save.
 - **"Start blocked: no meeting audio heard"** (after 20 minutes of waiting): click Zoom's Test Speaker during the check, or make sure Zoom is playing to the device you picked.
 - **"no voice heard"**: is the headset muted (Razer mute button)?
+- **"Speech service stopped responding" more than once or twice in a call**, or **Not transcribing** for more than a minute: check the internet connection, note the time, and send **Diagnostics → Save support files** afterwards. (It reconnects on its own, at most once every 30 seconds for each side.)
 
 ---
 

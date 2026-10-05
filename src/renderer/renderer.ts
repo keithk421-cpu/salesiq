@@ -6,6 +6,7 @@ import type { ResolvedConfig } from '../main/endpoints'
 import type { SessionEvent, StreamStatusEvent } from '../main/session'
 import type { HelpCardEvent, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
+import { HEALTH_LABEL } from '../shared/captureHealth'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -224,16 +225,10 @@ function renderSources(): void {
   for (const [stream, id] of [['system_remote', 'sysState'], ['local_mic', 'micState']] as const) {
     const st = statuses[stream]
     const el = $(id)
-    let cls = ''
-    let text = 'Idle'
-    if (st) {
-      if (st.capture === 'lost') { cls = 'err'; text = 'Disconnected' }
-      else if (st.capture === 'recovering') { cls = 'warn'; text = 'Reconnecting…' }
-      else if (st.state === 'silent') { cls = 'warn'; text = 'Silent' }
-      else if (st.capture === 'capturing') { cls = 'ok'; text = st.provider === 'open' || sessionState === 'checking' ? 'Listening' : 'Speech service…' }
-      else if (st.state !== 'active') { cls = 'err'; text = 'Not connected' }
-    }
+    // Quiet (nobody talking) vs no audio arriving vs not transcribing: worked out in the main process.
+    const { text, cls, hint } = HEALTH_LABEL[st?.health ?? 'idle']
     el.className = `state ${cls}`
+    el.title = hint
     el.lastElementChild!.textContent = text
     $(stream === 'local_mic' ? 'srcMic' : 'srcSys').classList.toggle('lost', cls === 'err')
   }
@@ -308,7 +303,9 @@ function renderTranscript(): void {
       continue
     }
     const what = g.stream === 'local_mic' ? 'Mic' : 'Meeting audio'
-    const why = g.cause === 'provider_disconnect' ? 'speech service interrupted (speaker clusters restart after reconnect)' : g.cause.replace(/_/g, ' ')
+    const why = g.cause === 'provider_disconnect' ? 'speech service interrupted (speaker clusters restart after reconnect)'
+      : g.cause === 'provider_stalled' ? 'speech service stopped responding (speaker clusters restart after reconnect)'
+      : g.cause.replace(/_/g, ' ')
     const dur = g.duration_ms !== null ? ` · ${(g.duration_ms / 1000).toFixed(1)} s` : ' · ongoing'
     rows.push({ at: g.start_ms, html: `<div class="gapline">${what} gap · ${esc(why)}${dur}</div>` })
   }
