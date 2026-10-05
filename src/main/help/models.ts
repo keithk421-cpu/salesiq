@@ -220,7 +220,9 @@ export class ClaudeHelpModel implements HelpModel {
 
   /** Same model, thinking and effort as HELP, cached system prompt, plus a JSON schema for the answer. */
   async notes(req: HelpNotesRun): Promise<HelpNotesResult> {
-    const p = this.params(req.system, req.user, req.config, req.max_tokens)
+    // No refusal fallback here: a declined notes update just keeps the previous notes, and the fallback
+    // option isn't proven together with structured output, so leaving it out can't break every update.
+    const { betas: _betas, fallbacks: _fallbacks, ...p } = this.params(req.system, req.user, req.config, req.max_tokens)
     // Background, nobody waiting on it: one automatic retry is fine (the caller's deadline still applies).
     const msg = await this.client.beta.messages.create(
       { ...p, output_config: { effort: req.config.effort, format: { type: 'json_schema', schema: req.schema } }, stream: false },

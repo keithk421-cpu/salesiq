@@ -236,6 +236,9 @@ table.status th, table.status td { padding: 7px 8px; border-bottom: 1px solid va
 .controls .btn-help { min-width: 110px; }
 .setup-strip { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; }
 .setup-strip .input { height: 32px; font-size: 13px; }
+/* Goal and outcomes stay readable; the shortcut hint takes its own line instead of squeezing them. */
+.setup-strip .input.grow { min-width: 180px; }
+.setup-strip #hotkeyHint { flex-basis: 100%; }
 label.inline { display: inline-flex; flex-direction: row; align-items: center; gap: 8px; font-weight: 600; }
 label.inline.check { font-weight: 400; color: var(--muted); }
 .help-card {
