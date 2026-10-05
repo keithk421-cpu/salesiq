@@ -36,8 +36,40 @@ describe('transcript stall watchdog', () => {
     offer(w, 0, 2000, true) // "Yes, hi"
     offer(w, 2000, 20_000, false)
     expect(w.stalled(20_000)).toBe(false)
-    offer(w, 20_000, 23_000, true)
-    expect(w.stalled(23_000)).toBe(true)
+    offer(w, 20_000, 24_900, true)
+    expect(w.stalled(24_900)).toBe(false)
+    offer(w, 24_900, 25_000, true)
+    expect(w.stalled(25_000)).toBe(true)
+  })
+
+  it('only sound from the last 15 s counts: odd short sounds after a long unanswered silence never add up', () => {
+    const w = new TranscriptWatch()
+    w.reset()
+    offer(w, 0, 5000, true)
+    w.heard(5000) // the service answered the talk
+    offer(w, 5000, 125_000, false) // two minutes of quiet; suppose nothing comes back during silence
+    for (let t = 125_000; t < 425_000; t += 5000) {
+      offer(w, t, t + 300, true) // a cough or click every 5 s
+      offer(w, t + 300, t + 5000, false)
+      expect(w.stalled(t + 5000)).toBe(false)
+    }
+    expect(w.soundMs(425_000)).toBeLessThanOrEqual(1200)
+    // Sound that went out long ago doesn't count later either, even if nothing was offered since.
+    const v = new TranscriptWatch()
+    v.reset()
+    offer(v, 0, 6000, true)
+    expect(v.soundMs(6000)).toBe(6000)
+    expect(v.stalled(21_000)).toBe(false)
+  })
+
+  it('keeps only the last 15 s of sound in memory through a long call', () => {
+    const w = new TranscriptWatch()
+    w.reset()
+    for (let t = 0; t < 3_600_000; t += 2000) {
+      offer(w, t, t + 2000, true)
+      w.heard(t + 2000)
+    }
+    expect((w as unknown as { sound: unknown[] }).sound.length).toBeLessThanOrEqual(STT_STALL_MS / 100 + 1)
   })
 
   it('any message from the service starts the clock again', () => {
@@ -62,11 +94,13 @@ describe('transcript stall watchdog', () => {
     const w = new TranscriptWatch()
     w.reset()
     offer(w, 0, 15_000, true)
+    expect(w.cooldownLeftMs(15_000)).toBe(0)
     expect(w.reconnectDue(15_000)).toBe(true)
     w.reset() // the new connection
     offer(w, 15_500, 44_900, true)
-    expect(w.stalled(44_900)).toBe(true) // the tile says "not transcribing" meanwhile
+    expect(w.stalled(44_900)).toBe(true) // the gap is marked and the tile says "not transcribing" meanwhile
     expect(w.reconnectDue(44_900)).toBe(false)
+    expect(w.cooldownLeftMs(44_900)).toBe(100)
     offer(w, 44_900, 45_000, true)
     expect(w.reconnectDue(45_000)).toBe(true)
   })

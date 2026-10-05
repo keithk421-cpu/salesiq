@@ -423,16 +423,18 @@ export class SessionController {
     if (this.state !== 'live' || rt.capture !== 'capturing') return
     const sMs = this.sessionMs(monoMs)
     const dg = rt.dg
+    const now = this.now()
     // Stall watch: audio offered to an open connection counts, even if a backed-up socket dropped it.
-    if (dg && dg.state === 'open') rt.watch.offered(this.now(), samplesToMs(samples), rmsDbfs(toInt16(pcm)) > rt.activity.thresholds.activeDbfs)
+    if (dg && dg.state === 'open') rt.watch.offered(now, samplesToMs(samples), rmsDbfs(toInt16(pcm)) > rt.activity.thresholds.activeDbfs)
     if (!dg || dg.state !== 'open' || !dg.send(pcm, samples, sMs)) {
       // Provider unavailable: drop (never buffer for replay) and make sure a gap is open.
       this.counters.droppedWhileUnavailableMs[rt.stream] += samplesToMs(samples)
       if (!rt.openGap) this.openGap(rt, 'provider_disconnect', 'Speech service not connected; audio dropped, not buffered')
       return
     }
-    const discontinuity = rt.nextDiscontinuity || rt.openGap !== null
-    if (rt.openGap) this.closeGap(rt, sMs, 'recovered')
+    const held = this.stallHeld(rt, now)
+    const discontinuity = rt.nextDiscontinuity || (rt.openGap !== null && !held)
+    if (rt.openGap && !held) this.closeGap(rt, sMs, 'recovered')
     rt.nextDiscontinuity = false
     this.deps.onFrame?.({
       session_id: this.sessionId!, stream: rt.stream, seq: rt.seq++, monotonic_start_ms: sMs,
@@ -639,23 +641,56 @@ export class SessionController {
 
   /**
    * The speech service stopped answering although sound kept going out: the socket looks open but the
-   * transcript is frozen. Close it and reconnect through the usual retry path (same device, new epoch,
-   * nothing switched). Nothing is replayed: the gap covers everything since it last answered.
+   * transcript is frozen. The gap is marked straight away. The socket is closed and reconnected through
+   * the usual retry path (same device, new epoch, nothing switched), unless a stall reconnect already
+   * happened in the last STT_STALL_COOLDOWN_MS: then the reconnect waits and the gap stays open
+   * meanwhile. Nothing is replayed: the gap covers everything since it last answered.
    */
   private onTranscriptStalled(rt: StreamRt, dg: DeepgramStream, now: number): void {
-    const silentMs = Math.round(now - rt.watch.heardAt)
-    const secs = Math.round(silentMs / 1000)
-    this.counters.providerStalls++
-    this.deps.log('provider_stalled', { stream: rt.stream, epoch: dg.epoch, code: 'stt_stall', silent_ms: silentMs, sound_sent_ms: Math.round(rt.watch.soundMs) })
+    if (rt.openGap?.cause !== 'provider_stalled') this.markStall(rt, dg, now)
+    if (!rt.watch.reconnectDue(now)) return
+    this.deps.log('provider_stall_reconnect', { stream: rt.stream, epoch: dg.epoch })
     rt.dg = null
     dg.abort() // anything it sends late is ignored: the gap already says this stretch wasn't heard
-    if (rt.openGap) this.closeGap(rt, this.sessionMs(now), 'not_recovered')
-    this.openGap(rt, 'provider_stalled', `Speech service stopped responding: nothing came back for ${secs} s although there was sound. Not transcribed; no audio replayed.`, undefined, Math.max(0, this.sessionMs(rt.watch.heardAt)))
-    this.deps.emit({ type: 'interim', stream: rt.stream, text: '' }) // provisional text from the stalled connection won't firm up
-    this.alert('warning', `${rt.label}: speech service stopped responding (nothing back for ${secs} s while there was sound). Reconnecting; gap marked; no audio will be replayed.`)
     rt.stallReconnect = true
     this.emitStatuses()
     this.scheduleProviderRetry(rt)
+  }
+
+  /**
+   * A stall gap stays open while the silent connection is kept through the reconnect cool-down, even
+   * if the buyer pauses meanwhile; it closes once the service answers or a new connection takes audio.
+   */
+  private stallHeld(rt: StreamRt, now: number): boolean {
+    return rt.openGap?.cause === 'provider_stalled' && rt.watch.silent(now)
+  }
+
+  private markStall(rt: StreamRt, dg: DeepgramStream, now: number): void {
+    const silentMs = Math.round(now - rt.watch.heardAt)
+    const secs = Math.round(silentMs / 1000)
+    const waitMs = rt.watch.cooldownLeftMs(now)
+    this.counters.providerStalls++
+    this.deps.log('provider_stalled', { stream: rt.stream, epoch: dg.epoch, code: 'stt_stall', silent_ms: silentMs, sound_sent_ms: Math.round(rt.watch.soundMs(now)), reconnect_in_ms: waitMs })
+    const detail = `Speech service stopped responding: nothing came back for ${secs} s although there was sound. Not transcribed; no audio replayed.`
+    const since = Math.max(0, this.sessionMs(rt.watch.heardAt))
+    const gap = rt.openGap
+    if (gap?.cause === 'provider_disconnect') {
+      // A backed-up socket already opened a gap for this same outage: it becomes this one (same id, so it updates in place).
+      gap.cause = 'provider_stalled'
+      gap.start_ms = Math.min(gap.start_ms, since)
+      gap.detail = detail
+      this.deps.log('gap_update', { ...gap })
+      this.deps.emit({ type: 'gap_open', gap: { ...gap } })
+      if (this.turnBuilder) this.emitTurns(this.turnBuilder.markGap(gap))
+    } else {
+      // Any other open gap already covers the time up to now: this one starts where that one ends.
+      if (gap) this.closeGap(rt, this.sessionMs(now), 'not_recovered')
+      this.openGap(rt, 'provider_stalled', detail, undefined, gap ? this.sessionMs(now) : since)
+    }
+    this.deps.emit({ type: 'interim', stream: rt.stream, text: '' }) // provisional text from the stalled connection won't firm up
+    const next = waitMs > 0 ? `Gap marked; reconnecting in ${Math.ceil(waitMs / 1000)} s` : 'Reconnecting; gap marked'
+    this.alert('warning', `${rt.label}: speech service stopped responding (nothing back for ${secs} s while there was sound). ${next}; no audio will be replayed.`)
+    this.emitStatuses()
   }
 
   private onWords(rt: StreamRt, words: DiarizedWord[], isFinal: boolean): void {
@@ -983,7 +1018,7 @@ export class SessionController {
             this.handleLoss(rt, 'device_stalled', `No audio data from Windows for ${Math.round(since)} ms`)
             continue
           }
-          if (rt.dg?.state === 'open' && rt.watch.reconnectDue(now)) this.onTranscriptStalled(rt, rt.dg, now)
+          if (rt.dg?.state === 'open' && rt.watch.stalled(now)) this.onTranscriptStalled(rt, rt.dg, now)
           if (rt.stream === 'local_mic') {
             // Many headsets (e.g. Razer BlackShark V2 Pro) noise-gate the mic to exact zeros whenever
             // Keith is not talking, so short digital silence is normal. Only a long run is worth a note.
@@ -1051,7 +1086,7 @@ export class SessionController {
           session: this.state, device: st, capture: rt.capture, provider,
           soundRecently: rt.activity.recentActiveMs(now) > 0,
           muted: rt.stream === 'local_mic' && rt.silentWarned,
-          unanswered: rt.watch.stalled(now),
+          unanswered: rt.watch.stalled(now) || this.stallHeld(rt, now),
         }),
       }
       const key = `${status.state}|${status.capture}|${status.provider}|${status.epoch}|${status.endpoint_id}`

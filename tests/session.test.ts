@@ -763,28 +763,65 @@ describe('speech service stops answering (stall watchdog)', () => {
     expect(ctx.events.some((e) => e.type === 'turn' && /Late/.test(e.event.turn.text))).toBe(false)
   })
 
-  it('no reconnect storm: a second silent connection waits out the cool-down, shows "not transcribing", and its gap covers the whole stretch', async () => {
+  it('no reconnect storm: a second silent connection gets its gap at once, but waits out the cool-down to reconnect', async () => {
     const ctx = setup()
     await startLive(ctx)
     await feedUntil(ctx, () => sys(ctx)[0].closed, STT_STALL_MS + 2000)
     const firstStallAt = ctx.session.nowSessionMs()
     await feedUntil(ctx, () => sys(ctx).length === 2 && sys(ctx)[1].audioChunks().length > 0, 2000)
     const reopenedAt = ctx.session.nowSessionMs()
-    // The new connection is silent too. Past its own 15 s, but inside the cool-down: no second reconnect.
-    await feed(ctx, STT_STALL_COOLDOWN_MS - 2000, 'zero', 'audio')
+    // The new connection is silent too. As soon as its own 15 s are up (inside the cool-down) the gap is
+    // marked, from where its audio began, so HELP never builds on a frozen transcript without a gap note.
+    const waited = await feedUntil(ctx, () => stallGaps(ctx).length === 2, STT_STALL_MS + 2000)
+    expect(waited).toBeLessThanOrEqual(STT_STALL_MS + 600)
+    expect(ctx.session.nowSessionMs() - firstStallAt).toBeLessThan(STT_STALL_COOLDOWN_MS)
+    const second = stallGaps(ctx)[1]
+    expect(second.start_ms).toBeGreaterThanOrEqual(reopenedAt - 60)
+    expect(second.start_ms).toBeLessThanOrEqual(reopenedAt + 60)
+    expect(alerts(ctx, /Meeting audio.*stopped responding .*Gap marked; reconnecting in \d+ s; no audio will be replayed/)).toHaveLength(1)
+    expect(ctx.logs.filter((l) => l.event === 'provider_stalled')).toHaveLength(2)
+    // No second reconnect inside the cool-down, and the gap stays open (not closed and re-opened every moment).
+    await feed(ctx, firstStallAt + STT_STALL_COOLDOWN_MS - 500 - ctx.session.nowSessionMs(), 'zero', 'audio')
     expect(sys(ctx)).toHaveLength(2)
-    expect(stallGaps(ctx)).toHaveLength(1)
+    expect(sys(ctx)[1].closed).toBe(false)
+    expect(stallGaps(ctx)).toHaveLength(2)
+    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.gap_id === second.gap_id)).toBe(false)
     expect(lastStatus(ctx, 'system_remote')).toMatchObject({ provider: 'open', health: 'not_transcribing' })
-    // After the cool-down it reconnects again, and the gap starts where that connection's audio began.
+    // After the cool-down it reconnects again; that same gap closes once the new connection takes audio.
     await feed(ctx, 3000, 'zero', 'audio')
     expect(sys(ctx)).toHaveLength(3)
-    const gaps = stallGaps(ctx)
-    expect(gaps).toHaveLength(2)
-    expect(gaps[1].start_ms).toBeGreaterThanOrEqual(reopenedAt - 60)
-    expect(gaps[1].start_ms).toBeLessThanOrEqual(reopenedAt + 60)
-    expect(ctx.session.nowSessionMs() - firstStallAt).toBeGreaterThanOrEqual(STT_STALL_COOLDOWN_MS)
+    expect(sys(ctx)[1].closed).toBe(true)
+    expect(stallGaps(ctx)).toHaveLength(2)
+    const close = ctx.events.find((e) => e.type === 'gap_close' && e.gap.gap_id === second.gap_id)
+    expect(close && close.type === 'gap_close' && close.gap.recovery).toBe('recovered')
+    expect(alerts(ctx, /stopped responding; reconnected/)).toHaveLength(2)
     expect(ctx.session.counters.providerStalls).toBe(2)
     expect(others(ctx)).toHaveLength(0)
+    await ctx.session.stop()
+  })
+
+  it('a stall gap marked inside the cool-down stays open while the buyer pauses, and closes once the service answers again', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feedUntil(ctx, () => sys(ctx)[0].closed, STT_STALL_MS + 2000)
+    await feedUntil(ctx, () => stallGaps(ctx).length === 2, STT_STALL_MS + 3000)
+    const second = stallGaps(ctx)[1]
+    // The buyer pauses: the service still says nothing, so the gap stays open and the tile keeps saying so.
+    await feed(ctx, 11_000, 'zero', 'hiss')
+    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.gap_id === second.gap_id)).toBe(false)
+    expect(lastStatus(ctx, 'system_remote')).toMatchObject({ provider: 'open', health: 'not_transcribing' })
+    // The service answers again on the same connection: the gap closes, no reconnect is needed.
+    sys(ctx)[1].message(emptyResult)
+    await feed(ctx, 500, 'zero', 'audio')
+    const close = ctx.events.find((e) => e.type === 'gap_close' && e.gap.gap_id === second.gap_id)
+    expect(close && close.type === 'gap_close' && close.gap.recovery).toBe('recovered')
+    expect(lastStatus(ctx, 'system_remote').health).toBe('listening')
+    await feed(ctx, 10_000, 'zero', 'audio')
+    for (const s of ctx.ws.sockets) s.message(emptyResult)
+    expect(sys(ctx)).toHaveLength(2)
+    expect(sys(ctx)[1].closed).toBe(false)
+    expect(stallGaps(ctx)).toHaveLength(2)
+    expect(ctx.session.counters.providerStalls).toBe(2)
     await ctx.session.stop()
   })
 
@@ -811,6 +848,27 @@ describe('speech service stops answering (stall watchdog)', () => {
     expect(alerts(ctx, /stopped responding/)).toHaveLength(0)
     expect(lastStatus(ctx, 'system_remote').health).toBe('quiet')
     expect(lastStatus(ctx, 'local_mic').health).toBe('quiet')
+    await ctx.session.stop()
+  })
+
+  it('only recent sound counts: after talk the service answered and two minutes of unanswered silence, odd short sounds never trigger it', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    for (let i = 0; i < 5; i++) {
+      await feed(ctx, 1000, 'zero', 'audio')
+      for (const s of ctx.ws.sockets) s.message(emptyResult) // the buyer talks; the service answers
+    }
+    await feed(ctx, 120_000, 'zero', 'hiss') // quiet room; suppose nothing comes back during silence
+    for (let i = 0; i < 24; i++) {
+      await feed(ctx, 300, 'zero', 'audio') // a cough or a click every 5 s: under a second in any 15 s
+      await feed(ctx, 4700, 'zero', 'hiss')
+    }
+    expect(stallGaps(ctx)).toHaveLength(0)
+    expect(ctx.events.some((e) => e.type === 'gap_open' && e.gap.stream === 'system_remote')).toBe(false)
+    expect(ctx.ws.sockets).toHaveLength(2)
+    expect(ctx.ws.sockets.every((s) => !s.closed)).toBe(true)
+    expect(alerts(ctx, /stopped responding/)).toHaveLength(0)
+    expect(ctx.session.counters.providerStalls).toBe(0)
     await ctx.session.stop()
   })
 
@@ -850,17 +908,28 @@ describe('speech service stops answering (stall watchdog)', () => {
     await ctx.session.stop()
   })
 
-  it('a connection so backed up that nothing gets through is reconnected too', async () => {
+  it('a connection so backed up that nothing gets through is reconnected too, with one gap line for the outage', async () => {
     const ctx = setup()
     await startLive(ctx)
     const sys1 = sys(ctx)[0]
     sys1.bufferedAmount = 10_000_000
-    await feed(ctx, STT_STALL_MS + 1000, 'zero', 'audio')
+    await feed(ctx, 2000, 'zero', 'audio')
+    const sysGapEvents = () => ctx.events.flatMap((e) => ((e.type === 'gap_open' || e.type === 'gap_close') && e.gap.stream === 'system_remote' ? [e] : []))
+    const backedUp = sysGapEvents()[0].gap
+    expect(backedUp).toMatchObject({ cause: 'provider_disconnect', end_ms: null })
+    await feedUntil(ctx, () => sys1.closed, STT_STALL_MS)
     expect(sys1.closed).toBe(true)
-    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect' && e.gap.recovery === 'not_recovered')).toBe(true)
-    expect(stallGaps(ctx)).toHaveLength(1)
+    // The gap the backed-up socket opened becomes the stall gap (same id, so it updates in place),
+    // dated from when the connection last had a chance to answer. Not closed, not a second line.
+    expect(new Set(sysGapEvents().map((e) => e.gap.gap_id))).toEqual(new Set([backedUp.gap_id]))
+    expect(sysGapEvents().at(-1)).toMatchObject({ type: 'gap_open', gap: { gap_id: backedUp.gap_id, cause: 'provider_stalled', end_ms: null } })
+    expect(sysGapEvents().at(-1)!.gap.start_ms).toBeLessThanOrEqual(backedUp.start_ms)
+    expect(sysGapEvents().at(-1)!.gap.detail).toMatch(/Speech service stopped responding/)
+    expect(ctx.session.counters.gaps).toBe(1)
     await feed(ctx, 1000, 'zero', 'audio')
     expect(sys(ctx)[1].audioChunks().length).toBeGreaterThan(0)
+    expect(sysGapEvents().at(-1)).toMatchObject({ type: 'gap_close', gap: { gap_id: backedUp.gap_id, cause: 'provider_stalled', recovery: 'recovered' } })
+    expect(ctx.events.some((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect')).toBe(false)
     await ctx.session.stop()
   })
 

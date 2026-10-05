@@ -48,7 +48,7 @@ What's normal:
   - **Quiet** (steady green dot): audio is coming in, nobody has spoken for a few seconds. Normal: the buyer is just quiet. Your mic shows **Quiet (muted?)** after a minute of pure silence; fine if you've been listening.
   - **No audio arriving** (red): the headset stopped sending sound (see the headset test above). It never switches to another device by itself.
   - **Not transcribing** (amber): sound is coming in but no text is coming back from the speech service. The app reconnects it by itself.
-- If the speech service goes silent while someone is talking (about 15 seconds with no text), the app reconnects it on its own. An amber bar says **speech service stopped responding**, then a blue one says **stopped responding; reconnected**, and the transcript shows a gap line ("speech service stopped responding") for the stretch that wasn't transcribed. Nothing is replayed, and devices are never changed for this.
+- If the speech service goes silent while someone is talking (about 15 seconds with no text), the app reconnects it on its own. An amber bar says **speech service stopped responding**, then a blue one says **stopped responding; reconnected**, and the transcript shows a gap line ("speech service stopped responding") for the stretch that wasn't transcribed. If it happens again within 30 seconds, the gap line shows straight away and the reconnect follows up to 15 seconds later. Nothing is replayed, and devices are never changed for this. A quiet stretch, or the odd cough in one, never sets it off.
 
 ## 4. Check nothing changed
 - Open **Diagnostics & test report** → **Save device snapshot · AFTER**.
