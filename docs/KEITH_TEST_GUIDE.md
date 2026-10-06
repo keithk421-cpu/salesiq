@@ -141,3 +141,23 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 - **Review cards** goes to the usual card ratings and comes back. **Done** closes it; the **Wrap-up** button next to **Review this call's cards** reopens it until the next call starts or you close the app. Copy the email before you close the app: the wrap-up stays saved (it feeds "Last time with…" next time) but can't be reopened after a restart.
 - If it couldn't build ("Claude took too long"), click **Try again**, or add the items yourself.
 - To switch it off: **Setup → step 3 → Wrap-up after each call**. Each wrap-up costs a few cents (one request after the call), and each email draft about a cent. In Practice mode (no Claude key) both are placeholders marked **MOCK**.
+
+# M3: a card you can trust, smarter presses, your call plan
+
+## Before the call: "Must learn"
+- In the strip, type up to 3 things you must learn on this call into **Must learn** and press Enter after each one, e.g. "who signs off", "how they score answers today". Each becomes a chip; × removes it. If you type one and press Start without Enter, it's still saved.
+- **Reuse last setup** also brings back the ones the last call with this account ended without.
+
+## During the call
+- **Your plan, quietly tracked:** a line at the top of the Call notes panel (and in the compact strip) shows each must-learn as ○ not yet, ◐ partly, or ● done. Hover to see the words it's based on. It updates with the call notes (every few minutes), and only marks one done when *they* answered it; you asking isn't enough.
+- HELP may steer back to one that's still open, but only in a lull, never over a question they just asked.
+- **Every card says what it's answering:** `Heard: "…do you integrate with Lang Smith?" (Speaker 1 · 4 s ago)`. If that's not what they just said, don't use the line.
+- **"Great question, so…"** as you press no longer throws away the ready card; it still shows instantly.
+- **If their audio isn't being transcribed**, the card says "Their last ~8 s weren't transcribed yet. HELP may be behind." In the compact strip, **Them ●** and **You ●** show whether each side is being heard: green yes, grey quiet, amber not transcribing, red no audio.
+- **Opening:** press HELP in the first minutes, before they've said much. On a follow-up call it picks up where you left off ("Last time you mentioned…"); on a first call it helps set the agenda from your goal and must-learns.
+- **Next step:** when they ask about a pilot, rollout, pricing or something to send their boss, the card answers (only from your approved files, never a price) and the line under it proposes a next step. The WRAP button shows a small tag like "pilot asked · 14:22", and WRAP builds on it.
+- **Another angle:** don't like the line? Press HELP again within about 20 seconds (with nothing new said) and you get a different one, labelled **Another angle**. The first card is marked "You pressed for another angle" in the review; no need to rate it.
+- **WRAP** with a must-learn still open: the line underneath asks it naturally before you hang up.
+
+## After Stop
+- The wrap-up shows **Still to learn**: the must-learns you didn't get. Remove any you don't care about; the rest show up next time under "Last time with…".
