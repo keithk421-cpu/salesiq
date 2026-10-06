@@ -82,6 +82,9 @@ const api = {
   onBuyingSignal: (cb: (s: { kind: string; at_ms: number } | null) => void) => ipcRenderer.on('buying-signal', (_e, s) => cb(s)),
   // M4: click a must-learn on the plan line for the line that gets there
   helpPressPlanItem: (item: string) => ipcRenderer.invoke('help:pressPlanItem', item) as Promise<{ ok: boolean; reason?: string; request_id?: string }>,
+  // M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up
+  helpMustLearnIdeas: () => ipcRenderer.invoke('help:mustLearnIdeas'),
+  wrapupAddToLearn: (text: string) => ipcRenderer.invoke('wrapup:addToLearn', text),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

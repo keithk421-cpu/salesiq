@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { BadReason, CallCard, CallSetup, CallType, Deployment, FeedbackType, HelpCardContent, HelpCardEvent, HelpModelConfig, KnowledgeDocMeta, SpeakerLabel } from '../shared/help'
+import type { MustLearnIdea } from '../shared/help'
 import type { HelpOrigin } from '../shared/help'
 import { CALL_TYPES, DEPLOYMENTS } from '../shared/help'
 import { accountKey } from '../shared/help'
@@ -14,6 +15,9 @@ import type { CallWrapup } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { accountMemory } from './help/accountMemory'
+// M4 prep: must-learn ideas from the account's earlier calls and Keith's own notes
+import { mustLearnIdeas } from './help/mustLearnIdeas'
+import { getAccountNotes } from './help/accountNotes'
 import { mustLearnOf, sanitizeMustLearn } from './help/callPlan'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
@@ -740,6 +744,31 @@ export class HelpService {
   /** × on a "Still to learn" item (M3 call plan): it isn't carried to the next call. */
   removeWrapupToLearn(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
     const ok = this.wrap?.removeToLearn(raw) ?? false
+    return { ok, wrapup: this.wrapup() }
+  }
+
+  // ---------------------------------------------------------------- M4 prep: must-learn ideas, "Learn next time"
+
+  /**
+   * The grey ideas under "Must learn" before Start: from the strip's setup as it is now, the typed
+   * account's earlier calls (the running call left out) and his notes on it. No model request.
+   */
+  mustLearnIdeas(): MustLearnIdea[] {
+    try {
+      const setup = this.setup
+      const running = this.callInProgress() ? (this.memory?.sessionId ?? null) : null
+      const memory = accountMemory(this.db, setup.account, running)
+      return mustLearnIdeas({ setup, memory, notesText: getAccountNotes(this.db, setup.account).text })
+    } catch (err) {
+      // Only ideas: the strip works the same without them.
+      this.log('must_learn_ideas_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+      return []
+    }
+  }
+
+  /** "Learn next time" in the wrap-up: one more thing to learn on the next call with them. */
+  addWrapupToLearn(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
+    const ok = this.wrap?.addToLearn(raw) ?? false
     return { ok, wrapup: this.wrapup() }
   }
 

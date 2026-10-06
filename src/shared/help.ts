@@ -407,7 +407,8 @@ export interface AccountMemory {
   last_call_at: string | null
   /** The last call's setup, for "Reuse last setup". */
   last_setup: CallSetup | null
-  items: Array<{ kind: AccountMemoryKind; text: string; date: string; session_id: string }>
+  /** fact_kind (M4): what a 'fact' item is about, so must-learn ideas can offer "Confirm: ..." for decision process and current tools. */
+  items: Array<{ kind: AccountMemoryKind; text: string; date: string; session_id: string; fact_kind?: NoteFactKind }>
   /** M4 faster setup: the newest deployment set for this account that isn't "not sure" (absent: never set). */
   last_deployment?: Deployment
   /** M4 faster setup: the call type the next call likely is, from the last call's agreed next step (default follow_up). */
@@ -433,6 +434,8 @@ export interface MustLearnIdea {
   date: string | null
   /** Hover: where it came from ("Not covered on the Sep 28 call", "Discovery starter"). */
   hint: string
+  /** The whole item a click saves as the must-learn, when `text` had to be cut (M4 fix: never save the "…"). */
+  full?: string
 }
 export const MUST_LEARN_IDEAS_MAX = 4
 export const MUST_LEARN_IDEA_MAX_CHARS = 40

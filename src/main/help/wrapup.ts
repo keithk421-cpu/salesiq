@@ -15,12 +15,12 @@
  *   timings, cost and codes only, never wrap-up, email or call text.
  */
 import type { CallNotes, CallSetup, CallWrapup, FollowupDraft, HelpModelConfig, HelpUsage, MemoryTurn, WrapupItem, WrapupSection } from '../../shared/help'
-import { WRAPUP_SECTIONS } from '../../shared/help'
+import { NOT_COVERED_TOPICS, WRAPUP_SECTIONS, type NotCoveredTopic } from '../../shared/help'
 import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { notesForModel } from './callNotes'
-import { mustLearnLine, mustLearnOf, planKey, planOpen } from './callPlan'
+import { MUST_LEARN_MAX, mustLearnLine, mustLearnOf, planKey, planOpen, sanitizeMustLearn } from './callPlan'
 import { fmtClock, speakerName } from './context'
 import { FOLLOWUP_MAX_TOKENS, FOLLOWUP_SCHEMA, FOLLOWUP_SYSTEM_PROMPT, FOLLOWUP_TIMEOUT_MS, buildFollowupInput, followupUserMessage, mockFollowup, validateFollowup } from './followup'
 import { describeError, type HelpError, type HelpModel } from './models'
@@ -306,6 +306,8 @@ export class WrapupKeeper {
   private empty = false
   /** "Still to learn" items Keith removed (planKey): a rebuild or Try again doesn't bring them back. */
   private learnRemoved = new Set<string>()
+  /** "Learn next time" items Keith added himself (M4): kept through the recomputes in begin() and build(). */
+  private learnAdded: string[] = []
   readonly stats: Omit<WrapupStats, 'status' | 'items' | 'confirmed' | 'removed' | 'added' | 'edited' | 'dropped'> = {
     requests: 0, build_ms: null, cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
     drafts: 0, draft_failed: 0, draft_checks: 0, draft_ms: null, draft_cost_usd: 0, errors: {},
@@ -335,6 +337,7 @@ export class WrapupKeeper {
     return {
       ...this.w, items: this.w.items.map((i) => ({ ...i, turn_ids: [...i.turn_ids] })), email: this.w.email ? { ...this.w.email, checks: [...this.w.email.checks] } : null,
       ...(this.w.plan_open ? { plan_open: [...this.w.plan_open] } : {}),
+      ...(this.w.not_covered ? { not_covered: [...this.w.not_covered] } : {}),
     }
   }
 
@@ -345,9 +348,17 @@ export class WrapupKeeper {
    */
   private notePlanOpen(): void {
     const plan = this.d.memory.callNotes?.notes.plan
-    const open = Array.isArray(plan) ? planOpen(mustLearnOf(this.d.memory.setup), plan).filter((t) => !this.learnRemoved.has(planKey(t))) : []
+    const tracked = Array.isArray(plan) ? planOpen(mustLearnOf(this.d.memory.setup), plan) : []
+    // M4 "Learn next time": the ones Keith added join them (at most 3 in all, his after the call's). The
+    // removed ones go first, so one he removed doesn't take a place from one he adds next.
+    const open = sanitizeMustLearn([...tracked, ...this.learnAdded].filter((t) => !this.learnRemoved.has(planKey(t))))
     if (open.length) this.w.plan_open = open
     else delete this.w.plan_open
+    // M4: the final notes' not-covered topics, offered as one-click adds (read defensively: older notes).
+    const nc = this.d.memory.callNotes?.notes?.not_covered
+    const topics = Array.isArray(nc) ? [...new Set(nc.filter((x): x is NotCoveredTopic => (NOT_COVERED_TOPICS as readonly unknown[]).includes(x)))] : []
+    if (topics.length) this.w.not_covered = topics
+    else delete this.w.not_covered
   }
 
   /** × on a "Still to learn" item: Keith knows it was settled, so the next call doesn't carry it. False when it isn't listed. */
@@ -358,6 +369,33 @@ export class WrapupKeeper {
     this.learnRemoved.add(k)
     this.notePlanOpen()
     this.d.log('wrapup_item', { action: 'remove', section: 'to_learn' })
+    this.changed()
+    return true
+  }
+
+  /**
+   * "Learn next time" (M4): Keith adds something to learn on the next call with them (typed, or one of
+   * the not-covered topics). It joins plan_open, so account memory, the must-learn ideas and faster
+   * setup pick it up. At most 3 in all; one he removed comes back. False when it can't be added.
+   */
+  addToLearn(raw: unknown): boolean {
+    if (this.disposed || typeof raw !== 'string') return false
+    const t = sanitizeMustLearn([raw.slice(0, 2000)])[0]
+    const k = t ? planKey(t) : ''
+    const listed = this.w.plan_open ?? []
+    if (!k || listed.some((x) => planKey(x) === k) || listed.length >= MUST_LEARN_MAX) return false
+    const wasRemoved = this.learnRemoved.delete(k)
+    const before = this.learnAdded
+    if (!before.some((x) => planKey(x) === k)) this.learnAdded = [...before, t]
+    this.notePlanOpen()
+    // Pushed out by the call's own open ones (all 3 taken): nothing changes.
+    if (!this.w.plan_open?.some((x) => planKey(x) === k)) {
+      this.learnAdded = before
+      if (wasRemoved) this.learnRemoved.add(k)
+      this.notePlanOpen()
+      return false
+    }
+    this.d.log('wrapup_item', { action: 'add', section: 'to_learn' })
     this.changed()
     return true
   }

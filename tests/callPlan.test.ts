@@ -544,6 +544,9 @@ describe('after Stop', () => {
     expect(w.state().plan_open).toBeUndefined()
     // Counts and codes only in the log.
     expect(logs.filter((l) => l.e === 'wrapup_item')).toEqual([{ e: 'wrapup_item', d: { action: 'remove', section: 'to_learn' } }, { e: 'wrapup_item', d: { action: 'remove', section: 'to_learn' } }])
+    // M4 "Learn next time": one Keith adds is logged the same way (a code, never the text).
+    expect(w.addToLearn('Deep-dive scope')).toBe(true)
+    expect(logs.filter((l) => l.e === 'wrapup_item').at(-1)).toEqual({ e: 'wrapup_item', d: { action: 'add', section: 'to_learn' } })
     expect(JSON.stringify(logs)).not.toMatch(/score answers|Deep-dive|signs off/i)
   })
 

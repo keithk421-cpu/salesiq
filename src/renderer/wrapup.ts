@@ -5,6 +5,10 @@
  * reopens it. Keith ticks, edits, removes or adds items, and can ask for a follow-up email draft to copy.
  * Nothing is sent anywhere.
  *
+ * M4 "Learn next time": once the wrap-up is ready, a section with what Keith still has to learn on the
+ * next call with them (his open must-learns, ✕ removes one), up to 4 "+" chips from the topics this
+ * call didn't cover, and a small "Add one" box; 3 at most. The next call's ideas and setup use them.
+ *
  * Kept in its own file so it doesn't touch the rest of the call screen: renderer.ts only calls
  * initWrapup(). The "Wrap-up" button and the Setup checkbox are added here for the same reason.
  */
@@ -12,6 +16,8 @@ import type { CopilotApi } from '../preload/preload'
 import type { SessionEvent } from '../main/session'
 import type { CallWrapup, WrapupItem, WrapupSection } from '../shared/help'
 import { WRAPUP_SECTIONS } from '../shared/help'
+import { NOT_COVERED_IDEA } from '../main/help/mustLearnIdeas'
+import { MUST_LEARN_MAX, MUST_LEARN_MAX_CHARS, planKey } from '../main/help/callPlan'
 
 /** Plain section names (short: Keith reads them right after a call). */
 const SECTION: Record<WrapupSection, string> = {
@@ -55,6 +61,8 @@ export function initWrapup(api: CopilotApi): void {
   let backAfterReview = false
   /** Start was pressed and the call hasn't gone live yet. */
   let starting = false
+  /** What Keith typed in "Learn next time"'s box and hasn't added yet: kept through redraws and a failed add (M4). */
+  let learnDraft = ''
   /** When each line of this call was said (for the quotes). */
   const said = new Map<string, number>()
 
@@ -130,15 +138,44 @@ export function initWrapup(api: CopilotApi): void {
       </section>`
     }).join('')
     if (building) $('wuList').insertAdjacentHTML('afterbegin', '<div class="wu-building">Finishing notes and wrap-up… (you can add items meanwhile)</div>')
-    if (w.plan_open?.length) $('wuList').insertAdjacentHTML('beforeend', stillToLearn(w.plan_open))
+    // M4: always there once the wrap-up is ready (while it's built, only when something is listed already).
+    if (!building || w.plan_open?.length) $('wuList').insertAdjacentHTML('beforeend', stillToLearn(Array.isArray(w.plan_open) ? w.plan_open : [], w))
   }
 
-  /** Keith's must-learns the call ended without (M3 call plan); the next call with them shows them too, unless he removes one. */
-  function stillToLearn(xs: string[]): string {
+  /**
+   * "Learn next time": Keith's must-learns the call ended without (M3 call plan) and what he adds here
+   * (M4); the next call with them shows them too, unless he removes one.
+   */
+  function stillToLearn(xs: string[], w: CallWrapup): string {
+    const full = xs.length >= MUST_LEARN_MAX
+    const listed = new Set(xs.map(planKey))
+    // This call's not-covered topics, in plain words, as one-click adds (read defensively: older wrap-ups have none).
+    const offers = (Array.isArray(w.not_covered) ? w.not_covered : [])
+      .map((t) => NOT_COVERED_IDEA[t])
+      .filter((t): t is string => !!t && !listed.has(planKey(t)))
+      .slice(0, 4)
     return `<section class="wu-sec wu-learn">
-      <div class="wu-sec-head"><span class="nt-h">Still to learn</span><span class="muted small">from your must-learns</span></div>
-      <ul class="wu-learn-list">${xs.map((x) => `<li><span>${esc(x)}</span><button class="icon-btn wu-learn-x" data-learn="${esc(x)}" title="Remove: you got this">✕</button></li>`).join('')}</ul>
+      <div class="wu-sec-head"><span class="nt-h">Learn next time</span><span class="muted small">for your next call with them</span></div>
+      ${xs.length ? `<ul class="wu-learn-list">${xs.map((x) => `<li><span>${esc(x)}</span><button class="icon-btn wu-learn-x" data-learn="${esc(x)}" title="Remove: you got this">✕</button></li>`).join('')}</ul>` : ''}
+      ${full ? '' : `<div class="wu-learn-add">${offers.map((t) => `<button type="button" class="wu-learn-offer" data-offer="${esc(t)}" title="Not covered on this call">+ ${esc(t)}</button>`).join('')}<input class="input wu-learn-new" maxlength="${MUST_LEARN_MAX_CHARS}" value="${esc(learnDraft)}" placeholder="Add one · Enter" aria-label="Add something to learn next time" /></div>`}
     </section>`
+  }
+
+  /** One more thing to learn next time (typed, or a not-covered topic). */
+  async function addToLearn(text: string, input?: HTMLInputElement): Promise<void> {
+    const t = text.replace(/\s+/g, ' ').trim()
+    if (!t) return
+    // Off the box first, so the list redraws with the answer (it waits while Keith is typing in it).
+    // What he typed stays in the box until it is added: a failed add doesn't lose it.
+    if (input) {
+      learnDraft = input.value
+      input.blur()
+    }
+    if ((await change(api.wrapupAddToLearn(t))) && input) {
+      learnDraft = ''
+      const box = $('wuList').querySelector<HTMLInputElement>('.wu-learn-new')
+      if (box && document.activeElement !== box) box.value = ''
+    }
   }
 
   function render(): void {
@@ -179,6 +216,8 @@ export function initWrapup(api: CopilotApi): void {
 
   function take(w: CallWrapup | null): void {
     if (w && wrap && w.session_id !== wrap.session_id) emailShown = null
+    // M4: a new call's wrap-up starts with an empty "Learn next time" box.
+    if (w?.session_id !== wrap?.session_id) learnDraft = ''
     wrap = w
     // Opens by itself once per call (after Stop); the button reopens it.
     if (w && w.session_id !== openedFor && w.status === 'building') {
@@ -189,11 +228,12 @@ export function initWrapup(api: CopilotApi): void {
     render()
   }
 
-  async function change(p: Promise<unknown>): Promise<void> {
+  async function change(p: Promise<unknown>): Promise<boolean> {
     const r = (await p) as ItemResult
     if (!r.ok) $('wuMsg').textContent = "That didn't save. Try again."
     else $('wuMsg').textContent = ''
     if (r.wrapup) take(r.wrapup)
+    return !!r.ok
   }
 
   async function addFrom(input: HTMLInputElement | null): Promise<void> {
@@ -237,6 +277,8 @@ export function initWrapup(api: CopilotApi): void {
     else if (id && t.closest('.wu-restore')) void change(api.wrapupUpdateItem({ id, state: 'pending' }))
     const learn = t.closest<HTMLElement>('.wu-learn-x')?.dataset.learn
     if (learn) void change(api.wrapupRemoveToLearn(learn))
+    const offer = t.closest<HTMLElement>('.wu-learn-offer')?.dataset.offer
+    if (offer) void addToLearn(offer)
     const add = t.closest<HTMLElement>('[data-add]')?.dataset.add as WrapupSection | undefined
     if (add) {
       adding = add
@@ -247,7 +289,16 @@ export function initWrapup(api: CopilotApi): void {
   })
   $('wuList').addEventListener('keydown', (e) => {
     const el = e.target as HTMLInputElement
-    if (el.classList.contains('wu-new-text')) {
+    if (el.classList.contains('wu-learn-new')) {
+      if (e.key === 'Enter') void addToLearn(el.value, el)
+      if (e.key === 'Escape') {
+        // Clears the box; the window stays open.
+        e.stopPropagation()
+        learnDraft = ''
+        el.value = ''
+        el.blur()
+      }
+    } else if (el.classList.contains('wu-new-text')) {
       if (e.key === 'Enter') void addFrom(el)
       if (e.key === 'Escape') {
         e.stopPropagation()
@@ -264,6 +315,11 @@ export function initWrapup(api: CopilotApi): void {
         el.blur()
       }
     }
+  })
+  // M4: what is typed in "Learn next time"'s box survives a redraw of the list.
+  $('wuList').addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement
+    if (el.classList.contains('wu-learn-new')) learnDraft = el.value
   })
   $('wuList').addEventListener('focusout', () => {
     // Moving from one box to the next keeps the cursor; leaving the list draws what arrived meanwhile.

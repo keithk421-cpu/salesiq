@@ -536,6 +536,9 @@ function registerIpc(): void {
   ipcMain.handle('help:signal', () => help?.signal ?? null)
   // ---- M4: click a must-learn mid-call (the item's text, checked against this call's must-learns in HelpService) ----
   ipcMain.handle('help:pressPlanItem', (_e, item: unknown) => help?.pressPlanItem(item) ?? { ok: false, reason: 'HELP unavailable' })
+  // ---- M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up (text checked in WrapupKeeper) ----
+  ipcMain.handle('help:mustLearnIdeas', () => help?.mustLearnIdeas() ?? [])
+  ipcMain.handle('wrapup:addToLearn', (_e, raw: unknown) => help?.addWrapupToLearn(raw) ?? { ok: false, wrapup: null })
 }
 
 function createWindow(): void {
