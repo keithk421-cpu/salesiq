@@ -30,6 +30,7 @@ import { fmtClock } from './context'
 import { localStamp } from './feedbackExport'
 import { FINAL_DELAY_MS, type ObservedCard, type Scenario } from './replay'
 import { readFeedback } from './scorecard'
+import { heardSummary, savedHeard } from './heard'
 
 /** Folder under the app's data folder. */
 export const PRACTICE_DIR = 'practice'
@@ -257,6 +258,8 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   const keithNotes = [
     `Saved from a real call: ${title}. ${built}.`,
     `On the call HELP said: ${said}${observed.move ? ` (move: ${observed.move})` : ''}.`,
+    // What the card showed it was answering (M3 heard line); absent on older cards.
+    ...((h) => (h ? [`The card answered: ${heardSummary(h)}.`] : []))(savedHeard((timing as { heard?: unknown }).heard)),
     feedbackLine(observed),
     expected.why,
     ...notes,

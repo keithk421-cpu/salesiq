@@ -16,6 +16,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import type { ApprovedPassage, Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { HeardLine } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
 import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
@@ -26,6 +27,7 @@ import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
 import { wrapReason, wrapUserMessage, type WrapWhy } from './wrap'
+import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -78,6 +80,8 @@ interface Run {
   checks: string[]
   /** Who the call is with, as set when the request was built. */
   setup: { account: string; deployment: Deployment }
+  /** The other side's words the card answers, as at the press (null: none, or a background run nobody pressed for). */
+  heard: HeardLine | null
   raw: string
   done: Promise<void>
   /** The approved passage found when Keith pressed (null: none, or a background run nobody pressed for). */
@@ -136,8 +140,10 @@ export class HelpEngine {
     this.cancelled = false
     const pressedWall = this.wallNow()
     const key = this.snapshotKey()
-    // Any words still being transcribed (even a short "No, not yet") mean the moment moved on since a prefetch.
-    const liveSpeech = this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().length > 0)
+    // Any words still being transcribed (even a short "No, not yet") mean the moment moved on since a prefetch,
+    // except Keith's own short filler ("Great question, so…"; heard.ts). Sound with no words back yet means
+    // it may have too: a fresh request is told so (context.ts).
+    const liveSpeech = this.blindAtPress() || this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().length > 0 && !keithFiller(i))
     if (this.current && this.current.status !== 'complete' && this.current.status !== 'failed' && this.current.status !== 'timeout') {
       this.finish(this.current, 'superseded')
     }
@@ -154,6 +160,7 @@ export class HelpEngine {
       pf.origin = origin
       pf.pressedWall = pressedWall
       pf.passage = passage
+      pf.heard = heardLine(this.d.memory, this.d.sessionNowMs())
       this.current = pf
       this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status, passage: !!passage })
       // On screen first; shown now, so its request is kept like any pressed request.
@@ -186,21 +193,46 @@ export class HelpEngine {
     if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
     this.prefetchTimer = null
     if (stream !== 'system_remote') return
-    this.prefetchTimer = setTimeout(() => {
-      this.prefetchTimer = null
-      if (this.cancelled || this.blocked) return
-      const key = this.snapshotKey()
-      if (this.prefetchRun && this.prefetchRun.snapshotKey === key) return
-      const now = this.wallNow()
-      this.prefetchStarts = this.prefetchStarts.filter((t) => now - t < 60_000)
-      if (this.prefetchStarts.length >= PREFETCH_PER_MINUTE) {
-        this.d.log('help_prefetch_capped', { per_minute: PREFETCH_PER_MINUTE })
-        return
-      }
-      this.prefetchStarts.push(now)
-      this.abortPrefetch()
-      this.prefetchRun = this.start('help_requested', true, null)
-    }, PREFETCH_DEBOUNCE_MS)
+    this.prefetchTimer = setTimeout(() => this.prefetchNow(), PREFETCH_DEBOUNCE_MS)
+  }
+
+  /**
+   * The speech service says the other side finished speaking (Deepgram speech_final or UtteranceEnd on
+   * the meeting audio): the background card waiting for its debounce starts now. Nothing waiting (Keith
+   * spoke since, or it already started) means nothing to do; the debounce stays the fallback.
+   * speech_final comes after any 300 ms pause, often mid-explanation, and each early start counts toward
+   * the per-minute cap: so it starts early only when their last words were a question (heard.ts).
+   */
+  onSpeechEnd(stream: Stream, signal: 'speech_final' | 'utterance_end' = 'speech_final'): void {
+    if (stream !== 'system_remote' || !this.prefetchTimer) return
+    if (signal === 'speech_final' && !theyAsked(this.d.memory, this.d.sessionNowMs())) return
+    clearTimeout(this.prefetchTimer)
+    this.d.log('help_prefetch_early', { signal })
+    this.prefetchNow()
+  }
+
+  /** Start the background candidate, unless one for this moment exists or the per-minute cap is reached. */
+  private prefetchNow(): void {
+    this.prefetchTimer = null
+    if (this.cancelled || this.blocked) return
+    const key = this.snapshotKey()
+    if (this.prefetchRun && this.prefetchRun.snapshotKey === key) return
+    const now = this.wallNow()
+    this.prefetchStarts = this.prefetchStarts.filter((t) => now - t < 60_000)
+    if (this.prefetchStarts.length >= PREFETCH_PER_MINUTE) {
+      this.d.log('help_prefetch_capped', { per_minute: PREFETCH_PER_MINUTE })
+      return
+    }
+    this.prefetchStarts.push(now)
+    this.abortPrefetch()
+    this.prefetchRun = this.start('help_requested', true, null)
+  }
+
+  /** The meeting audio is untranscribed at the press (heard.ts): logged as a number only. */
+  private blindAtPress(): boolean {
+    const b = blindNote(this.d.memory)
+    if (b) this.d.log('help_listening_blind', { blind_ms: b.ms })
+    return !!b
   }
 
   /** Pause/Stop: cancel all pending work and suppress late results. */
@@ -259,9 +291,9 @@ export class HelpEngine {
 
   // ------------------------------------------------------------------ internals
 
-  /** Signature of the final transcript as of now (what the context would be built from). */
+  /** Signature of the final transcript as of now (what the context would be built from); Keith's trailing filler isn't new (heard.ts). */
   private snapshotKey(): string {
-    const turns = this.d.memory.turnsAsOf(this.d.sessionNowMs()).slice(-6)
+    const turns = withoutTrailingFiller(this.d.memory.turnsAsOf(this.d.sessionNowMs())).slice(-6)
     const gaps = this.d.memory.gapsAsOf(this.d.sessionNowMs()).map((g) => `${g.id}:${g.end_ms ?? 'open'}`).join(',')
     const labels = [...this.d.memory.labels.values()].map((l) => `${l.cluster}=${l.role}/${l.name ?? ''}`).join(',')
     return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
@@ -294,6 +326,7 @@ export class HelpEngine {
       errorCode: null,
       checks: [],
       setup: { account: this.d.memory.setup.account, deployment: this.d.memory.setup.deployment },
+      heard: prefetch ? null : heardLine(this.d.memory, atMs),
       raw: '',
       done: Promise.resolve(),
       passage,
@@ -486,6 +519,7 @@ export class HelpEngine {
       error: run.error,
       checks: run.checks,
       setup: run.setup,
+      ...(run.heard ? { heard: run.heard } : {}),
       sources,
       passage: run.passage ? { ...run.passage, used_by_card: this.passageUsed(run) } : null,
       ...(run.wrap ? { wrap: true } : {}),
@@ -515,6 +549,8 @@ export class HelpEngine {
       // Issue details can quote the model's output; an unseen request keeps only what kind they were.
       JSON.stringify({
         ...t, issues: shown ? run.issues : run.issues.map(issueKind), error_code: run.errorCode, checks: run.checks.length,
+        // What the card answered (their words, speaker, how long before): only once shown, like the request text.
+        ...(shown && run.heard ? { heard: run.heard } : {}),
         // Which approved passage Keith saw at the press, and whether the finished card cited it.
         passage_chunk_ids: run.passage?.chunk_ids ?? null, passage_used: run.passage ? this.passageUsed(run) : null,
         // A wrap card ('button' or 'closing'), so the feedback export and practice moments can tell them apart.

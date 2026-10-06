@@ -55,6 +55,8 @@ export interface DeepgramOptions {
   diarize: boolean
   wsFactory: WsFactory
   onWords: (words: DiarizedWord[], info: { isFinal: boolean; speechFinal: boolean }) => void
+  /** Deepgram's UtteranceEnd: no words for utterance_end_ms after the last finished word (the speaker stopped). */
+  onUtteranceEnd?: () => void
   /** Called once when an OPEN socket closes without us asking. */
   onUnexpectedClose: (detail: string) => void
   /** Called for every message of any kind (words or not), until abort(). Feeds the stall watchdog. */
@@ -265,6 +267,10 @@ export class DeepgramStream {
     }
     if (msg.type === 'Metadata') {
       this.requestId = (msg as { request_id?: string }).request_id ?? this.requestId
+      return
+    }
+    if (msg.type === 'UtteranceEnd') {
+      this.opts.onUtteranceEnd?.()
       return
     }
     if (msg.type !== 'Results') return

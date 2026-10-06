@@ -511,6 +511,8 @@ function registerIpc(): void {
   // ---- M2: WRAP button ("before you hang up") and the compact window ----
   ipcMain.handle('help:wrap', () => help?.press('wrap_requested') ?? { ok: false, reason: 'WRAP unavailable' })
   ipcMain.handle('window:compact', (_e, on: unknown) => setCompact(on === true))
+  // ---- M3: the card shows what it heard (listening blind: sound on the meeting audio, no words back yet) ----
+  if (help) help.listeningBlindMs = () => (session?.state === 'live' ? session.untranscribedMs('system_remote') : 0)
   // ---- account memory: "Last time with <account>" (read only, from saved calls; the running call is left out) ----
   ipcMain.handle('memory:accounts', () => (help ? listAccounts(help.db, activeCallId()) : []))
   ipcMain.handle('memory:account', (_e, account: unknown) => {

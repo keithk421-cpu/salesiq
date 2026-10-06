@@ -428,3 +428,33 @@ body.compact .banner { padding: 6px 10px; font-size: 12px; }
 .wu-email .row { margin-top: 0; }
 .wu-checks-note { font-weight: 400; font-style: italic; }
 .wu-draft-rule { margin: 0 0 -6px; }
+
+/* ---------- M3: the card shows what it heard ---------- */
+/* What the card answers, one muted line at its top. */
+.hc-heard { font-size: 12px; color: var(--muted); margin-bottom: 4px; line-height: 1.35; overflow-wrap: anywhere; }
+.hc-heard .hh-label { font-weight: 650; }
+.hc-heard .hh-words { color: var(--text); opacity: .8; font-style: italic; }
+/* Compact: one line, cut with "…". */
+body.compact .help-card .hc-heard { margin: 0 0 3px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Compact strip: two dots, Them and You (green listening, grey quiet, amber not transcribing, red no audio), instead of the one status dot. */
+.health-dots { display: none; align-items: center; gap: 8px; flex: none; }
+body.compact .health-dots:not([hidden]) { display: inline-flex; }
+/* The pair replaces the one dot while live; otherwise (paused, between calls) the one dot stays. */
+body.compact .m2-controls:has(.health-dots:not([hidden])) #compactDot { display: none !important; }
+.hd { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 650; color: var(--muted); white-space: nowrap; }
+.hd .dot { background: var(--muted); }
+.hd.ok .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.hd.warn .dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.hd.warn { color: var(--warn); }
+.hd.err .dot { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+.hd.err { color: var(--err); }
+.hc-heard .hh-short { display: none; }
+body.compact .help-card .hc-heard .hh-short { display: inline; }
+body.compact .help-card .hc-heard .hh-words:not(.hh-short) { display: none; }
+/* Compact: the words are the only part that shrinks, so how long ago always shows; the speaker gives way to the Them dot. */
+.hc-heard .hh-ago { display: none; }
+body.compact .help-card .hc-heard { display: flex; align-items: baseline; }
+body.compact .help-card .hc-heard > span { flex: none; white-space: pre; }
+body.compact .help-card .hc-heard .hh-short { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.compact .help-card .hc-heard .hh-who { display: none; }
+body.compact .help-card .hc-heard .hh-ago { display: inline; }

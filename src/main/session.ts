@@ -33,6 +33,7 @@ import { ResidualEchoGate } from './echoGate'
 import { resolveConfig } from './endpoints'
 import { rmsDbfs, samplesToMs, toInt16 } from './pcm'
 import { TranscriptWatch } from './transcriptWatch'
+import { ConfidenceSpread } from './confidence'
 import { invalidNativeEvent } from './validate'
 
 /** Level above which a chunk counts as audible sound for duplicate-overlap checks. */
@@ -74,6 +75,8 @@ export type SessionEvent =
   | { type: 'timing'; stream: Stream; captureLagMs: number; sttDelayMs: number | null }
   | { type: 'alert'; level: 'error' | 'warning' | 'info'; message: string }
   | { type: 'suppressed'; kind: 'echo_audio' | 'duplicate_text'; stream: Stream; detail: string }
+  /** The speech service says this stream's speaker finished (Deepgram speech_final or UtteranceEnd), after their words went out as turns. */
+  | { type: 'speech_end'; stream: Stream; signal: 'speech_final' | 'utterance_end' }
 
 export interface SessionDeps {
   native: NativeAudioModule
@@ -125,6 +128,8 @@ interface StreamRt {
   watch: TranscriptWatch
   /** The pending speech-service reconnect is because it stopped responding (changes the alert wording). */
   stallReconnect: boolean
+  /** Session ms where the newest word back from the speech service ended (interim or final); listening-blind check. */
+  lastWordEndMs: number
 }
 
 export class SessionController {
@@ -141,6 +146,8 @@ export class SessionController {
   private timers: NodeJS.Timeout[] = []
   private checkResolve: ((r: { ok: boolean; reason?: string }) => void) | null = null
   private endpointsAtStart: EndpointInfo[] = []
+  /** Word confidence on the meeting audio's finals, numbers only (logged at Stop). */
+  private readonly confidence = new ConfidenceSpread()
   readonly counters = {
     echoSuppressedWindows: 0,
     duplicateSuppressedSegments: 0,
@@ -161,7 +168,7 @@ export class SessionController {
       silentWarned: false, lastStatusKey: '', lastChunkEndMono: null,
       lagSamples: [], sttDelays: [], audible: [],
       lastRecoveredAt: 0, recoveryBackoffMs: 0, lostAt: 0,
-      watch: new TranscriptWatch(), stallReconnect: false,
+      watch: new TranscriptWatch(), stallReconnect: false, lastWordEndMs: 0,
     })
     this.rt = {
       local_mic: mk('local_mic', 'Microphone', deps.config.microphone.endpoint_id, deps.config.microphone.friendly_name),
@@ -552,7 +559,10 @@ export class SessionController {
       diarize: rt.stream === 'system_remote',
       wsFactory: this.deps.wsFactory,
       log: (e, d) => this.deps.log(e, d),
-      onWords: (words, info) => this.onWords(rt, words, info.isFinal),
+      onWords: (words, info) => this.onWords(rt, words, info.isFinal, info.speechFinal),
+      onUtteranceEnd: () => {
+        if (rt.dg === dg) this.onSpeechEnd(rt, 'utterance_end')
+      },
       onUnexpectedClose: (detail) => this.onProviderClosed(rt, dg, detail),
       onMessage: () => {
         if (rt.dg === dg) rt.watch.heard(this.now())
@@ -693,9 +703,11 @@ export class SessionController {
     this.emitStatuses()
   }
 
-  private onWords(rt: StreamRt, words: DiarizedWord[], isFinal: boolean): void {
+  private onWords(rt: StreamRt, words: DiarizedWord[], isFinal: boolean, speechFinal = false): void {
     if (!this.turnBuilder) return
     if (this.state === 'idle' || this.state === 'checking') return
+    // Words came back for audio up to here: sound before it isn't "untranscribed" (untranscribedMs).
+    rt.lastWordEndMs = Math.max(rt.lastWordEndMs, ...words.map((w) => w.end_ms))
     if (!isFinal) {
       // Interim text is provisional and display-only; turns are built from finals.
       this.deps.emit({ type: 'interim', stream: rt.stream, text: words.map((w) => w.word).join(' ') })
@@ -712,6 +724,9 @@ export class SessionController {
     if (rt.stream === 'system_remote') {
       this.dupGate.addSystemWords(words)
       this.emitTurns(this.turnBuilder.addFinalWords(words))
+      this.confidence.add(words)
+      // After the turns, so HELP's memory already has these words when the background card starts.
+      if (speechFinal) this.onSpeechEnd(rt, 'speech_final')
     } else {
       const start = words[0].start_ms - 1500
       const end = (last?.end_ms ?? words[0].end_ms) + 1500
@@ -719,6 +734,28 @@ export class SessionController {
       this.dupGate.addMicWords(words, Date.now(), systemMayOverlap)
       if (!systemMayOverlap) this.pumpDuplicateGate()
     }
+  }
+
+  /** The meeting audio's speaker finished (speech_final or UtteranceEnd): HELP's background card can start now. */
+  private onSpeechEnd(rt: StreamRt, signal: 'speech_final' | 'utterance_end'): void {
+    if (this.state !== 'live' || rt.stream !== 'system_remote') return
+    this.deps.emit({ type: 'speech_end', stream: rt.stream, signal })
+  }
+
+  /**
+   * Listening blind: how long (ms) this stream carried sound, in the last ~30 s, after the end of the
+   * newest word the speech service sent back (or the end of the stream's last gap: closeGap). Both are
+   * on the session clock, so words that are simply on their way count only for the second or so they
+   * take. 0 when not live, and while the stream has an open gap (the gap note already says that part
+   * wasn't heard).
+   */
+  untranscribedMs(stream: Stream = 'system_remote'): number {
+    const rt = this.rt[stream]
+    if (this.state !== 'live' || rt.capture !== 'capturing' || rt.openGap) return 0
+    const now = this.sessionMs()
+    let total = 0
+    for (const [a, b] of rt.audible) total += Math.max(0, Math.min(b, now) - Math.max(a, rt.lastWordEndMs))
+    return Math.round(total)
   }
 
   /** Record that a stream carried audible sound over [startMs, endMs] (session ms), keeping ~30 s. */
@@ -796,6 +833,9 @@ export class SessionController {
     const gap = rt.openGap
     if (!gap) return
     rt.openGap = null
+    // The gap's audio is never replayed, so no words will come back for it: the gap note covers it, not
+    // a "weren't transcribed yet" warning (untranscribedMs counts from here).
+    rt.lastWordEndMs = Math.max(rt.lastWordEndMs, endMs)
     gap.end_ms = endMs
     gap.duration_ms = Math.max(0, endMs - gap.start_ms)
     gap.recovery = recovery
@@ -912,6 +952,8 @@ export class SessionController {
     if (this.turnBuilder) this.emitTurns(this.turnBuilder.flushAll())
     for (const rt of this.streams) if (rt.openGap) this.closeGap(rt, this.sessionMs(), 'session_ended')
     const stillCapturing = this.streams.filter((rt) => this.deps.native.isCapturing(rt.stream)).map((rt) => rt.stream)
+    // Numbers only: how sure the speech service was of the other side's words this call.
+    this.deps.log('confidence_spread', { stream: 'system_remote', ...this.confidence.summary() })
     this.deps.log('teardown_verified', { stillCapturing, counters: this.counters, durationMs: this.sessionMs() })
     this.setState('stopped', `Session length ${Math.round(this.sessionMs() / 1000)} s`)
     this.emitStatuses()

@@ -28,6 +28,11 @@ export class CallMemory {
   callNotes: { notes: CallNotes; as_of_ms: number } | null = null
   /** What earlier calls with this account left behind (account memory), set at call start; this call is never in it. */
   earlierCalls: EarlierCallItem[] = []
+  /**
+   * Live calls only: how long (ms) the meeting audio has had sound with no words back from the speech
+   * service (session.ts untranscribedMs). Replay and tests leave it unset (heard.ts blindNote).
+   */
+  untranscribedMs: (() => number) | null = null
 
   constructor(readonly sessionId: string, private readonly db: Db | null = null, private readonly aliases: Map<string, string[]> = new Map()) {}
 

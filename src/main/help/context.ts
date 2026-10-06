@@ -15,6 +15,7 @@ import { notPlannedNow } from './callPlan'
 import { earlierCallsBlock } from './accountMemory'
 import { callNotesBlock } from './callNotes'
 import { questionParts, retrieveKnowledge } from './retrieval'
+import { blindNote } from './heard'
 
 export const HOT_WINDOW_MS = 30_000
 export const THREAD_WINDOW_MS = 180_000
@@ -163,6 +164,9 @@ export function buildHelpContext(opts: {
   const lag = lags.length ? Math.max(...lags) : null
   if (interims.length) warnings.push('Last few seconds still being transcribed.')
   else if (lag !== null && lag > 2500) warnings.push(`Transcript running ~${(lag / 1000).toFixed(1)} s behind.`)
+  // Sound on the meeting audio with no words back yet (heard.ts): HELP asks rather than answers an older moment.
+  const blind = blindNote(memory)
+  if (blind) warnings.push(blind.warning)
 
   // Render.
   const s = memory.setup
@@ -189,9 +193,10 @@ export function buildHelpContext(opts: {
   if (thread.length) parts.push(`<recent_thread>\n${thread.map(line).join('\n')}\n</recent_thread>`)
   const provisional = interims.map((i) => `(still being transcribed, may be inaccurate) ${i.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${i.text}`)
   parts.push(`<last_30_seconds>\n${[...hot.map(line), ...provisional].join('\n') || '(nothing transcribed yet)'}\n</last_30_seconds>`)
-  if (gapNotes.length || interims.length || (lag !== null && lag > 2500)) {
+  if (gapNotes.length || interims.length || (lag !== null && lag > 2500) || blind) {
     const notes = [...gapNotes]
     if (lag !== null && lag > 2500) notes.push(`Final transcript is running about ${(lag / 1000).toFixed(1)} s behind live audio.`)
+    if (blind) notes.push(blind.status)
     parts.push(`<transcript_status>\n${notes.join('\n') || 'Latest words are provisional.'}\n</transcript_status>`)
   }
   if (usable.length) {
