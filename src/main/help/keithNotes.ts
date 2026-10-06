@@ -142,9 +142,10 @@ export function keithNotesChecks(card: Pick<HelpCardContent, 'primary' | 'follow
  * The words "you mentioned" (or "I saw") is about: up to the next comma, colon or dash, or the next
  * clause ("so how...", "what would..."). "You mentioned hallucinations, so how do you catch them before
  * production?" rests on "hallucinations", not on "production" from his notes. "As you said, Priya
- * owns this" puts it after the comma.
+ * owns this" puts it after the comma. A verb doesn't end it: "You mentioned you are on LangSmith"
+ * rests on "LangSmith".
  */
 function toldClause(rest: string): string {
   const after = rest.replace(/^\s*[,:—–-]?\s*/, '')
-  return after.split(/\s*[,;:—–]\s*|\s+-\s+|\s+\b(?:so|how|what|which|who|where|when|why|is|are|do|does)\b/i)[0] ?? ''
+  return after.split(/\s*[,;:—–]\s*|\s+-\s+|\s+\b(?:so|how|what|which|who|where|when|why)\b/i)[0] ?? ''
 }

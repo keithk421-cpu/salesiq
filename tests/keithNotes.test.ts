@@ -203,6 +203,12 @@ describe('the check: "says they told you something only your notes say"', () => 
     expect(keithNotesChecks(card('You mentioned LangSmith. How is that working?'), c)).toEqual([CHECK_NOTES_ONLY])
     expect(keithNotesChecks(card('You’ve mentioned LangSmith, right?'), c)).toEqual([CHECK_NOTES_ONLY])
     expect(keithNotesChecks(card('As you said, GPT-4o is in production. Who owns it?'), c)).toEqual([CHECK_NOTES_ONLY])
+    // A verb inside what they "mentioned" doesn't cut the claim short.
+    for (const line of [
+      'You mentioned you are on LangSmith.',
+      'You mentioned the team is moving off LangSmith?',
+      'I saw that GPT-4o does the routing today.',
+    ]) expect(keithNotesChecks(card(line), c), line).toEqual([CHECK_NOTES_ONLY])
   })
 
   it('a speech-to-text split name still counts as said ("Lang Smith" for LangSmith)', () => {
