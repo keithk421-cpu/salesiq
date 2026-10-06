@@ -78,9 +78,10 @@ export function initCallPlan(api: CopilotApi): void {
 
   function renderLine(): void {
     const ps = plan()
-    for (const el of [line, strip]) {
+    // The compact strip is about 440px wide: shorter words there, so all three fit and none is cut to a fragment.
+    for (const [el, max] of [[line, 28], [strip, 17]] as const) {
       el.hidden = !ps.length
-      el.innerHTML = ps.map((p) => `<span class="pl-item pl-${p.status}" title="${esc(hover(p))}"><span class="pl-mark">${PLAN_MARK[p.status]}</span> ${esc(shortItem(p.item))}</span>`).join('<span class="pl-sep"> · </span>')
+      el.innerHTML = ps.map((p) => `<span class="pl-item pl-${p.status}" title="${esc(hover(p))}"><span class="pl-mark">${PLAN_MARK[p.status]}</span> ${esc(shortItem(p.item, max))}</span>`).join('<span class="pl-sep"> · </span>')
     }
     strip.title = ps.map((p) => `${PLAN_MARK[p.status]} ${p.item}`).join('\n')
   }
@@ -99,19 +100,28 @@ export function initCallPlan(api: CopilotApi): void {
   }
 
   async function reload(): Promise<void> {
+    // The box is for the next call now: text typed but never added doesn't look carried over.
+    input.value = ''
     const info = (await api.helpInfo()) as { setup?: CallSetup } | null
     show(Array.isArray(info?.setup?.must_learn) ? info.setup.must_learn : [])
   }
 
-  input.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter') return
-    e.preventDefault()
+  /** What's typed in the box becomes a chip: on Enter, on leaving the box, and at Start. */
+  function commit(): void {
     const t = input.value.replace(/\s+/g, ' ').trim()
     if (!t || items.length >= MUST_LEARN_MAX) return
     input.value = ''
     if (items.some((x) => planKey(x) === planKey(t))) return
     void save([...items, t.slice(0, MUST_LEARN_MAX_CHARS)])
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return
+    e.preventDefault()
+    commit()
   })
+  // Like the strip's other fields, leaving the box saves what's in it (clicking the goal box or Start).
+  input.addEventListener('change', commit)
   $('mlChips').addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('.ml-x')
     if (!b) return
@@ -133,6 +143,8 @@ export function initCallPlan(api: CopilotApi): void {
       if (ev.state === 'checking') {
         notes = null
         said.clear()
+        // Started from the hotkey with something still typed in the box: it counts for this call.
+        commit()
       }
       // Stop clears the must-learns with the rest of the per-call setup (the line keeps what the call ended with).
       if (ev.state === 'stopped' || ev.state === 'idle') void reload()

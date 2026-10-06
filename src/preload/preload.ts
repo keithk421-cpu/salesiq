@@ -37,6 +37,7 @@ const api = {
   onCallNotes: (cb: (s: unknown) => void) => ipcRenderer.on('call-notes', (_e, s) => cb(s)),
   // M3 call plan: the setup strip's "Must learn" box
   helpSetMustLearn: (items: string[]) => ipcRenderer.invoke('help:setMustLearn', items),
+  wrapupRemoveToLearn: (item: string) => ipcRenderer.invoke('wrapup:removeToLearn', item),
   helpSetKey: (key: string) => ipcRenderer.invoke('help:setKey', key),
   knowledgeList: () => ipcRenderer.invoke('knowledge:list'),
   knowledgeReindex: () => ipcRenderer.invoke('knowledge:reindex'),

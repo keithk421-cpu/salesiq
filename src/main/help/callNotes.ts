@@ -14,10 +14,12 @@
  */
 import { NOTE_FACT_KINDS, NOT_COVERED_TOPICS, type CallNoteItem, type CallNotes, type NotCoveredTopic, type NoteFactKind } from '../../shared/help'
 import type { PlanItemStatus } from '../../shared/help'
-import { PLAN_SECTION_LABEL, mergePlan, planNow, sanitizeMustLearn } from './callPlan'
+import { MUST_LEARN_MAX, MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, mergePlan, planNow, sanitizeMustLearn } from './callPlan'
 
 /** The HELP block, tags included. */
 export const CALL_NOTES_BLOCK_MAX_CHARS = 800
+/** Keith's must-learns still open (M3 call plan) come on top: at most 3 short items, each maybe partly answered and cited. */
+export const PLAN_BLOCK_MAX_CHARS = PLAN_SECTION_LABEL.length + 2 + MUST_LEARN_MAX * (MUST_LEARN_MAX_CHARS + ' (partly answered)'.length + ' [T12345]'.length + 2)
 /** One item in the stored notes / in the HELP block. */
 const ITEM_MAX_CHARS = 140
 const BLOCK_ITEM_MAX_CHARS = 80
@@ -217,8 +219,9 @@ export const NOT_COVERED_LABEL: Record<NotCoveredTopic, string> = {
  * items that make it into the block.
  *
  * Keith's must-learns still open or partial (M3 call plan, `mustLearn`: his setup now) lead the block,
- * with their status from these notes; before the first notes (or with notes off) the block carries
- * just them, all open, so HELP knows his plan from the start.
+ * with their status from these notes, in room of their own (up to PLAN_BLOCK_MAX_CHARS more), so the
+ * other side's notes keep exactly the room they had; before the first notes (or with notes off) the
+ * block carries just them, all open, so HELP knows his plan from the start.
  */
 export function callNotesBlock(
   snap: CallNotesSnapshot | null | undefined,
@@ -256,6 +259,10 @@ export function callNotesBlock(
   let room = CALL_NOTES_BLOCK_MAX_CHARS - head.length - tail.length - 1
   const keep: Piece[][] = sections.map(() => [])
   const next = sections.map(() => 0)
+  // Keith's plan has room of its own on top (at most 3 short items, PLAN_BLOCK_MAX_CHARS), so his
+  // agenda never pushes out what the other side asked or told him.
+  keep[0] = sections[0].pieces
+  next[0] = sections[0].pieces.length
   for (let added = true; added; ) {
     added = false
     sections.forEach((s, i) => {

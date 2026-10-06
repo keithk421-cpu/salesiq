@@ -519,6 +519,8 @@ function registerIpc(): void {
   })
   // ---- M3 call plan: the setup strip's "Must learn" box (at most 3 short items, checked in HelpService) ----
   ipcMain.handle('help:setMustLearn', (_e, raw: unknown) => help?.setMustLearn(raw) ?? null)
+  // × on a wrap-up "Still to learn" item (the item's text, checked against the list in WrapupKeeper)
+  ipcMain.handle('wrapup:removeToLearn', (_e, raw: unknown) => help?.removeWrapupToLearn(raw) ?? { ok: false, wrapup: null })
   // ---- M2 wrap-up after Stop and the follow-up draft (a draft Keith copies; nothing is sent) ----
   // Every input is checked in HelpService / WrapupKeeper (item id, state, text length, section).
   if (help) help.onWrapup = (w) => send('wrapup', w)

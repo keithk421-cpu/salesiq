@@ -103,7 +103,7 @@ export function planStillOpen(contextText: string): boolean {
 }
 
 /** WRAP with a must-learn still open: FOLLOW asks one, instead of the recap of what Keith owes them. */
-const FOLLOW_PLAN = `instead of a recap, one thing Keith still wants to learn (listed first in call_notes), asked as one short natural question in Keith's voice ("Before we go, who else would weigh in on a decision like this?"), the one that matters most for the next step. Only if the transcript shows they already answered every one: `
+const FOLLOW_PLAN = `instead of a recap, one thing Keith still wants to learn (listed first in call_notes) that the transcript does not show they answered and that they did not say they would come back to him on, asked as one short natural question in Keith's voice ("Before we go, who else would weigh in on a decision like this?"), the one that matters most for the next step. If none is left, or they said not now or not interested, or they are mid-thought: `
 
 /** The user message for a wrap card: the same call context, then what this card is for. */
 export function wrapUserMessage(contextText: string, why: WrapWhy): string {

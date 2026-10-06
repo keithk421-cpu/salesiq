@@ -365,7 +365,8 @@ export class HelpService {
     }
     // M3 call plan: the strip's other fields save without the must-learns (they have their own box), so
     // leaving them out keeps the ones set; at most 3 short items (callPlan.ts).
-    const mustLearn = 'must_learn' in r ? sanitizeMustLearn(r.must_learn) : mustLearnOf(this.setup)
+    const hasMustLearn = typeof raw === 'object' && raw !== null && 'must_learn' in raw
+    const mustLearn = hasMustLearn ? sanitizeMustLearn(r.must_learn) : mustLearnOf(this.setup)
     if (mustLearn.length) setup.must_learn = mustLearn
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
@@ -687,6 +688,12 @@ export class HelpService {
   addWrapupItem(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
     const ok = !!this.wrap?.addItem(raw)
     if (ok) this.rescoreWrapup()
+    return { ok, wrapup: this.wrapup() }
+  }
+
+  /** × on a "Still to learn" item (M3 call plan): it isn't carried to the next call. */
+  removeWrapupToLearn(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
+    const ok = this.wrap?.removeToLearn(raw) ?? false
     return { ok, wrapup: this.wrapup() }
   }
 

@@ -178,11 +178,15 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
       if (kind && it.state !== 'removed' && textOf(it)) found.push({ kind, text: withWhoWhen(it) })
     }
     // M3 call plan: what Keith still wanted to learn when this call ended (same rule: never from a MOCK wrap-up).
-    const open = wrap && wrap.mock !== true ? sanitizeMustLearn(wrap.plan_open) : []
+    const verdict = !!wrap && wrap.mock !== true
+    const open = verdict ? sanitizeMustLearn(wrap!.plan_open) : []
     if (c === calls[0]) lastOpen = open
     for (const t of open) if (!planned.has(planKey(t))) found.push({ kind: 'to_learn', text: t })
-    for (const t of mustLearnOf(parse<Partial<CallSetup>>(c.setup_json))) planned.add(planKey(t))
     const notes = parse<Partial<CallNotes>>((notesStmt.get(c.id) as { notes_json: string | null } | undefined)?.notes_json)
+    // Only a must-learn this call's notes tracked, with a real wrap-up, settles an older one: no wrap-up,
+    // a MOCK one or notes that never tracked it say nothing about it.
+    const tracked = new Set((verdict && Array.isArray(notes?.plan) ? notes.plan : []).map((p) => (p && typeof p.item === 'string' ? planKey(p.item) : '')))
+    for (const t of mustLearnOf(parse<Partial<CallSetup>>(c.setup_json))) if (tracked.has(planKey(t))) planned.add(planKey(t))
     for (const w of Array.isArray(notes?.buyer_wants) ? notes.buyer_wants : []) if (textOf(w)) found.push({ kind: 'wants', text: textOf(w) })
     for (const f of Array.isArray(notes?.facts) ? notes.facts : []) if (f && FACT_KINDS.has(f.kind) && textOf(f)) found.push({ kind: 'fact', text: textOf(f) })
     // Within a call: what was promised and agreed first, then what they want and told us.

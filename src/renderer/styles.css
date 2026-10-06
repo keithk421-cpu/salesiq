@@ -338,9 +338,11 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 /* The same line in the compact strip (during a call only, like the card): one line, cut with "…". */
 .plan-compact { display: none; }
 body.compact.in-call #callView > #planCompact:not([hidden]):not(#helpCard):not(#banner):not(#idleBanner) { display: block !important; font-size: 12px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
-/* Wrap-up: "Still to learn", read only. */
+/* Wrap-up: "Still to learn" (✕ removes one Keith knows he got). */
 .wu-learn-list { margin: 0; padding-left: 18px; font-size: 14px; }
 .wu-learn-list li { margin: 2px 0; }
+.wu-learn-list li > span { margin-right: 6px; }
+.wu-learn-x { vertical-align: middle; }
 
 /* ---------- M2: WRAP card, compact window ---------- */
 .m2-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

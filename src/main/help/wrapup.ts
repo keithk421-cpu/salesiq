@@ -20,7 +20,7 @@ import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { notesForModel } from './callNotes'
-import { mustLearnLine, mustLearnOf, planOpen } from './callPlan'
+import { mustLearnLine, mustLearnOf, planKey, planOpen } from './callPlan'
 import { fmtClock, speakerName } from './context'
 import { FOLLOWUP_MAX_TOKENS, FOLLOWUP_SCHEMA, FOLLOWUP_SYSTEM_PROMPT, FOLLOWUP_TIMEOUT_MS, buildFollowupInput, followupUserMessage, mockFollowup, validateFollowup } from './followup'
 import { describeError, type HelpError, type HelpModel } from './models'
@@ -304,6 +304,8 @@ export class WrapupKeeper {
   private beforeDraft: CallWrapup['status'] | null = null
   /** Nothing was transcribed: no wrap-up request is sent. */
   private empty = false
+  /** "Still to learn" items Keith removed (planKey): a rebuild or Try again doesn't bring them back. */
+  private learnRemoved = new Set<string>()
   readonly stats: Omit<WrapupStats, 'status' | 'items' | 'confirmed' | 'removed' | 'added' | 'edited' | 'dropped'> = {
     requests: 0, build_ms: null, cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0,
     drafts: 0, draft_failed: 0, draft_checks: 0, draft_ms: null, draft_cost_usd: 0, errors: {},
@@ -337,13 +339,27 @@ export class WrapupKeeper {
   }
 
   /**
-   * Keith's must-learns the call ended without (open or partial in the final notes; with no plan in
-   * the notes, all of them): "Still to learn", read only, and the next call's account memory.
+   * Keith's must-learns the call ended without (open or partial in the final notes): "Still to learn",
+   * and the next call's account memory. Only what the notes tracked: with notes off (or none run since
+   * he set them) nothing says they weren't learned, so nothing is listed. One Keith removed stays out.
    */
   private notePlanOpen(): void {
-    const open = planOpen(mustLearnOf(this.d.memory.setup), this.d.memory.callNotes?.notes.plan)
+    const plan = this.d.memory.callNotes?.notes.plan
+    const open = Array.isArray(plan) ? planOpen(mustLearnOf(this.d.memory.setup), plan).filter((t) => !this.learnRemoved.has(planKey(t))) : []
     if (open.length) this.w.plan_open = open
     else delete this.w.plan_open
+  }
+
+  /** × on a "Still to learn" item: Keith knows it was settled, so the next call doesn't carry it. False when it isn't listed. */
+  removeToLearn(raw: unknown): boolean {
+    if (this.disposed || typeof raw !== 'string') return false
+    const k = planKey(raw.slice(0, 2000))
+    if (!k || !this.w.plan_open?.some((t) => planKey(t) === k)) return false
+    this.learnRemoved.add(k)
+    this.notePlanOpen()
+    this.d.log('wrapup_item', { action: 'remove', section: 'to_learn' })
+    this.changed()
+    return true
   }
 
   /**

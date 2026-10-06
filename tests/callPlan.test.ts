@@ -10,8 +10,8 @@ import type { Turn } from '../src/shared/contracts'
 import { Db } from '../src/main/db'
 import { accountMemory, cleanEarlierItems, earlierCallsBlock } from '../src/main/help/accountMemory'
 import { CallMemory } from '../src/main/help/callMemory'
-import { EMPTY_NOTES, NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, callNotesBlock, notesForModel, validateNotes } from '../src/main/help/callNotes'
-import { MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, mergePlan, planLineText, planNow, planOpen, sanitizeMustLearn, shortItem } from '../src/main/help/callPlan'
+import { CALL_NOTES_BLOCK_MAX_CHARS, EMPTY_NOTES, NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, PLAN_BLOCK_MAX_CHARS, callNotesBlock, notesForModel, validateNotes } from '../src/main/help/callNotes'
+import { MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, mergePlan, mustLearnLine, notPlannedNow, planLineText, planNow, planOpen, sanitizeMustLearn, shortItem } from '../src/main/help/callPlan'
 import { buildHelpContext } from '../src/main/help/context'
 import { MockHelpModel, type HelpModel, type HelpModelResult, type HelpModelRun, type HelpNotesResult, type HelpNotesRun } from '../src/main/help/models'
 import { buildSystemPrompt, loadPlaybook } from '../src/main/help/prompt'
@@ -41,6 +41,16 @@ describe('must-learns from the setup strip', () => {
     expect(long[0].length).toBe(MUST_LEARN_MAX_CHARS)
     // Angle brackets would break the prompt's tags.
     expect(sanitizeMustLearn(['<b>Budget</b> owner'])).toEqual(['bBudget/b owner'])
+  })
+
+  it("a ';' inside one must-learn can't split it into two in the requests", () => {
+    const ml = sanitizeMustLearn(['eval process; who runs it', 'Who signs off | when'])
+    expect(ml).toEqual(['eval process, who runs it', 'Who signs off, when'])
+    const line = mustLearnLine({ must_learn: ml })
+    expect(line).toBe('\nmust learn: eval process, who runs it; Who signs off, when')
+    expect(line.split(';')).toHaveLength(2)
+    // An answer that copies the item either way still matches Keith's.
+    expect(mergePlan(ml, [{ item: 'eval process; who runs it', status: 'done', lines: ['L1'] }], null, new Map([['L1', 't1']]))[0]).toMatchObject({ status: 'done' })
   })
 
   it('anything that is not a list of strings is no must-learns (older setups, a broken message)', () => {
@@ -146,7 +156,40 @@ describe('HELP sees the must-learns still open', () => {
     const block = callNotesBlock({ notes: big, as_of_ms: 10_000 }, 20_000, { ...opts, mustLearn: PLAN })!
     expect(block.split('\n')[1]).toBe(`${PLAN_SECTION_LABEL}: Who signs off on new tools (partly answered) [T1]; Deep-dive scope`)
     expect(block).not.toContain('How they score answers today')
-    expect(block.length).toBeLessThanOrEqual(800)
+    expect(block.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS + PLAN_BLOCK_MAX_CHARS)
+  })
+
+  it("Keith's plan has room of its own: a full set of notes keeps every item it had, and all 3 must-learns fit", () => {
+    const it = (text: string) => ({ text, turn_ids: ['t1'] })
+    const full: CallNotes = {
+      ...EMPTY_NOTES,
+      topic: it('How they review chatbot answers before release'),
+      open_questions: [it('Do you integrate with their tracing setup, or do they need to change code?'), it('Can it run inside our private cloud on their side?')],
+      facts: [
+        { kind: 'current_tooling' as const, ...it('They score answers with a rubric in a shared spreadsheet') },
+        { kind: 'team' as const, ...it('Four people on the platform team look after the chatbot') },
+        { kind: 'timeline' as const, ...it('They want something in place before the spring launch') },
+      ],
+      concerns: [it('Worried about another tool for the platform team to run'), it('Their security review takes about six weeks')],
+      buyer_wants: [it('Catch wrong answers before customers see them')],
+      next_steps: [{ status: 'proposed' as const, ...it('A deep-dive with their platform lead next week') }],
+      not_covered: ['decision_process'],
+    }
+    const plan = [
+      'Who signs off on new tools and how long procurement usually takes for them',
+      'How they score chatbot answers today and who looks at the scores each week',
+      'Deep-dive scope: which teams join, and what a good result looks like to them',
+    ]
+    const snap = { notes: full, as_of_ms: 10_000 }
+    const without = callNotesBlock(snap, 20_000, opts)!
+    const withPlan = callNotesBlock(snap, 20_000, { ...opts, mustLearn: plan })!
+    const lines = withPlan.split('\n')
+    expect(lines[1]).toBe(`${PLAN_SECTION_LABEL}: ${sanitizeMustLearn(plan).join('; ')}`)
+    // The rest is exactly what HELP got without a plan: the buyer's questions and facts aren't pushed out.
+    expect([lines[0], ...lines.slice(2)].join('\n')).toBe(without)
+    expect(without).toContain('Can it run inside our private cloud')
+    expect(without.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS)
+    expect(withPlan.length).toBeLessThanOrEqual(CALL_NOTES_BLOCK_MAX_CHARS + PLAN_BLOCK_MAX_CHARS)
   })
 
   it('before the first notes (or with notes off) HELP still gets the plan, all open; notes built after the press are not used', () => {
@@ -173,6 +216,27 @@ describe('HELP sees the must-learns still open', () => {
     expect(system).toMatch(/never over a question or concern the other side just raised, and never treat it as answered/)
   })
 
+  it("an earlier call's \"still wanted to learn\" drops out of HELP's context once this call sets out to learn it again", () => {
+    const m = memory()
+    const earlier = [
+      { kind: 'to_learn' as const, text: 'who signs off on NEW tools?', date: '2026-09-29' },
+      { kind: 'to_learn' as const, text: 'Rollout timing', date: '2026-09-29' },
+      { kind: 'promised' as const, text: 'Who signs off on new tools', date: '2026-09-29' },
+    ]
+    m.earlierCalls = earlier
+    // Done now: neither the notes block nor the earlier calls bring it back.
+    m.callNotes = { notes: { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done', turn_ids: ['t1'] }] }, as_of_ms: 9000 }
+    const ctx = buildHelpContext({ memory: m, kb: null, atMs: 10_000 })
+    expect(ctx.text).not.toContain('Keith still wanted to learn: who signs off')
+    expect(ctx.text).toContain('Keith still wanted to learn: Rollout timing')
+    // Only "to learn" items go; something Arize promised stays whatever its words.
+    expect(ctx.text).toContain('Arize promised: Who signs off on new tools')
+    expect(ctx.refs.earlier_calls).toEqual([earlier[1], earlier[2]])
+    // Must not change: no must-learns now, nothing is dropped.
+    expect(notPlannedNow(earlier, { must_learn: [] })).toEqual(earlier)
+    expect(notPlannedNow(earlier, null)).toEqual(earlier)
+  })
+
   it('a setup without must-learns builds exactly the context it did before', () => {
     const m = memory()
     m.setup = { ...m.setup, must_learn: undefined }
@@ -186,8 +250,10 @@ describe('WRAP with a must-learn still open', () => {
 
   it('FOLLOW asks it naturally instead of the recap of what Keith owes them', () => {
     const msg = wrapUserMessage(ctx(planBlock), 'button')
-    expect(msg).toContain("- FOLLOW: instead of a recap, one thing Keith still wants to learn (listed first in call_notes), asked as one short natural question in Keith's voice")
-    expect(msg).toContain('Only if the transcript shows they already answered every one: what Keith still owes them')
+    expect(msg).toContain('- FOLLOW: instead of a recap, one thing Keith still wants to learn (listed first in call_notes) that the transcript does not show they answered')
+    // Not one they said they'd come back on, and not at all when they said not now or are mid-thought.
+    expect(msg).toContain('that they did not say they would come back to him on, asked as one short natural question in Keith\'s voice')
+    expect(msg).toContain('If none is left, or they said not now or not interested, or they are mid-thought: what Keith still owes them')
   })
 
   it('must not change: no plan, every must-learn done, or closing words on a HELP press', () => {
@@ -298,8 +364,14 @@ describe('a call with a plan, start to finish', () => {
     const ctx = buildHelpContext({ memory: a.help.memory!, kb: null, atMs: 70_000 })
     expect(ctx.text).toContain(`${PLAN_SECTION_LABEL}: Who signs off on new tools (partly answered); Deep-dive scope`)
 
-    // Mid-call: one removed, one added. The panel shows it straight away; the call's record keeps the latest.
+    // Mid-call: one removed, one added. The panel shows it straight away; the call's record keeps the latest;
+    // a background card built on the old plan is dropped (only when the plan really changed).
+    const discard = vi.spyOn(a.help.engine!, 'discardPrefetch')
     a.help.setMustLearn(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
+    expect(discard).toHaveBeenCalledTimes(1)
+    a.help.setMustLearn(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
+    a.help.setSetup({ call_type: 'discovery', call_goal: 'Learn how they review chatbot answers', desired_outcomes: [], account: ACCOUNT, deployment: 'self_hosted' })
+    expect(discard).toHaveBeenCalledTimes(1)
     expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'open']])
     expect(row().must_learn).toEqual(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
     // Every one removed: no plan on screen; put back, they read as they did.
@@ -314,30 +386,49 @@ describe('a call with a plan, start to finish', () => {
     a.state('stopped')
     // Stop clears them with the rest of the per-call setup.
     expect(a.help.info().setup.must_learn).toBeUndefined()
-    // The closing pass: the model leaves the plan out; the last statuses stand.
+    // The closing pass: the answer in the last minute settles "Rollout timing" (the other items are left out: they stand).
     const closing = a.model.of('notes')[1]
     expect(closing.req.user).toContain('must learn: Who signs off on new tools; How they score answers today; Rollout timing')
-    closing.release(notesAnswer({ topic: { text: 'Rollout timing', lines: ['L5'] } }))
+    const rollout = /\[(L\d+)\][^\n]*Rollout would be after our Q1 planning/.exec(closing.req.user)![1]
+    // While it runs, the wrap-up already lists what the last update had open.
+    expect(a.wraps.at(-1)).toMatchObject({ status: 'building', plan_open: ['Who signs off on new tools', 'Rollout timing'] })
+    closing.release(notesAnswer({ topic: { text: 'Rollout timing', lines: [rollout] }, plan: [{ item: 'Rollout timing', status: 'done', lines: [rollout] }] }))
     await flush()
-    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'open']])
+    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'done']])
 
-    // The wrap-up request carries them; "Still to learn" is what the call ended without.
+    // The wrap-up request carries them; "Still to learn" is what the call ended without, after the closing pass.
     const wr = a.model.of('wrapup')[0]
     expect(wr.req.user).toContain('must learn: Who signs off on new tools; How they score answers today; Rollout timing')
     wr.release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [] }))
     await flush()
-    expect(a.wraps.at(-1)).toMatchObject({ status: 'ready', plan_open: ['Who signs off on new tools', 'Rollout timing'] })
+    expect(a.wraps.at(-1)).toMatchObject({ status: 'ready', plan_open: ['Who signs off on new tools'] })
 
     // Logs carry counts only, never what Keith wanted to learn.
     expect(a.logs.find((l) => l.e === 'call_notes_done' && (l.d as { plan?: unknown }).plan)?.d).toMatchObject({ plan: { open: 1, partial: 1, done: 1 } })
-    expect(a.logs.find((l) => l.e === 'wrapup_done')?.d).toMatchObject({ plan_open: 2 })
-    expect(JSON.stringify(a.logs)).not.toMatch(/signs off|score answers|Rollout|Deep-dive|Larkspur|budget|fourth/i)
+    expect(a.logs.find((l) => l.e === 'wrapup_done')?.d).toMatchObject({ plan_open: 1 })
 
-    // Next time with this account: "Still to learn", and "Reuse last setup" brings them over.
+    // Next time with this account: "Still to learn", and "Reuse last setup" brings it over.
     const mem = accountMemory(a.help.db, 'larkspur health (INVENTED)')!
-    expect(mem.items.filter((i) => i.kind === 'to_learn').map((i) => i.text)).toEqual(['Who signs off on new tools', 'Rollout timing'])
-    expect(mem.last_setup?.must_learn).toEqual(['Who signs off on new tools', 'Rollout timing'])
+    expect(mem.items.filter((i) => i.kind === 'to_learn').map((i) => i.text)).toEqual(['Who signs off on new tools'])
+    expect(mem.last_setup?.must_learn).toEqual(['Who signs off on new tools'])
     expect(earlierCallsBlock(mem.items.map(({ kind, text, date }) => ({ kind, text, date })))?.text).toMatch(/· Keith still wanted to learn: Who signs off on new tools\n/)
+
+    // Keith knows he got it after all: removed in the wrap-up, nothing is carried.
+    expect(a.help.removeWrapupToLearn('Who signs off on new tools').ok).toBe(true)
+    expect(a.wraps.at(-1)?.plan_open).toBeUndefined()
+    const after = accountMemory(a.help.db, ACCOUNT)!
+    expect(after.items.filter((i) => i.kind === 'to_learn')).toEqual([])
+    expect(after.last_setup?.must_learn).toBeUndefined()
+    expect(a.help.removeWrapupToLearn('Who signs off on new tools').ok).toBe(false)
+    expect(JSON.stringify(a.logs)).not.toMatch(/signs off|score answers|Rollout|Deep-dive|Larkspur|budget|fourth/i)
+    a.help.shutdown()
+  })
+
+  it('a broken setup message falls back to the default setup and keeps the must-learns set', () => {
+    const a = app()
+    a.help.setMustLearn(PLAN)
+    for (const raw of ['x', 42, null, undefined, true]) expect(a.help.setSetup(raw)).toEqual({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown', must_learn: PLAN })
+    expect(a.help.setMustLearn('not a list').must_learn).toBeUndefined()
     a.help.shutdown()
   })
 
@@ -360,20 +451,39 @@ describe('a call with a plan, start to finish', () => {
 })
 
 describe('after Stop', () => {
-  it('the wrap-up keeps open and partial ones; with no plan in the notes, every must-learn; none when Keith set none', () => {
-    const make = (mustLearn: string[] | undefined, notes: CallNotes | null) => {
-      const m = new CallMemory(CALL_ID)
-      m.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', ...(mustLearn ? { must_learn: mustLearn } : {}) }
-      if (notes) m.callNotes = { notes, as_of_ms: 0 }
-      const w = new WrapupKeeper({ memory: m, model: new MockHelpModel(0), config: { provider: 'mock', model: 'mock', effort: 'low', thinking: 'off', timeout_ms: 1, max_tokens: 1 }, db: null, kb: null, emit: () => {}, log: () => {} })
-      w.begin()
-      return w.state()
-    }
-    const notes: CallNotes = { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done', turn_ids: ['t1'] }, { item: PLAN[1], status: 'partial', turn_ids: ['t2'] }] }
-    expect(make(PLAN, notes).plan_open).toEqual([PLAN[1], PLAN[2]])
-    expect(make(PLAN, EMPTY_NOTES).plan_open).toEqual(PLAN)
-    expect(make(PLAN, null).plan_open).toEqual(PLAN)
-    expect(make(undefined, notes).plan_open).toBeUndefined()
+  const keeper = (mustLearn: string[] | undefined, notes: CallNotes | null, log: (e: string, d?: Record<string, unknown>) => void = () => {}) => {
+    const m = new CallMemory(CALL_ID)
+    m.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', ...(mustLearn ? { must_learn: mustLearn } : {}) }
+    m.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 1000, text: 'Our VP signs off.', available_ms: 1000 }, true)
+    if (notes) m.callNotes = { notes, as_of_ms: 0 }
+    const w = new WrapupKeeper({ memory: m, model: new MockHelpModel(0), config: { provider: 'mock', model: 'mock', effort: 'low', thinking: 'off', timeout_ms: 1, max_tokens: 1 }, db: null, kb: null, emit: () => {}, log })
+    w.begin()
+    return w
+  }
+  const tracked: CallNotes = { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done', turn_ids: ['t1'] }, { item: PLAN[1], status: 'partial', turn_ids: ['t2'] }] }
+
+  it('the wrap-up keeps open and partial ones; nothing when the notes never tracked them (notes off) or Keith set none', () => {
+    expect(keeper(PLAN, tracked).state().plan_open).toEqual([PLAN[1], PLAN[2]])
+    // Notes off, or no update since he set them: nothing says they weren't learned, so nothing is claimed or carried.
+    expect(keeper(PLAN, EMPTY_NOTES).state().plan_open).toBeUndefined()
+    expect(keeper(PLAN, null).state().plan_open).toBeUndefined()
+    expect(keeper(undefined, tracked).state().plan_open).toBeUndefined()
+  })
+
+  it('Keith can remove a "Still to learn" item; building the wrap-up or Try again does not bring it back', async () => {
+    const logs: Array<{ e: string; d?: Record<string, unknown> }> = []
+    const w = keeper(PLAN, tracked, (e, d) => logs.push({ e, d }))
+    expect(w.removeToLearn('deep-dive SCOPE')).toBe(true)
+    expect(w.state().plan_open).toEqual([PLAN[1]])
+    await w.build()
+    expect(w.state()).toMatchObject({ status: 'ready', plan_open: [PLAN[1]] })
+    // Must not match: not listed, not text, or already gone.
+    for (const raw of ['Their budget', '', 42, null, { item: PLAN[1] }, 'Deep-dive scope']) expect(w.removeToLearn(raw)).toBe(false)
+    expect(w.removeToLearn(PLAN[1])).toBe(true)
+    expect(w.state().plan_open).toBeUndefined()
+    // Counts and codes only in the log.
+    expect(logs.filter((l) => l.e === 'wrapup_item')).toEqual([{ e: 'wrapup_item', d: { action: 'remove', section: 'to_learn' } }, { e: 'wrapup_item', d: { action: 'remove', section: 'to_learn' } }])
+    expect(JSON.stringify(logs)).not.toMatch(/score answers|Deep-dive|signs off/i)
   })
 
   it('the wrap-up request may cite the lines the plan rests on', () => {
@@ -387,9 +497,15 @@ describe('after Stop', () => {
   })
 
   describe('account memory', () => {
-    const call = (db: Db, id: string, at: string, o: { planOpen?: unknown; mock?: boolean; mustLearn?: string[] } = {}) => {
+    const call = (db: Db, id: string, at: string, o: { planOpen?: unknown; mock?: boolean; mustLearn?: string[]; wrapup?: boolean; tracked?: boolean } = {}) => {
       db.sql.prepare('INSERT INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(id, at, JSON.stringify({ call_type: 'discovery', call_goal: `Goal of ${id}`, desired_outcomes: [], account: ACCOUNT, deployment: 'self_hosted', ...(o.mustLearn ? { must_learn: o.mustLearn } : {}) }))
       db.sql.prepare("INSERT INTO turns (session_id, turn_id, stream, start_ms, end_ms, available_ms, text) VALUES (?, 't1', 'system_remote', 0, 1, 1, 'BUYER WORDS')").run(id)
+      // The notes tracked every must-learn unless the call had notes off.
+      if (o.mustLearn && o.tracked !== false) {
+        const plan = o.mustLearn.map((item) => ({ item, status: Array.isArray(o.planOpen) && o.planOpen.includes(item) ? 'open' : 'done', turn_ids: [] }))
+        db.sql.prepare("INSERT INTO call_notes (session_id, notes_json, as_of_ms, updated_at, stats_json) VALUES (?, ?, 0, 't', '{}')").run(id, JSON.stringify({ ...EMPTY_NOTES, plan }))
+      }
+      if (o.wrapup === false) return
       const w = { session_id: id, status: 'ready', account: ACCOUNT, started_at: at, items: [], email: null, error: null, mock: o.mock ?? false, ...(o.planOpen !== undefined ? { plan_open: o.planOpen } : {}) }
       db.sql.prepare('INSERT INTO call_wrapups (session_id, wrapup_json, updated_at) VALUES (?, ?, ?)').run(id, JSON.stringify(w), at)
     }
@@ -405,6 +521,17 @@ describe('after Stop', () => {
       expect(mem.last_setup?.must_learn).toEqual(['Eval dataset owner'])
       // A saved practice moment keeps them.
       expect(cleanEarlierItems([{ kind: 'to_learn', text: 'Rollout timing', date: '2026-09-01' }])).toEqual([{ kind: 'to_learn', text: 'Rollout timing', date: '2026-09-01' }])
+    })
+
+    it("a newer call that can't say how its plan ended (no wrap-up, Practice mode, notes off) doesn't wipe an older \"Still to learn\"", () => {
+      for (const newer of [{ wrapup: false }, { mock: true, planOpen: [] }, { tracked: false }] as const) {
+        const db = new Db(':memory:')
+        call(db, 's-1', '2026-09-01T15:00:00.000Z', { planOpen: ['Who signs off on new tools'], mustLearn: ['Who signs off on new tools'] })
+        // Reuse brought it over, and the next call was held without a usable verdict on it.
+        call(db, 's-2', '2026-09-10T15:00:00.000Z', { mustLearn: ['Who signs off on new tools'], ...newer })
+        const mem = accountMemory(db, ACCOUNT)!
+        expect(mem.items.filter((i) => i.kind === 'to_learn').map((i) => [i.text, i.session_id])).toEqual([['Who signs off on new tools', 's-1']])
+      }
     })
 
     it('older wrap-ups (no plan_open) and broken ones add nothing, and Reuse brings no must-learns', () => {

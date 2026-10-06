@@ -34,7 +34,7 @@ export function planKey(s: string): string {
 
 /**
  * What the setup strip sent, made safe to keep and to send: a list of strings, each trimmed and at
- * most MUST_LEARN_MAX_CHARS characters, empty ones and repeats dropped, at most MUST_LEARN_MAX.
+ * most MUST_LEARN_MAX_CHARS characters (a ';' becomes ','), empty ones and repeats dropped, at most MUST_LEARN_MAX.
  * Anything else (older setups, a broken message) is no must-learns.
  */
 export function sanitizeMustLearn(raw: unknown): string[] {
@@ -43,7 +43,8 @@ export function sanitizeMustLearn(raw: unknown): string[] {
   const seen = new Set<string>()
   for (const x of raw) {
     if (typeof x !== 'string') continue
-    const t = oneLine(x.slice(0, 2000)).slice(0, MUST_LEARN_MAX_CHARS).trim()
+    // ';' separates the must-learns in the requests (and '|' might one day): one item stays one item.
+    const t = oneLine(x.slice(0, 2000).replace(/\s*[;|]/g, ',')).slice(0, MUST_LEARN_MAX_CHARS).trim()
     const k = planKey(t)
     if (!k || seen.has(k)) continue
     seen.add(k)
@@ -120,6 +121,15 @@ export function planNow(mustLearn: readonly string[], plan: readonly PlanItemSta
     const p = by.get(planKey(item))
     return p ? { item, status: p.status, turn_ids: Array.isArray(p.turn_ids) ? p.turn_ids.filter((x) => typeof x === 'string') : [] } : { item, status: 'open', turn_ids: [] }
   })
+}
+
+/**
+ * Earlier calls' "Keith still wanted to learn" items, minus the ones he set out to learn again on this
+ * call: this call's plan tracks those now, so an answer here isn't undone by the old line.
+ */
+export function notPlannedNow<T extends { kind: string; text: string }>(items: readonly T[], setup: { must_learn?: unknown } | null | undefined): T[] {
+  const now = new Set(mustLearnOf(setup).map(planKey))
+  return now.size ? items.filter((it) => it.kind !== 'to_learn' || !now.has(planKey(it.text))) : [...items]
 }
 
 /** What the call ended without (open or partial), in Keith's words. With no plan in the notes, every must-learn. */
