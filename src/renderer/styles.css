@@ -103,7 +103,9 @@ b { font-weight: 620; }
 .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
 
 /* ---------- layout ---------- */
-.view { max-width: 980px; margin: 0 auto; padding: 24px 20px 48px; display: grid; gap: 16px; }
+/* One column that may be narrower than its content's longest line: a long account name in a one-line
+   title ("What I know about ...") then shortens with "…" instead of widening every card past the window. */
+.view { max-width: 980px; margin: 0 auto; padding: 24px 20px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow); }
 
 /* ---------- setup ---------- */

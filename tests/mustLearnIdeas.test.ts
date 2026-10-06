@@ -232,6 +232,19 @@ describe('ideas from the account', () => {
     expect(mustLearnIdeas({ setup: { call_type: 'other', deployment: 'saas' }, memory: mem({ last_not_covered: ['pain' as never], items: [null as never, { kind: 'to_learn', text: 7 } as never] }) }).map((i) => i.text)).toEqual(['what they want from today'])
   })
 
+  it('a not-covered topic already listed (still to learn, or a must-learn) still counts as offered: no near-duplicate starter', () => {
+    const whoSigns = NOT_COVERED_IDEA.decision_process
+    // "Learn next time" kept "who signs off and how" (a not-covered chip), so it comes back as still to learn.
+    const asToLearn = mem({ items: [it_('to_learn', whoSigns)], last_not_covered: ['decision_process'] })
+    const neg = mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas' }, memory: asToLearn, now: NOW })
+    expect(neg.map((i) => [i.text, i.source])).toEqual([[whoSigns, 'still_to_learn'], ['steps left to sign', 'starter'], ['start date they need', 'starter']])
+    const disc = mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: asToLearn, now: NOW })
+    expect(disc.map((i) => i.text)).toEqual([whoSigns, 'what prompted the call'])
+    // Faster setup already made it a must-learn.
+    const asChip = mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas', must_learn: [whoSigns] }, memory: mem({ last_not_covered: ['decision_process'] }), now: NOW })
+    expect(asChip.map((i) => i.text)).toEqual(['steps left to sign', 'start date they need'])
+  })
+
   it('what they owed reads as a topic', () => {
     expect(owedTopic('Share their eval dataset (Dana, by Friday)')).toBe('their eval dataset')
     expect(owedTopic("They'll send over the SOC 2 questionnaire.")).toBe('the SOC 2 questionnaire')
@@ -265,8 +278,8 @@ function item(id: string, section: WrapupItem['section'], text: string, state: W
 }
 
 /** One saved, held call; optionally its wrap-up and final notes (with the notes' counts). */
-function call(db: Db, id: string, at: string, o: { deployment?: string; items?: WrapupItem[]; mock?: boolean; wrapup?: boolean; notes?: Partial<CallNotes>; tokens?: number; planOpen?: string[] } = {}) {
-  db.sql.prepare('INSERT INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(id, at, JSON.stringify({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: o.deployment ?? 'unknown' }))
+function call(db: Db, id: string, at: string, o: { deployment?: string; items?: WrapupItem[]; mock?: boolean; wrapup?: boolean; notes?: Partial<CallNotes>; tokens?: number; planOpen?: string[]; mustLearn?: string[] } = {}) {
+  db.sql.prepare('INSERT INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(id, at, JSON.stringify({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: o.deployment ?? 'unknown', ...(o.mustLearn ? { must_learn: o.mustLearn } : {}) }))
   db.sql.prepare("INSERT INTO turns (session_id, turn_id, stream, start_ms, end_ms, available_ms, text) VALUES (?, 't1', 'system_remote', 0, 1, 1, 'BUYER WORDS')").run(id)
   if (o.notes) db.sql.prepare("INSERT INTO call_notes (session_id, notes_json, as_of_ms, updated_at, stats_json) VALUES (?, ?, 0, 't', ?)").run(id, JSON.stringify({ ...EMPTY_NOTES, ...o.notes }), JSON.stringify({ input_tokens: o.tokens ?? 0 }))
   if (o.wrapup === false) return
@@ -317,13 +330,72 @@ describe('account memory for faster setup', () => {
     // A real wrap-up says the call was real.
     expect(covered({ notes: { not_covered: ['timeline', 'timeline', 'nonsense' as never] } })).toEqual(['timeline'])
     expect(covered({ notes: { not_covered: [] } })).toEqual([])
-    // A MOCK wrap-up says it was Practice mode.
-    expect(covered({ mock: true, notes: { not_covered: ['timeline'] }, tokens: 900 })).toBeUndefined()
+    // A MOCK wrap-up says it was Practice mode: the real call before it counts instead.
+    expect(covered({ mock: true, notes: { not_covered: ['timeline'] }, tokens: 900 })).toEqual(['success_criteria'])
     // No wrap-up (the setting off): the notes' counts tell (Practice mode uses no tokens).
     expect(covered({ wrapup: false, notes: { not_covered: ['current_tooling'] }, tokens: 1200 })).toEqual(['current_tooling'])
     expect(covered({ wrapup: false, notes: { not_covered: ['current_tooling'] }, tokens: 0 })).toBeUndefined()
     // No notes on the newest call: nothing, not an older call's.
     expect(covered({})).toBeUndefined()
+  })
+
+  it('a newer Practice-mode (MOCK) call never hides the real last call: its type, what it left open and not covered, and its date', () => {
+    const db = new Db(':memory:')
+    call(db, 's-1', '2026-09-28T15:00:00.000Z', {
+      deployment: 'self_hosted', items: [item('w1', 'agreed', 'Product demo next Tuesday')], planOpen: ['eval dataset owner'],
+      notes: { not_covered: ['timeline'] }, tokens: 900, mustLearn: ['eval dataset owner'],
+    })
+    const real = accountMemory(db, ACCOUNT)!
+    // A rehearsal under the same account, a week later.
+    call(db, 's-2', '2026-10-05T15:00:00.000Z', {
+      mock: true, items: [item('w1', 'agreed', '[MOCK] Follow-up call')], planOpen: ['[MOCK] something'],
+      notes: { not_covered: ['timeline', 'decision_process', 'current_tooling', 'success_criteria'] },
+    })
+    const m = accountMemory(db, ACCOUNT)!
+    expect(m.calls).toBe(2)
+    expect(m).toMatchObject({ next_call_type: 'demo', last_not_covered: ['timeline'], last_deployment: 'self_hosted', last_call_at: '2026-09-28T15:00:00.000Z' })
+    expect(m.last_setup!.must_learn).toEqual(['eval dataset owner'])
+    expect({ ...m, calls: 1 }).toEqual(real)
+    // Only Practice calls: as before, nothing from them (and the newest is "last time").
+    const db2 = new Db(':memory:')
+    call(db2, 's-2', '2026-10-05T15:00:00.000Z', { mock: true, items: [item('w1', 'agreed', 'Technical deep-dive')], planOpen: ['[MOCK] x'] })
+    expect(accountMemory(db2, ACCOUNT)).toMatchObject({ next_call_type: 'follow_up', last_call_at: '2026-10-05T15:00:00.000Z', items: [] })
+    expect(accountMemory(db2, ACCOUNT)!.last_setup!.must_learn).toBeUndefined()
+    // The real call can be further back than the three calls "Last time" lists.
+    for (const [i, d] of ['2026-10-01', '2026-10-02', '2026-10-03'].entries()) call(db, `s-m${i}`, `${d}T15:00:00.000Z`, { mock: true })
+    expect(accountMemory(db, ACCOUNT)).toMatchObject({ next_call_type: 'demo', last_not_covered: ['timeline'], last_call_at: '2026-09-28T15:00:00.000Z' })
+  })
+
+  it('a "To learn" line in What I know comes back as an idea only while no later call has taken it on', () => {
+    const db = new Db(':memory:')
+    // Sep 28: "who signs off" still open; "For next time" saved it to his notes, with another of his own.
+    call(db, 's-1', '2026-09-28T15:00:00.000Z', {
+      mustLearn: ['who signs off'], planOpen: ['who signs off'], tokens: 900,
+      notes: { plan: [{ item: 'who signs off', status: 'open', turn_ids: [] }] },
+    })
+    const notesText = 'To learn · Sep 28: who signs off · Deep-dive scope and who joins'
+    const ideas = () => mustLearnIdeas({ setup: { call_type: 'follow_up', deployment: 'saas' }, memory: accountMemory(db, ACCOUNT), notesText, now: NOW }).map((i) => [i.text, i.source])
+    // Still open: offered once, dated, as still to learn (the notes line says the same).
+    expect(ideas().slice(0, 2)).toEqual([['who signs off', 'still_to_learn'], ['Deep-dive scope and who joins', 'my_notes']])
+    // Oct 3: the next call took it on and answered it.
+    call(db, 's-2', '2026-10-03T15:00:00.000Z', {
+      mustLearn: ['Who signs off'], planOpen: [], tokens: 900,
+      notes: { plan: [{ item: 'Who signs off', status: 'done', turn_ids: ['t1'] }], facts: [{ kind: 'decision_process', text: 'Lena, the CTO, signs off on new tools', turn_ids: ['t1'] }] },
+    })
+    const m = accountMemory(db, ACCOUNT)!
+    expect(m.items.filter((x) => x.kind === 'to_learn')).toEqual([])
+    expect(m.tracked_learn).toEqual(['who signs off'])
+    // His own "To learn" line nobody took on is still an idea.
+    expect(ideas()).toEqual([['Confirm: Lena, the CTO, signs off on…', 'confirm'], ['Deep-dive scope and who joins', 'my_notes'], ['what changed since last call', 'starter'], ['who else has weighed in', 'starter']])
+    // Removed in the wrap-up's "Learn next time" (he didn't need it): not offered again either.
+    const db2 = new Db(':memory:')
+    call(db2, 's-1', '2026-09-28T15:00:00.000Z', { mustLearn: ['who signs off'], planOpen: [], tokens: 900, notes: { plan: [{ item: 'who signs off', status: 'open', turn_ids: [] }] } })
+    expect(mustLearnIdeas({ setup: { call_type: 'follow_up', deployment: 'saas' }, memory: accountMemory(db2, ACCOUNT), notesText, now: NOW }).map((i) => i.text)).not.toContain('who signs off')
+    // A Practice call tracks nothing: the line is still offered.
+    const db3 = new Db(':memory:')
+    call(db3, 's-1', '2026-09-28T15:00:00.000Z', { mock: true, mustLearn: ['who signs off'], planOpen: [], notes: { plan: [{ item: 'who signs off', status: 'done', turn_ids: [] }] } })
+    expect(accountMemory(db3, ACCOUNT)!.tracked_learn).toBeUndefined()
+    expect(mustLearnIdeas({ setup: { call_type: 'follow_up', deployment: 'saas' }, memory: accountMemory(db3, ACCOUNT), notesText, now: NOW }).map((i) => [i.text, i.source])[0]).toEqual(['who signs off', 'my_notes'])
   })
 
   it('facts keep what they are about (for "Confirm:")', () => {

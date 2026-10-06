@@ -35,9 +35,12 @@ const SECTION_KIND: Record<string, AccountMemoryKind> = { we_owe: 'promised', th
 /** How a "to_learn" item reads to the model: Keith's own unmet plan, never something they said (pressModes.ts looks for it). */
 export const TO_LEARN_LABEL = 'Keith still wanted to learn'
 
+/** How a "promised" item reads to the model: Keith's side said it, not the other side (keithNotes.ts looks for it). */
+export const PROMISED_LABEL = 'Arize promised'
+
 /** How each kind reads to the model: who said it, in the past tense. */
 const BLOCK_LABEL: Record<AccountMemoryKind, string> = {
-  promised: 'Arize promised', they_owe: 'They said they would', agreed: 'Agreed next step',
+  promised: PROMISED_LABEL, they_owe: 'They said they would', agreed: 'Agreed next step',
   open: 'Still open', wants: 'They wanted', fact: 'They told us',
   // M3 call plan: filled from CallWrapup.plan_open by the call-plan builder.
   to_learn: TO_LEARN_LABEL,
@@ -155,8 +158,6 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
   const seen = new Set<string>()
   // Must-learns a newer call set out to learn again: that call's own plan says whether they're still open.
   const planned = new Set<string>()
-  /** The last call's must-learns still to learn (at most 3), for "Reuse last setup". */
-  let lastOpen: string[] = []
   let wants = 0
   let facts = 0
   const add = (kind: AccountMemoryKind, text: string, date: string, sessionId: string, factKind?: NoteFactKind): void => {
@@ -172,14 +173,17 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     // M4: what a fact is about, so the must-learn ideas can offer to confirm who decides and what they use.
     items.push({ kind, text: t, date, session_id: sessionId, ...(kind === 'fact' && factKind ? { fact_kind: factKind } : {}) })
   }
-  /** M4 faster setup and ideas: the newest call's wrap-up and final notes, as read below. */
-  let lastWrap: Partial<CallWrapup> | null = null
-  let lastNotes: Partial<CallNotes> | null = null
+  const wrapOf = (id: string) => parse<Partial<CallWrapup>>((wrapStmt.get(id) as { wrapup_json: string } | undefined)?.wrapup_json)
+  const notesOf = (id: string) => parse<Partial<CallNotes>>((notesStmt.get(id) as { notes_json: string | null } | undefined)?.notes_json)
+  // M4 faster setup and ideas: "the last call" is the newest one that isn't a Practice (MOCK) call. A
+  // practice run under the same account must not hide the real call (its type, what it left open and
+  // didn't cover, and the date "Filled from" shows). A call with no wrap-up (wrap-ups off) is real.
+  const last = calls.find((c) => wrapOf(c.id)?.mock !== true) ?? calls[0]
   for (const c of calls.slice(0, MEMORY_CALLS)) {
     const date = callDay(c.started_at)
     const found: Array<{ kind: AccountMemoryKind; text: string; factKind?: NoteFactKind }> = []
     // A wrap-up still building or that failed has no items yet; one that can't be read is skipped.
-    const wrap = parse<Partial<CallWrapup>>((wrapStmt.get(c.id) as { wrapup_json: string } | undefined)?.wrapup_json)
+    const wrap = wrapOf(c.id)
     // A Practice-mode (MOCK) wrap-up holds placeholders, not anything said: never "last time".
     for (const it of wrap && wrap.mock !== true && Array.isArray(wrap.items) ? wrap.items : []) {
       const kind = it && typeof it === 'object' ? SECTION_KIND[it.section] : undefined
@@ -188,13 +192,8 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     // M3 call plan: what Keith still wanted to learn when this call ended (same rule: never from a MOCK wrap-up).
     const verdict = !!wrap && wrap.mock !== true
     const open = verdict ? sanitizeMustLearn(wrap!.plan_open) : []
-    if (c === calls[0]) lastOpen = open
     for (const t of open) if (!planned.has(planKey(t))) found.push({ kind: 'to_learn', text: t })
-    const notes = parse<Partial<CallNotes>>((notesStmt.get(c.id) as { notes_json: string | null } | undefined)?.notes_json)
-    if (c === calls[0]) {
-      lastWrap = wrap
-      lastNotes = notes
-    }
+    const notes = notesOf(c.id)
     // Only a must-learn this call's notes tracked, with a real wrap-up, settles an older one: no wrap-up,
     // a MOCK one or notes that never tracked it say nothing about it.
     const tracked = new Set((verdict && Array.isArray(notes?.plan) ? notes.plan : []).map((p) => (p && typeof p.item === 'string' ? planKey(p.item) : '')))
@@ -205,7 +204,11 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     found.sort((a, b) => MEMORY_KINDS.indexOf(a.kind) - MEMORY_KINDS.indexOf(b.kind))
     for (const f of found) add(f.kind, f.text, date, c.id, f.factKind)
   }
-  const last = calls[0]
+  // Read from the last real call itself (it can be further back than the calls listed above).
+  const lastWrap = wrapOf(last.id)
+  const lastNotes = notesOf(last.id)
+  /** The last call's must-learns still to learn (at most 3), for "Reuse last setup" and the fill. */
+  const lastOpen = lastWrap && lastWrap.mock !== true ? sanitizeMustLearn(lastWrap.plan_open) : []
   const lastSetup = cleanSetup(parse<Partial<CallSetup>>(last.setup_json))
   // "Reuse last setup" brings over what the last call still had to learn, not everything it set out to.
   if (lastSetup && lastOpen.length) lastSetup.must_learn = lastOpen
@@ -220,6 +223,9 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     ...lastDeploymentOf(calls),
     next_call_type: nextCallTypeOf(lastWrap),
     ...(lastNotCovered ? { last_not_covered: lastNotCovered } : {}),
+    // M4 ideas: must-learns a real call tracked (answered, or still open and so listed as to_learn), so
+    // a "To learn" line in his notes about one isn't offered again as if nobody had asked it.
+    ...(planned.size ? { tracked_learn: [...planned] } : {}),
   }
 }
 

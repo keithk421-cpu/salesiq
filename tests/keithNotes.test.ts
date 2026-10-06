@@ -130,6 +130,8 @@ describe("HELP's <keith_notes> block", () => {
     expect(rule).toMatch(/not said by anyone on this call, not Arize fact/)
     expect(rule).toMatch(/My understanding is you're on <tool> today\. Is that still right\?/)
     expect(rule).toMatch(/Never say "you mentioned", "you said", "you told us", "I saw", "I noticed" or "I read"/)
+    // ...nor the same claim in other words, or research let slip.
+    expect(rule).toMatch(/any other wording that says they raised or shared it or that Keith looked them up \("you brought up", "as we discussed", "<name> mentioned", "I see you're hiring"\)/)
     expect(rule).toMatch(/never revealed or quoted/)
     // Next to the earlier_calls rule, in the cached system prompt (the same for every press).
     expect(sys.indexOf('keith_notes (when given)')).toBeGreaterThan(sys.indexOf('earlier_calls (when given)'))
@@ -209,6 +211,71 @@ describe('the check: "says they told you something only your notes say"', () => 
       'You mentioned the team is moving off LangSmith?',
       'I saw that GPT-4o does the routing today.',
     ]) expect(keithNotesChecks(card(line), c), line).toEqual([CHECK_NOTES_ONLY])
+  })
+
+  it("Keith's own plan isn't something said: a must-learn or earlier to-learn made from his notes doesn't hide a notes-only claim", () => {
+    // M4: his notes' "To learn" line becomes an idea, then a must-learn chip, then a click mid-call.
+    // The plan line, the earlier calls' "Keith still wanted to learn" and "Arize promised" lines, and the
+    // "Not covered yet" topics are his side's words, so "Quetzalform" is still only in his notes.
+    const claim = card('You mentioned Quetzalform. Is that still right?')
+    const mustLearn = contextWith(NOTES, { must_learn: ['still on Quetzalform?'] })
+    expect(mustLearn).toContain('Keith still wants to learn (his plan for this call): still on Quetzalform?')
+    expect(keithNotesChecks(claim, mustLearn)).toEqual([CHECK_NOTES_ONLY])
+    // The click on the plan line: the request names the must-learn again in its own block.
+    const press = pressUserMessage(mustLearn, null, 'plan_item', { plan_item: 'still on Quetzalform?' })
+    expect(press).toContain('<plan_press')
+    expect(keithNotesChecks(claim, press)).toEqual([CHECK_NOTES_ONLY])
+    const earlier = contextWith(NOTES, { earlier_calls: [
+      { kind: 'to_learn', text: 'Quetzalform migration plans', date: '2026-09-28' },
+      { kind: 'promised', text: 'Send a note on moving off Quetzalform', date: '2026-09-28' },
+    ] })
+    expect(earlier).toContain('Keith still wanted to learn: Quetzalform migration plans')
+    expect(earlier).toContain('Arize promised: Send a note on moving off Quetzalform')
+    expect(keithNotesChecks(claim, earlier)).toEqual([CHECK_NOTES_ONLY])
+    expect(keithNotesChecks(card('Last time you mentioned Quetzalform. How did that go?'), earlier)).toEqual([CHECK_NOTES_ONLY])
+    // Control: when they really did say it, the same card (and the same plan) is fine.
+    const saidIt = contextWith(NOTES, {
+      must_learn: ['still on Quetzalform?'],
+      transcript: [{ t: 0, end: 6, who: 'e1:s0', text: 'Our evals still live in Quetzalform notebooks.' }], help_at_s: 9,
+    })
+    expect(keithNotesChecks(claim, saidIt)).toEqual([])
+    expect(keithNotesChecks(claim, pressUserMessage(saidIt, null, 'plan_item', { plan_item: 'still on Quetzalform?' }))).toEqual([])
+    // ...and so is a "they told us" item from an earlier call.
+    const toldBefore = contextWith(NOTES, { earlier_calls: [{ kind: 'fact', text: 'Evals run in Quetzalform notebooks', date: '2026-09-28' }] })
+    expect(keithNotesChecks(card('Last time you mentioned Quetzalform. Still the case?'), toldBefore)).toEqual([])
+  })
+
+  it('catches the same claim in other words, and research let slip ("I see you\'re hiring")', () => {
+    for (const line of [
+      "I see you're hiring on the ML team. Is that for this project?",
+      'I see that your evals run in Quetzalform. How is that going?',
+      'You brought up Quetzalform earlier, how do you compare runs?',
+      "You've brought up Quetzalform before. Still the plan?",
+      'You shared that you run on Quetzalform. How is that going?',
+      'You noted Quetzalform is homegrown. Who maintains it?',
+      'You raised Quetzalform as a pain point. Where does it hurt?',
+      'You talked about Quetzalform notebooks. Who owns them?',
+      'As we discussed, you\'re on Quetzalform. How is that going?',
+      'Priya mentioned you\'re on Quetzalform. Still true?',
+      'Your team said Quetzalform is staying. Is that right?',
+      'They pointed out Quetzalform is homegrown. Is that a problem?',
+      "You were saying you're on Quetzalform - how is it going?",
+    ]) expect(keithNotesChecks(card(line), ctx), line).toEqual([CHECK_NOTES_ONLY])
+    for (const line of [
+      // His own words, a question about it, or nothing about who said what.
+      'As I mentioned, we can trace Quetzalform runs too. Would that help?',
+      "We talked about tracing earlier. Is Quetzalform where your evals live?",
+      'Has anyone mentioned Quetzalform as a blocker?',
+      'Has anyone else mentioned Quetzalform?',
+      'Has the team shared how Quetzalform scores answers?',
+      'That said, is Quetzalform still in the picture?',
+      'I see. Is Quetzalform where your evals live today?',
+      'I see what you mean. Where do the Quetzalform notebooks fit?',
+      "My understanding is you're on Quetzalform notebooks today. Is that still right?",
+      // They did say it.
+      'You brought up the platform team. Who picks the sample?',
+      'You shared that the platform team looks at a sample every week. How long does it take?',
+    ]) expect(keithNotesChecks(card(line), ctx), line).toEqual([])
   })
 
   it('a speech-to-text split name still counts as said ("Lang Smith" for LangSmith)', () => {
@@ -565,6 +632,36 @@ describe('Copy prep prompt', () => {
     expect(keithNotesBlock(plain)!.used.split('\n').slice(-2).every((l) => l.startsWith('Research (not said by them)'))).toBe(true)
     // Plain text stays as it is.
     expect(plainAnswer('Who: Dana\nResearch (not said by them): six roles')).toBe('Who: Dana\nResearch (not said by them): six roles')
+  })
+
+  it("Claude's lead-in and sign-off around a pasted answer aren't kept as notes; his own unlabelled lines are", () => {
+    const pasted = [
+      "Here's what I found for Brambleway Logistics:",
+      '',
+      '**Who:** Priya Nair, head of data [Notion, Sep 30]',
+      '**Their setup:** LangSmith for traces [Drive, Sep 12]',
+      '**To learn:** who signs off on tools',
+      '',
+      'Let me know if you want more detail on any of these.',
+    ].join('\n')
+    const plain = plainAnswer(pasted)
+    expect(plain).toBe('Who: Priya Nair, head of data [Notion, Sep 30]\nTheir setup: LangSmith for traces [Drive, Sep 12]\nTo learn: who signs off on tools')
+    // So they don't count as lines, reach HELP, or come back in the next prep prompt.
+    expect(noteLines(plain).map((l) => l.label)).toEqual(['Who', 'Their setup', 'To learn'])
+    expect(keithNotesBlock(plain)!.used).not.toMatch(/Here's what I found|Let me know/)
+    const next = prepPrompt({ setup, memory: null, notes: plain, today: new Date(2026, 9, 6) })
+    expect(next).toContain('- Who: Priya Nair, head of data [Notion, Sep 30]')
+    expect(next).not.toMatch(/Here's what I found|Let me know/)
+    for (const end of ['Hope this helps!', '- Want me to dig into any of these?', 'Happy to look further.', "If you'd like, I can check Gong too."]) {
+      expect(plainAnswer(`Who: Priya [Notion, Sep 30]\n${end}`), end).toBe('Who: Priya [Notion, Sep 30]')
+    }
+    // Only Claude's wrapping goes: a line in the middle, a first line that isn't a lead-in, a label
+    // alone on its line, a lone "Nothing new." and text with no labels at all stay as they are.
+    expect(plainAnswer('Who: Priya [Notion]\nCall moved to Thursday\nTo learn: who signs off')).toBe('Who: Priya [Notion]\nCall moved to Thursday\nTo learn: who signs off')
+    expect(plainAnswer('Met Priya at the summit\nWho: Priya [Notion]')).toBe('Met Priya at the summit\nWho: Priya [Notion]')
+    expect(plainAnswer('To learn:\nWho: Priya [Notion]')).toBe('To learn:\nWho: Priya [Notion]')
+    expect(plainAnswer('Nothing new.')).toBe('Nothing new.')
+    expect(plainAnswer("Here's what I found:\nLet me know if you want more.")).toBe("Here's what I found:\nLet me know if you want more.")
   })
 })
 

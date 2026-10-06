@@ -9,7 +9,7 @@
  * Pure: the same inputs always give the same text.
  */
 import type { AccountMemory, AccountMemoryKind, CallSetup, CallType } from '../../shared/help'
-import { NOTE_LABELS } from './accountNotes'
+import { NOTE_LABELS, noteLines } from './accountNotes'
 
 /** The labels the answer may use ("Deal so far" is written by the app after a call, not by research). */
 export const PREP_LABELS = NOTE_LABELS.filter((l) => l !== 'Deal so far')
@@ -70,13 +70,19 @@ export function prepPrompt(o: { setup: CallSetup; memory: AccountMemory | null; 
   return out.join('\n')
 }
 
+/** Claude's usual sign-off under an answer ("Let me know if you want more detail on any of these."). */
+const SIGN_OFF = /^(?:let me know|hope (?:this|that) helps|happy to|want me to|feel free|would you like|if you(?:'d| would)? (?:like|want))\b/i
+
 /**
  * A pasted answer made readable to the notes reader: Claude often answers in Markdown anyway
  * ("- **Who:** Dana", "## Prep notes"), and a label in bold isn't a label to noteLines. Strips bold and
- * headings, and reads a bare "Research:" as the research label. Pure; the box runs it on paste.
+ * headings, and reads a bare "Research:" as the research label. When the answer has labelled lines,
+ * Claude's own lead-in ("Here's what I found for Larkspur:") and sign-off ("Let me know if you want
+ * more detail") go too: they aren't notes, and would count as lines, go to HELP and come back in the
+ * next prep prompt. Any other unlabelled line stays (Keith may have typed it). Pure; the box runs it on paste.
  */
 export function plainAnswer(text: string): string {
-  return text
+  const lines = text
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((l) =>
@@ -85,5 +91,17 @@ export function plainAnswer(text: string): string {
         .replace(/\*\*|__/g, '')
         .replace(/^(\s*(?:[-*•]|\d+[.)])?\s*)Research\s*:/i, '$1Research (not said by them):'),
     )
-    .join('\n')
+  const labelled = (l: string) => (noteLines(l)[0]?.label ?? null) !== null
+  // A label alone on its line ("To learn:" over a list) is his, not a lead-in.
+  const bare = (l: string) => l.replace(/^\s*(?:[-*•]|\d+[.)])?\s*/, '')
+  const startsWithLabel = (l: string) => NOTE_LABELS.some((x) => bare(l).toLowerCase().startsWith(x.toLowerCase()))
+  if (!lines.some(labelled)) return lines.join('\n')
+  const filled = lines.flatMap((l, i) => (l.trim() ? [i] : []))
+  const first = filled[0]
+  const last = filled[filled.length - 1]
+  const drop = new Set<number>()
+  if (!labelled(lines[first]) && !startsWithLabel(lines[first]) && /:\s*$/.test(lines[first])) drop.add(first)
+  if (last !== first && !labelled(lines[last]) && SIGN_OFF.test(bare(lines[last]))) drop.add(last)
+  if (!drop.size) return lines.join('\n')
+  return lines.filter((_, i) => !drop.has(i)).join('\n').replace(/\n{3,}/g, '\n\n').trim()
 }

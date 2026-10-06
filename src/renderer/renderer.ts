@@ -668,7 +668,8 @@ $('retention').addEventListener('change', async () => {
   void renderCallsInfo()
 })
 $('deleteAll').addEventListener('click', async () => {
-  if (!confirm("Delete every saved call from this PC? Transcripts, HELP cards and notes are removed. This can't be undone.")) return
+  // Say plainly what goes: "notes" alone would read as What I know too, which is his and is kept.
+  if (!confirm('Delete every saved call from this PC? Their transcripts, HELP cards, call notes and wrap-ups are removed. Your "What I know" notes for each account are kept (Clear them in that account\'s box). This can\'t be undone.')) return
   const r = (await api.deleteAllCalls()) as { ok: boolean; deleted: number; error?: string }
   if (!r.error && (sessionState === 'stopped' || sessionState === 'idle')) {
     lastCallDeleted = true

@@ -130,7 +130,8 @@ export function initAccountMemory(api: CopilotApi): void {
   /** After the typed account was looked up: fill the rest in from its earlier calls (see the top). */
   function autoFill(): void {
     if (inCall) return
-    if (filled && filled.key === shownKey) return
+    // Same account, same fill, unless the calls it came from were deleted: then it goes back too.
+    if (filled && filled.key === shownKey && memory) return
     // A different account now: what came from the last one goes back (a hand change would have ended
     // the fill already; must-learns Keith added since stay).
     if (filled) {

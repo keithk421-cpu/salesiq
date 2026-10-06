@@ -144,9 +144,11 @@ export function initWrapup(api: CopilotApi): void {
 
   /**
    * "Learn next time": Keith's must-learns the call ended without (M3 call plan) and what he adds here
-   * (M4); the next call with them shows them too, unless he removes one.
+   * (M4); the next call with them shows them too, unless he removes one. A Practice (MOCK) call never
+   * feeds the next one, so it says so and offers nothing to add (its notes list every topic as not covered).
    */
   function stillToLearn(xs: string[], w: CallWrapup): string {
+    const practice = w.mock === true
     const full = xs.length >= MUST_LEARN_MAX
     const listed = new Set(xs.map(planKey))
     // This call's not-covered topics, in plain words, as one-click adds (read defensively: older wrap-ups have none).
@@ -155,9 +157,9 @@ export function initWrapup(api: CopilotApi): void {
       .filter((t): t is string => !!t && !listed.has(planKey(t)))
       .slice(0, 4)
     return `<section class="wu-sec wu-learn">
-      <div class="wu-sec-head"><span class="nt-h">Learn next time</span><span class="muted small">for your next call with them</span></div>
+      <div class="wu-sec-head"><span class="nt-h">Learn next time</span><span class="muted small">${practice ? 'Practice mode: not kept for next time' : 'for your next call with them'}</span></div>
       ${xs.length ? `<ul class="wu-learn-list">${xs.map((x) => `<li><span>${esc(x)}</span><button class="icon-btn wu-learn-x" data-learn="${esc(x)}" title="Remove: you got this">✕</button></li>`).join('')}</ul>` : ''}
-      ${full ? '' : `<div class="wu-learn-add">${offers.map((t) => `<button type="button" class="wu-learn-offer" data-offer="${esc(t)}" title="Not covered on this call">+ ${esc(t)}</button>`).join('')}<input class="input wu-learn-new" maxlength="${MUST_LEARN_MAX_CHARS}" value="${esc(learnDraft)}" placeholder="Add one · Enter" aria-label="Add something to learn next time" /></div>`}
+      ${full || practice ? '' : `<div class="wu-learn-add">${offers.map((t) => `<button type="button" class="wu-learn-offer" data-offer="${esc(t)}" title="Not covered on this call">+ ${esc(t)}</button>`).join('')}<input class="input wu-learn-new" maxlength="${MUST_LEARN_MAX_CHARS}" value="${esc(learnDraft)}" placeholder="Add one · Enter" aria-label="Add something to learn next time" /></div>`}
     </section>`
   }
 

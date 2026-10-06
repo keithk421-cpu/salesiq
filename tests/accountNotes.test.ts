@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ACCOUNT_NOTES_MAX_CHARS } from '../src/shared/help'
 import { Db } from '../src/main/db'
 import { deleteCall } from '../src/main/retention'
-import { accountsWithNotes, getAccountNotes, noteLines, notesToLearn, prependAccountNotes, setAccountNotes } from '../src/main/help/accountNotes'
+import { accountsWithNotes, getAccountNotes, nearAccountName, noteLines, notesToLearn, prependAccountNotes, setAccountNotes } from '../src/main/help/accountNotes'
 
 /** Invented accounts and notes: none of this is a real company, person or product fact. */
 describe('"What I know" notes per account', () => {
@@ -55,5 +55,24 @@ describe('"What I know" notes per account', () => {
       'who signs off', 'SaaS or self-hosted', 'timeline to decide',
     ])
     expect(notesToLearn('')).toEqual([])
+  })
+
+  it('the same account typed a little differently (a typo fixed, a word added) is near; another account is not', () => {
+    for (const [a, b] of [
+      ['Bramblway Logistics', 'Brambleway Logistics'],
+      ['Brambleway Logistics', 'Brambleway Logistics (EU)'],
+      ['Brambleway Logistics', 'Brambleway'],
+      ['Larkspur Helth', 'larkspur health'],
+      ['Larkspur Health', 'Larkspur Heatlh'],
+    ]) expect(nearAccountName(a, b), `${a} / ${b}`).toBe(true)
+    for (const [a, b] of [
+      ['Acme', 'Initech'],
+      ['Larkspur Health', 'Larkspur Health'],
+      ['Larkspur Health', '  larkspur   health '],
+      ['Acme Bio', 'Acme Bank'],
+      ['Larkspur Health', 'Brambleway Logistics'],
+      ['', 'Acme'],
+      ['Ab', 'Abc'],
+    ]) expect(nearAccountName(a, b), `${a} / ${b}`).toBe(false)
   })
 })

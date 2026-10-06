@@ -213,7 +213,13 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
     const whole = wholeItem(raw)
     const text = shortItem(whole, MUST_LEARN_IDEA_MAX_CHARS)
     const k = planKey(whole)
-    if (!k || have.has(k)) return
+    if (!k) return
+    if (have.has(k)) {
+      // Already a must-learn or an idea above (a still-to-learn item in the same words, say): its topic
+      // counts as offered, so a starter on it ("who signs and how") doesn't show as a near-duplicate.
+      if (topic) offered.add(topic)
+      return
+    }
     if (topic && (offered.has(topic) || covered(topic))) return
     have.add(k)
     if (topic) offered.add(topic)
@@ -230,7 +236,13 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
   for (const it of items) {
     if (it.kind === 'fact' && it.fact_kind && CONFIRM_KINDS.has(it.fact_kind)) add(`Confirm: ${lowerFirst(it.text.replace(/[.\s]+$/, ''))}`, 'confirm', it.date, `Said on the ${day(it.date)} call, may have changed: ${it.text}`)
   }
-  for (const t of notesToLearn(typeof notesText === 'string' ? notesText : '')) add(t, 'my_notes', null, 'From your notes (What I know)')
+  // A "To learn" line about a must-learn a later call already took on (answered it, or Keith removed it
+  // after) isn't offered again: "For next time" wrote it, and nothing takes it back out of his notes.
+  // One still open is offered above, dated, as a still-to-learn item.
+  const tracked = new Set(Array.isArray(memory?.tracked_learn) ? memory.tracked_learn : [])
+  for (const t of notesToLearn(typeof notesText === 'string' ? notesText : '')) {
+    if (!tracked.has(planKey(wholeItem(t)))) add(t, 'my_notes', null, 'From your notes (What I know)')
+  }
   if ((setup?.deployment ?? 'unknown') === 'unknown') add('SaaS or self-hosted', 'deployment', null, 'Deployment is set to "not sure"')
   const type: CallType = setup?.call_type && STARTERS[setup.call_type] ? setup.call_type : 'discovery'
   let starters = 0

@@ -80,6 +80,27 @@ export function prependAccountNotes(db: Db, account: unknown, lines: unknown, no
   return setAccountNotes(db, name, all, now)
 }
 
+/**
+ * The same account typed a little differently: a typo fixed ("Bramblway" -> "Brambleway"), or a word
+ * added or taken off ("Brambleway" -> "Brambleway (EU)"). The notes box asks whether to move notes
+ * Keith just wrote under the old spelling only then, so two different accounts never trade notes.
+ */
+export function nearAccountName(a: string, b: string): boolean {
+  const x = accountKey(a)
+  const y = accountKey(b)
+  if (!x || !y || x === y) return false
+  if (x.includes(y) || y.includes(x)) return Math.min(x.length, y.length) >= 3
+  // At most 2 letters added, dropped or changed (edit distance), for names of 5 letters or more.
+  if (Math.min(x.length, y.length) < 5 || Math.abs(x.length - y.length) > 2) return false
+  let prev = Array.from({ length: y.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= x.length; i++) {
+    const row = [i]
+    for (let j = 1; j <= y.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1))
+    prev = row
+  }
+  return prev[y.length] <= 2
+}
+
 /** Every account with notes, keyed by accountKey (for listing; the text stays in the database). */
 export function accountsWithNotes(db: Db): Array<{ account: string; updated_at: string }> {
   return db.sql.prepare('SELECT account, updated_at FROM account_notes ORDER BY updated_at DESC').all() as unknown as Array<{ account: string; updated_at: string }>

@@ -166,6 +166,17 @@ export function initCallPlan(api: CopilotApi): void {
   for (const id of ['csAccount', 'csType', 'csDeploy']) $(id).addEventListener('change', refreshIdeas)
   // The "What I know" box saved his notes (its "To learn" lines are ideas too).
   window.addEventListener('copilot:account-notes', refreshIdeas)
+  // Saved calls were deleted (by Keith or by the keep-calls limit): the ideas from them go at once,
+  // so a click can't make something he just deleted a must-learn.
+  api.onCallsDeleted(() => refreshIdeas())
+  // The last call's wrap-up landing (it can finish after the next setup began): what it left to learn
+  // and didn't cover are ideas now. Once when it's done, not on each of Keith's edits.
+  let wrapStatus: string | null = null
+  api.onWrapup((w) => {
+    const status = (w as { status?: string } | null)?.status ?? null
+    if (status !== wrapStatus && status === 'ready') refreshIdeas()
+    wrapStatus = status
+  })
 
   async function reload(): Promise<void> {
     // The box is for the next call now: text typed but never added doesn't look carried over.

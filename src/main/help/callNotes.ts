@@ -206,6 +206,8 @@ export function notesForModel(n: CallNotes, lineOf: (turnId: string) => string |
 export const FACT_LABEL: Record<NoteFactKind, string> = {
   timeline: 'timeline', decision_process: 'decision', current_tooling: 'tools', success_criteria: 'success criteria', team: 'team', budget: 'budget', other: '',
 }
+/** The call_notes line listing the topics not covered yet: fixed words from the app, not anything said (keithNotes.ts). */
+export const NOT_COVERED_SECTION_LABEL = 'Not covered yet'
 export const NOT_COVERED_LABEL: Record<NotCoveredTopic, string> = {
   timeline: 'timeline', decision_process: 'decision process', current_tooling: 'current tools', success_criteria: 'success criteria',
 }
@@ -247,7 +249,7 @@ export function callNotesBlock(
     { label: 'Concerns they raised', pieces: n.concerns.map((x) => p(x)) },
     { label: 'They want', pieces: n.buyer_wants.map((x) => p(x)) },
     { label: 'Next steps', pieces: n.next_steps.map((s) => p(s, s.status === 'agreed' ? 'agreed: ' : 'proposed, not agreed: ')) },
-    { label: 'Not covered yet', pieces: n.not_covered.map((k) => ({ text: NOT_COVERED_LABEL[k], turnId: null })) },
+    { label: NOT_COVERED_SECTION_LABEL, pieces: n.not_covered.map((k) => ({ text: NOT_COVERED_LABEL[k], turnId: null })) },
     { label: 'Topic now', pieces: n.topic ? [p(n.topic)] : [] },
   ]
   const head = usable

@@ -415,6 +415,8 @@ export interface AccountMemory {
   next_call_type?: CallType
   /** M4 must-learn ideas: topics the last call's final notes listed as not covered yet (absent: no notes, or a Practice call). */
   last_not_covered?: NotCoveredTopic[]
+  /** M4 ideas: planKeys of must-learns a call with a real wrap-up tracked (answered, or still open and so already a to_learn item). */
+  tracked_learn?: string[]
 }
 
 // ---------------- M4: prep before the call ----------------

@@ -12,7 +12,10 @@
  */
 import type { HelpCardContent } from '../../shared/help'
 import { KEITH_NOTES_BLOCK_MAX_CHARS } from '../../shared/help'
+import { PROMISED_LABEL, TO_LEARN_LABEL } from './accountMemory'
 import { noteLines } from './accountNotes'
+import { NOT_COVERED_SECTION_LABEL } from './callNotes'
+import { PLAN_SECTION_LABEL } from './callPlan'
 
 const HEAD = '<keith_notes note="Keith\'s own notes and research from before this call: not said by anyone on this call, not Arize fact, may be out of date">'
 const TAIL = '</keith_notes>'
@@ -74,10 +77,26 @@ export function keithNotesBlock(text: unknown): { text: string; used: string } |
 // ---------------------------------------------------------------- the Level 1 check
 
 /**
- * Wording that says the other side told Keith something, or that he looked them up. A question about
- * it ("Have you mentioned this to Dana?", "Did I read that right?") isn't saying so.
+ * Wording that says the other side told Keith something, or that he looked them up: "you mentioned /
+ * said / told us", and the same claim in other words ("you brought up", "you shared", "you were
+ * saying", "as we discussed", "Priya mentioned", "your team said") and research let slip ("I saw",
+ * "I see you're hiring"). A question about it ("Have you mentioned this to Dana?", "Has the team
+ * shared it?", "Has anyone mentioned it?", "Did I read that right?") isn't saying so, and nor are his
+ * own words ("As I mentioned", "We talked about"), "That said, ..." or a plain "I see."
  */
-const TOLD = /(?<!\b(?:have|had|has|did|do|does)\s)\b(?:(?:as |what |like )?you(?:'ve|'d| have| had)? (?:mentioned|said|told (?:us|me))|I (?:saw|noticed|read))\b/i
+const TOLD_VERB = String.raw`(?:mentioned|said|told (?:us|me)|brought up|shared|noted|raised|flagged|talked about|were saying|pointed out)`
+/** Words before a "said" that aren't the other side: Keith's own side, a question's "anyone", or "that said". */
+const NOT_A_TELLER = String.raw`(?:I|we|who|anyone|anybody|nobody|someone|somebody|everyone|else|one|that|this|it|which|well|enough|fair|point|having)`
+const TOLD = new RegExp(
+  String.raw`(?<!\b(?:have|had|has|did|do|does)\s(?:(?:the|your|their)\s)?)\b(?:` +
+    // "you mentioned", "as you said", "they brought up", "your team shared", "Priya mentioned" (any one word but the ones above)
+    String.raw`(?:as |what |like )?(?:you|they|your team|(?!${NOT_A_TELLER}\b)\p{L}[\p{L}'-]*)(?:'ve|'d| have| had)? ${TOLD_VERB}` +
+    String.raw`|as (?:we|you) (?:discussed|said|mentioned)` +
+    // "I saw", "I noticed", "I read", and "I see you're / your team ..." (not "I see." or "I see what you mean")
+    String.raw`|I (?:saw|noticed|read|see(?= (?:that )?(?:you|your|they|their)\b))` +
+    String.raw`)\b`,
+  'iu',
+)
 
 /** Small words that say nothing about where a fact came from. */
 const COMMON = new Set(`
@@ -107,6 +126,18 @@ function blocks(contextText: string, tag: string): string[] {
 const SAID_BLOCKS = ['last_30_seconds', 'recent_thread', 'earlier_in_call', 'call_notes', 'earlier_calls']
 
 /**
+ * Lines in those blocks that nobody on the other side said: Keith's plan for this call ("Keith still
+ * wants to learn ..."), the topics not covered yet (fixed words from the app), and from earlier calls
+ * what he still wanted to learn and what Arize promised. M4 turns his notes' "To learn" lines into
+ * must-learns, so without this a word from his notes would count as said just because he plans to ask
+ * about it, and "You mentioned <it>" would get through.
+ */
+function notTheirs(line: string): boolean {
+  return line.startsWith(`${PLAN_SECTION_LABEL}: `) || line.startsWith(`${NOT_COVERED_SECTION_LABEL}: `) ||
+    line.includes(` · ${TO_LEARN_LABEL}: `) || line.includes(` · ${PROMISED_LABEL}: `)
+}
+
+/**
  * The card's check: one of ASK/SAY or FOLLOW says they told Keith (or he saw) something whose words
  * are only in his notes. Words that are also in something said (this call or an earlier one) are
  * fine: "You mentioned evals earlier" about evals they talked about is true. Read from the request's
@@ -118,7 +149,7 @@ export function keithNotesChecks(card: Pick<HelpCardContent, 'primary' | 'follow
   // What the notes say, without their labels, dates and [source, date]: "You mentioned your setup..."
   // isn't from his notes just because a line starts "Their setup ·".
   const notes = block.split('\n').map((l) => (noteLines(l)[0]?.text ?? '').replace(/\[[^\]]*\]/g, ' ')).join('\n')
-  const said = SAID_BLOCKS.flatMap((t) => blocks(contextText, t)).join('\n')
+  const said = SAID_BLOCKS.flatMap((t) => blocks(contextText, t)).join('\n').split('\n').filter((l) => !notTheirs(l)).join('\n')
   const saidWords = new Set(words(said).map(stem))
   // Speech-to-text splits names ("Lang Smith"): a long word also counts as said when it's there without the space.
   const saidRun = said.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')

@@ -7,10 +7,17 @@
  * Open before Start; during the call it folds to one line ("What I know · 6 lines") he can open, and
  * folds again when a HELP card comes, as the Last time box does. Kept in its own file: renderer.ts
  * only calls initAccountNotes().
+ *
+ * A typo fixed in the account name after he wrote notes ("Bramblway" -> "Brambleway") would leave them
+ * under the old spelling, where nothing shows them. So when the new name has no notes, is the old one
+ * typed a little differently, and the old one's notes were started in this box since the app opened,
+ * the box asks once: "Your notes are under “Bramblway Logistics”. Move them here?" Nothing moves
+ * unless he clicks Move; notes he had before, or another account's, are never offered.
  */
 import type { CopilotApi } from '../preload/preload'
 import type { AccountNotes } from '../shared/help'
 import { ACCOUNT_NOTES_MAX_CHARS, accountKey } from '../shared/help'
+import { nearAccountName } from '../main/help/accountNotes'
 import { plainAnswer } from '../main/help/prepPrompt'
 
 const IN_CALL = new Set(['checking', 'live', 'paused', 'stopping'])
@@ -18,6 +25,7 @@ const IN_CALL = new Set(['checking', 'live', 'paused', 'stopping'])
 export const NOTES_EVENT = 'copilot:account-notes'
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T
+const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 
 /** "Oct 6" (with the year when it isn't this year). */
 function dayLabel(iso: string | null): string {
@@ -75,6 +83,10 @@ export function initAccountNotes(api: CopilotApi): void {
   /** One line: from Start until Keith opens it, or whenever he folds it. */
   let folded = false
   let lastCardId = ''
+  /** Accounts whose notes were started in this box since the app opened (they had none before). */
+  const startedHere = new Set<string>()
+  /** Notes just left behind under a name that was then changed: offered once to the new name. */
+  let stray: { account: string } | null = null
 
   const dirty = () => !!notes && text.value !== notes.text
 
@@ -133,6 +145,8 @@ export function initAccountNotes(api: CopilotApi): void {
         say("That didn't save. Try again.")
         return
       }
+      if (!n.text && saved.text) startedHere.add(accountKey(n.account))
+      if (!saved.text) startedHere.delete(accountKey(n.account))
       if (notes === n) {
         notes = { ...saved, account: n.account }
         // Show what was kept (trimmed, at most the limit), unless he typed on meanwhile (saved when he leaves).
@@ -157,6 +171,9 @@ export function initAccountNotes(api: CopilotApi): void {
     const changed = key !== shownKey
     // Edits not saved yet belong to the account they were typed for.
     if (changed && dirty()) await save(true)
+    // Leaving notes he started here: if the new name turns out to be the same account typed a little
+    // differently, ask (below). It lasts through the names in between while he types.
+    if (changed && notes?.text && startedHere.has(accountKey(notes.account))) stray = { account: notes.account }
     shownKey = key
     const mine = ++seq
     const n = key ? await api.notesGet(name) : null
@@ -164,9 +181,37 @@ export function initAccountNotes(api: CopilotApi): void {
     notes = n ? { ...n, account: name } : null
     // Reloading the same account never replaces what he's typing.
     if (changed || document.activeElement !== text) text.value = n?.text ?? ''
+    // Back on that name, or this one has notes of its own: nothing to offer (never merged).
+    if (stray && (accountKey(stray.account) === key || n?.text)) stray = null
     say('')
+    if (changed && stray && n && nearAccountName(stray.account, name)) {
+      $('akMsg').innerHTML = `Your notes are under “${esc(stray.account)}”. Move them here? <button type="button" class="link" data-move="yes">Move</button> · <button type="button" class="link" data-move="no">No</button>`
+    }
     cancelClear()
     render()
+  }
+
+  /** Move the notes left under the old spelling to the account shown now (only on his click). */
+  async function move(): Promise<void> {
+    const from = stray
+    const to = notes
+    stray = null
+    say('')
+    if (!from || !to || text.value.trim()) return
+    // What's saved now, not what the box had: and never over notes this account got meanwhile.
+    const [src, dst] = await Promise.all([api.notesGet(from.account), api.notesGet(to.account)])
+    if (!src?.text || dst?.text || notes !== to) return
+    const saved = await api.notesSet(to.account, src.text)
+    if (!saved?.text) {
+      say("That didn't move. Try again.")
+      return
+    }
+    await api.notesSet(from.account, '')
+    startedHere.delete(accountKey(from.account))
+    startedHere.add(accountKey(to.account))
+    await check(true)
+    say('Moved')
+    window.dispatchEvent(new CustomEvent(NOTES_EVENT, { detail: { account: to.account, from: 'box' } }))
   }
 
   function cancelClear(): void {
@@ -177,8 +222,19 @@ export function initAccountNotes(api: CopilotApi): void {
   input.addEventListener('input', () => void check())
   input.addEventListener('change', () => void check())
   text.addEventListener('input', () => {
+    // Writing new notes here answers the move question: no.
+    stray = null
     say('')
     render()
+  })
+  $('akMsg').addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-move]')
+    if (!b) return
+    if (b.dataset.move === 'yes') void move()
+    else {
+      stray = null
+      say('')
+    }
   })
   // A pasted answer in Markdown (bold labels, headings) is made plain, so its labels read as labels.
   text.addEventListener('paste', (e) => {
