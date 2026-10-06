@@ -62,7 +62,9 @@ describe('which press is a must-learn click', () => {
     const quiet = memoryWith([{ who: 'buyer', text: 'Hi, thanks for making the time.', at: 20_000 }])
     expect(decidePress('help_requested', quiet, 25_000, null, [], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM } })
     const sig = memoryWith([{ who: 'buyer', text: 'Can we do a pilot first?', at: 60_000 }])
-    expect(decidePress('help_requested', sig, 65_000, prior, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM } })
+    expect(decidePress('help_requested', sig, 65_000, null, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM } })
+    // The same must-learn clicked again for the same moment (the engine decides that): the card he already has comes too.
+    expect(decidePress('help_requested', sig, 65_000, prior, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM, prior, earlier: [prior] } })
     const closing = memoryWith([{ who: 'buyer', text: 'This was great. I have a hard stop in two minutes.', at: 60_000 }])
     expect(decidePress('help_requested', closing, 65_000, null, [], ITEM).mode).toBe('plan_item')
     // The WRAP button is its own origin: unchanged.
@@ -84,7 +86,12 @@ describe('the <plan_press> block', () => {
     expect(u.startsWith(ctx)).toBe(true)
     expect(u).toContain(`<plan_press>\nKeith clicked one of his must-learns for this call: "${ITEM}". He wants one natural way to get there from where the talk is now.`)
     expect(u).toMatch(/If they just asked something or raised a concern, answer or handle that first \(the normal rules\) and put the bridge to it in FOLLOW/)
-    expect(u).toMatch(/If they are mid-answer \(their words are still being transcribed[^)]*\), SAY to let them finish/)
+    // Mid-answer: the question he clicked for stays the big line; the cue to wait is in HAPPENING.
+    expect(u).toMatch(/If they are mid-answer \(their words are still being transcribed[^)]*\), still ASK the question he clicked for, ready for when they finish, and say in HAPPENING: "They're still talking - let them finish first\."/)
+    expect(block(u)).not.toMatch(/SAY to let them finish|"Let them finish first\."/)
+    // Already answered (the notes may lag): never asked again; confirm and go deeper on their words.
+    expect(u).toContain("- If the transcript shows they already answered it (the notes may lag), don't ask it again: ASK one question that confirms it and goes one step deeper on their own words (for example who else weighs in), and say in HAPPENING that they answered it.")
+    expect(block(u)).not.toContain('He already has')
     expect(u).toMatch(/one natural question in Keith's voice that gets there from the current topic/)
     expect(u).toMatch(/never imply they mentioned it, raised it or need it, and assume no pain, problem, urgency or deadline/)
     expect(u).toMatch(/Asked is not answered: if Keith already asked it on this call and they didn't answer, ask it a different way/)
@@ -119,6 +126,14 @@ describe('the <plan_press> block', () => {
     expect(savedPress({ press_mode: 'plan_item', press_plan_item: ITEM }, null, () => undefined)).toEqual({ press_mode: 'plan_item', press_detail: { plan_item: ITEM } })
     expect(savedPress({ press_mode: 'plan_item', press_plan_item: ['x'] }, null, () => undefined)).toEqual({ press_mode: 'plan_item' })
     expect(savedPress({ press_mode: 'opening', press_plan_item: ITEM }, null, () => undefined)).toEqual({ press_mode: 'opening' })
+    // Clicked again: the card it was clicked on comes back by its id; another angle on a must-learn card keeps the item.
+    const cards: Record<string, { card_json: string; timing_json: string }> = {
+      r1: { card_json: JSON.stringify({ move: 'identify_owner', primary_kind: 'ask', primary: 'Who has the final say?' }), timing_json: JSON.stringify({ press_mode: 'plan_item', press_plan_item: ITEM }) },
+    }
+    const prior = { move: 'identify_owner', primary_kind: 'ask', primary: 'Who has the final say?' }
+    expect(savedPress({ press_mode: 'plan_item', press_plan_item: ITEM, angle_of: 'r1' }, null, (id) => cards[id])).toEqual({ press_mode: 'plan_item', press_detail: { plan_item: ITEM, prior } })
+    expect(savedPress({ press_mode: 'another_angle', press_plan_item: ITEM, angle_of: 'r1' }, null, (id) => cards[id])).toEqual({ press_mode: 'another_angle', press_detail: { plan_item: ITEM, prior } })
+    expect(savedPress({ press_mode: 'plan_item', press_plan_item: ITEM, angle_of: 'gone' }, null, (id) => cards[id])).toEqual({ press_mode: 'plan_item', press_detail: { plan_item: ITEM } })
   })
 
   it('Practice mode (MOCK) answers it with a line toward the item', async () => {
@@ -174,11 +189,68 @@ describe('the engine', () => {
     s.advance(3000)
     s.engine.press()
     expect(pressModeOf(m.calls[2].user)).toBe('another_angle')
+    // ...and stays on that must-learn.
+    expect(m.calls[2].user).toContain(`- That card was his way to get to one of his must-learns: "${ITEM}". Stay on that must-learn: a different way to get there.`)
+    expect(planItemOf(m.calls[2].user)).toBeNull()
     expect(s.db.sql.prepare("SELECT card_id FROM feedback WHERE type = 'passed'").all()).toEqual([{ card_id: id }])
     // The WRAP button ignores an item it's given.
     s.engine.press('wrap_requested', { planItem: ITEM })
     expect(isWrapRequest(m.calls[3].user)).toBe(true)
     expect(m.calls[3].user).not.toContain('<plan_press>')
+  })
+
+  it('the same must-learn clicked again for the same moment names the line he already has; marks it passed', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    const first = s.engine.press('help_requested', { planItem: ITEM })
+    await answer(m, 0, PLAN_CARD)
+    s.advance(4000)
+    // Matched like the plan line matches it (case and punctuation don't matter).
+    const second = s.engine.press('help_requested', { planItem: 'who signs off on new tools?' })
+    expect(pressModeOf(m.calls[1].user)).toBe('plan_item')
+    expect(block(m.calls[1].user)).toContain('He clicked it again for the same moment: nothing new was said since. He already has: MOVE identify_owner; ASK "When a change like that comes up, who has the final say?"')
+    expect(block(m.calls[1].user)).toContain('- Give a different way in to the same must-learn (another angle or a narrower part of it), not a rewording of that line.')
+    expect(m.calls[1].user).not.toContain('<another_angle>')
+    expect(planItemOf(m.calls[1].user)).toBe('who signs off on new tools?')
+    expect(s.db.sql.prepare("SELECT card_id, type FROM feedback").all()).toEqual([{ card_id: first, type: 'passed' }])
+    await answer(m, 1, CARD)
+    const row = s.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(second) as { timing_json: string }
+    expect(JSON.parse(row.timing_json)).toMatchObject({ press_mode: 'plan_item', angle_of: first })
+    // A third click: the first line is one he passed on too.
+    s.advance(3000)
+    s.engine.press('help_requested', { planItem: ITEM })
+    expect(block(m.calls[2].user)).toContain('He already has: MOVE clarify_current_state; ASK "Who looks at the weekly sample with the platform team?"\nHe already passed on: MOVE identify_owner; ASK "When a change like that comes up, who has the final say?"')
+    // Logs carry ids and codes only, never the item or either line.
+    expect(s.logs.find((l) => l.e === 'help_press' && l.d?.request_id === second)?.d).toMatchObject({ press_mode: 'plan_item', angle_of: first })
+    expect(JSON.stringify(s.logs)).not.toMatch(/signs off|new tools|final say|weekly sample/i)
+  })
+
+  it('must not match: a different must-learn, something new said, too soon or too late is a plain must-learn press', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    const plain = (i: number) => {
+      expect(pressModeOf(m.calls[i].user)).toBe('plan_item')
+      expect(block(m.calls[i].user)).not.toContain('He already has')
+    }
+    s.engine.press('help_requested', { planItem: ITEM })
+    await answer(m, 0, PLAN_CARD)
+    s.advance(3000)
+    s.engine.press('help_requested', { planItem: 'How evals run today' })
+    plain(1)
+    await answer(m, 1, PLAN_CARD)
+    s.advance(3000)
+    s.say('Mostly the platform team, honestly.')
+    s.engine.press('help_requested', { planItem: 'How evals run today' })
+    plain(2)
+    await answer(m, 2, PLAN_CARD)
+    s.advance(1000)
+    s.engine.press('help_requested', { planItem: 'How evals run today' })
+    plain(3)
+    await answer(m, 3, PLAN_CARD)
+    s.advance(25_000)
+    s.engine.press('help_requested', { planItem: 'How evals run today' })
+    plain(4)
+    expect(s.db.sql.prepare('SELECT COUNT(*) AS n FROM feedback').get()).toEqual({ n: 0 })
   })
 
   it('keeps the item with the request and logs only the kind of press', async () => {
@@ -220,6 +292,21 @@ describe('practice moments replay the same must-learn press', () => {
     expect(res.card?.primary).toMatch(/^\[MOCK\] To get to Who signs off/)
     // Re-saving keeps it; a hand-edited moment with a broken item replays without one, still as a must-learn press.
     expect(refreshFeedback({ ...b.moment, press_mode: undefined, press_detail: undefined }, b.moment).press_detail).toEqual({ plan_item: ITEM })
+    // A must-learn clicked again replays with the line he already had (from the card it was clicked on).
+    s.advance(3000)
+    vi.useFakeTimers()
+    const again = s.engine.press('help_requested', { planItem: ITEM })
+    m.calls[1].send(CARD)
+    m.calls[1].finish()
+    await vi.advanceTimersByTimeAsync(0)
+    vi.useRealTimers()
+    const a = buildPracticeMoment(s.db, again)
+    if (!a.ok) throw new Error(a.reason)
+    expect(a.moment).toMatchObject({ press_mode: 'plan_item', press_detail: { plan_item: ITEM, prior: { move: 'identify_owner', primary_kind: 'ask', primary: 'When a change like that comes up, who has the final say?' } } })
+    const againModel = new Capturing(0)
+    const againRes = await runScenario(a.moment, againModel, DEFAULT_HELP_CONFIG, playbook)
+    expect(block(againModel.users[0])).toBe(block(m.calls[1].user))
+    expect(againRes.card?.primary).toMatch(/^\[MOCK\] Another way to Who signs off/)
     const broken = new Capturing(0)
     await runScenario({ ...b.moment, press_detail: { plan_item: 7 as unknown as string } }, broken, DEFAULT_HELP_CONFIG, playbook)
     expect(broken.users[0]).toContain('one of the "must learn" items in call_setup')

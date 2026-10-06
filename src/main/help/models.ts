@@ -347,6 +347,8 @@ function mockPress(user: string): { move: string; line: string; follow: string }
     case 'plan_item': {
       // The must-learn Keith clicked, cut short so the line stays inside the card's word limit.
       const item = planItemOf(user)
+      // Clicked again for the same moment: a different placeholder, so Practice mode shows the line change.
+      if (/<plan_press>[\s\S]*?He already has:/.test(user)) return { move: 'identify_owner', line: `ASK: [MOCK] Another way to ${item ? shortItem(item) : 'your must-learn'}: who else weighs in?`, follow: '-' }
       return { move: 'clarify_current_state', line: `ASK: [MOCK] To get to ${item ? shortItem(item) : 'your must-learn'}: how does that work?`, follow: '-' }
     }
     default:

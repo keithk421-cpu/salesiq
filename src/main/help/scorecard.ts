@@ -28,7 +28,7 @@ export interface HelpScorecard {
   tokens: { input: number; output: number; cache_read: number }
   feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
-  /** Smarter presses (M3) among the requests Keith saw, and the cards he pressed again on for another angle ("passed": not a rating); plan_item: must-learn clicks (M4). */
+  /** Smarter presses (M3) among the requests Keith saw, and the cards he pressed again on for another angle or clicked the same must-learn again on ("passed": not a rating); plan_item: must-learn clicks (M4). */
   presses: { opening: number; signal: number; another_angle: number; passed: number; plan_item: number }
   /** Background call notes (counts and codes only). cost_usd above is HELP's; total_cost_usd adds the notes. */
   call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; closing: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }

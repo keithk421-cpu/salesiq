@@ -29,6 +29,7 @@ import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCar
 import { planStillOpen, type WrapWhy } from './wrap'
 import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
+import { planKey } from './callPlan'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -161,12 +162,16 @@ export class HelpEngine {
     // Found now (also for a prefetched card), so it goes out with this press's very first event.
     const passage = this.findPassage()
     // Another angle on the card on screen (nothing new said since): a fresh request, never the candidate.
-    // A must-learn click asks for something new, not another angle on the card on screen (so no 'passed' row).
-    const angle = origin === 'help_requested' && !planItem ? this.angleOn(pressedWall, key, liveSpeech) : null
+    // A must-learn click asks for something new, not another angle on the card on screen (so no 'passed' row),
+    // unless that card was for the same must-learn: clicked again, he gets a different way in to it.
+    const seen = origin === 'help_requested' ? this.angleOn(pressedWall, key, liveSpeech) : null
+    const angle = seen && (!planItem || (!!seen.run.detail.plan_item && planKey(seen.run.detail.plan_item) === planKey(planItem))) ? seen : null
     // Which press this is (pressModes.ts): WRAP, or HELP while the call sounds like it's ending, is always
     // a fresh request for a next-step card; an opening or buying-signal press can use a candidate built for it.
     const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null, angle?.earlier, planItem)
     const wrap = decision.wrap
+    // Another angle on a must-learn card stays on that must-learn.
+    if (decision.mode === 'another_angle' && angle?.run.detail.plan_item) decision.detail.plan_item = angle.run.detail.plan_item
     if (angle) this.recordFeedback({ card_id: angle.run.id, origin: angle.run.origin, type: 'passed', bad_reason: null, optional_note: null })
 
     // Reuse a prefetched candidate only if nothing new was said since it was built.
@@ -197,7 +202,7 @@ export class HelpEngine {
   /**
    * The card Keith would get another angle on: the one on screen, finished, shown for ~2-20 s, and
    * built from the same transcript as now with no words still being transcribed (nothing new said).
-   * When that card was itself another angle, the ones he passed on before it come too (the last 2).
+   * When that card was itself another angle (or a must-learn clicked again), the ones he passed on before it come too (the last 2).
    */
   private angleOn(pressedWall: number, key: string, liveSpeech: boolean): { run: Run; prior: PriorCard; earlier: PriorCard[] } | null {
     const r = this.current
@@ -207,7 +212,7 @@ export class HelpEngine {
     // On screen from when it finished, or from the press that showed an already finished candidate.
     const shownWall = Math.max(r.completeWall, r.pressedWall ?? r.completeWall)
     if (!anotherAngleOk(shownWall, pressedWall, !liveSpeech && r.snapshotKey === key)) return null
-    const earlier = r.mode === 'another_angle' ? [...(r.detail.earlier ?? []), ...(r.detail.prior ? [r.detail.prior] : [])].slice(-ANGLE_EARLIER_MAX) : []
+    const earlier = r.mode === 'another_angle' || r.mode === 'plan_item' ? [...(r.detail.earlier ?? []), ...(r.detail.prior ? [r.detail.prior] : [])].slice(-ANGLE_EARLIER_MAX) : []
     return { run: r, prior: { move: r.card.move, primary_kind: r.card.primary_kind, primary: r.card.primary }, earlier }
   }
 
