@@ -278,6 +278,45 @@ describe('the check: "says they told you something only your notes say"', () => 
     ]) expect(keithNotesChecks(card(line), ctx), line).toEqual([])
   })
 
+  it("only the other side tells: Arize, Keith's own side or anyone else saying or flagging something isn't a claim about them", () => {
+    const notes = [
+      'Who: Dana Ruiz, VP Engineering; Priya Natarajan, ML platform lead [Notion, Sep 30]',
+      'Their setup: LangSmith for traces, Datadog for logs, GPT-4o and Claude in production, RAG over Confluence, Kubernetes, evals in notebooks [Drive, Sep 12]',
+      'Research (not said by them) · Sumble, Oct 1: hiring 3 ML platform engineers; SOC 2 audit',
+    ].join('\n')
+    const c = contextWith(notes, {
+      transcript: [
+        { t: 0, end: 4, who: 'e1:s0', text: 'We are seeing hallucinations in our support bot.' },
+        { t: 5, end: 9, who: 'e1:s0', text: 'Latency is the big headache, and our evals are manual.' },
+      ],
+      help_at_s: 12,
+    })
+    for (const line of [
+      "We've shared a self-hosted reference setup for teams on Kubernetes. Want me to send it?",
+      "I've mentioned that Arize runs fine next to Datadog. Want a diagram?",
+      "As I've said, Arize works alongside LangSmith or replaces it, whichever fits.",
+      'As mentioned, Arize can run online evals on GPT-4o and Claude traces. Which model matters most?',
+      'Customers have raised SOC 2 early in the process. Is security review part of your process?',
+      'Each hallucination gets flagged by an LLM judge in production. Who would review those?',
+      'Arize has shared reference architectures for Kubernetes. Want one?',
+      'Traces are shared with Datadog through OpenTelemetry. Is Datadog where your team looks today?',
+      'Has Priya mentioned the evals budget?',
+      'I see your point. Does that include Confluence answers?',
+      'If they said yes to a POC, who would run it on Kubernetes?',
+      'Arize flagged the same drift for another GPT-4o team.',
+      'Earlier calls noted Datadog. Is that still the place for logs?',
+    ]) expect(keithNotesChecks(card(line), c), line).toEqual([])
+    // A person his notes name, or a named speaker on the call, telling it is still a claim about them.
+    expect(keithNotesChecks(card("Dana mentioned you're on LangSmith. Still true?"), c)).toEqual([CHECK_NOTES_ONLY])
+    expect(keithNotesChecks(card("I see you're hiring ML platform engineers. For this project?"), c)).toEqual([CHECK_NOTES_ONLY])
+    const named = contextWith('Their setup: LangSmith for traces [Drive, Sep 12]', {
+      speakers: { 'e1:s0': { role: 'buyer', name: 'Marisol' } },
+      transcript: [{ t: 0, end: 4, who: 'e1:s0', text: 'We are seeing hallucinations in our support bot.' }],
+      help_at_s: 6,
+    })
+    expect(keithNotesChecks(card('Marisol mentioned LangSmith earlier. How is it going?'), named)).toEqual([CHECK_NOTES_ONLY])
+  })
+
   it('a speech-to-text split name still counts as said ("Lang Smith" for LangSmith)', () => {
     const c = contextWith('Their setup: LangSmith for traces [Notion, Sep 2]', {
       transcript: [{ t: 0, end: 6, who: 'e1:s0', text: 'We trace everything in Lang Smith right now.' }], help_at_s: 9,

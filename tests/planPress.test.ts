@@ -354,7 +354,8 @@ describe('in the app', () => {
     // Matched the way the plan line matches (case, spacing and punctuation don't matter); the stored wording is sent.
     const r = a.help.pressPlanItem('  who SIGNS off on new-tools? ')
     expect(r).toMatchObject({ ok: true })
-    await new Promise((res) => setTimeout(res, 30))
+    // Wait for the Practice card itself, not a fixed time: GitHub's Windows machine can be far slower.
+    await vi.waitFor(() => expect(a.events.at(-1)).toMatchObject({ request_id: r.request_id, status: 'complete' }), { timeout: 10_000 })
     expect(a.events.at(-1)).toMatchObject({ request_id: r.request_id, status: 'complete', mock: true, press_mode: 'plan_item' })
     expect(a.events.at(-1)!.content.primary).toBe('[MOCK] To get to Who signs off on new tools: how does that work?')
     const row = a.help.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(r.request_id!) as { timing_json: string }
@@ -362,8 +363,9 @@ describe('in the app', () => {
     // An item removed mid-call can't be pressed any more.
     a.help.setMustLearn([ML[1]])
     expect(a.help.pressPlanItem(ITEM).ok).toBe(false)
-    expect(a.help.pressPlanItem('how evals run today').ok).toBe(true)
-    await new Promise((res) => setTimeout(res, 30))
+    const r2 = a.help.pressPlanItem('how evals run today')
+    expect(r2.ok).toBe(true)
+    await vi.waitFor(() => expect(a.events.at(-1)).toMatchObject({ request_id: r2.request_id, status: 'complete' }), { timeout: 10_000 })
     // Paused.
     a.state('paused')
     expect(a.help.pressPlanItem(ML[1])).toEqual({ ok: false, reason: 'Paused - resume to use HELP.' })

@@ -79,24 +79,43 @@ export function keithNotesBlock(text: unknown): { text: string; used: string } |
 /**
  * Wording that says the other side told Keith something, or that he looked them up: "you mentioned /
  * said / told us", and the same claim in other words ("you brought up", "you shared", "you were
- * saying", "as we discussed", "Priya mentioned", "your team said") and research let slip ("I saw",
- * "I see you're hiring"). A question about it ("Have you mentioned this to Dana?", "Has the team
- * shared it?", "Has anyone mentioned it?", "Did I read that right?") isn't saying so, and nor are his
- * own words ("As I mentioned", "We talked about"), "That said, ..." or a plain "I see."
+ * saying", "as we discussed", "your team said", "Priya mentioned" for a person his notes or the call
+ * name) and research let slip ("I saw", "I see you're hiring"). Only those tellers count: "We've
+ * shared", "As I've said", "As mentioned", "Customers have raised", "it gets flagged" or "Arize has
+ * shared" are Arize or anyone else talking, not a claim about them. A question or a condition ("Have
+ * you mentioned this to Dana?", "Has Priya shared it?", "If they said yes", "Did I read that right?")
+ * isn't saying so either, and nor are "That said, ...", a plain "I see." or "I see your point".
  */
 const TOLD_VERB = String.raw`(?:mentioned|said|told (?:us|me)|brought up|shared|noted|raised|flagged|talked about|were saying|pointed out)`
-/** Words before a "said" that aren't the other side: Keith's own side, a question's "anyone", or "that said". */
-const NOT_A_TELLER = String.raw`(?:I|we|who|anyone|anybody|nobody|someone|somebody|everyone|else|one|that|this|it|which|well|enough|fair|point|having)`
-const TOLD = new RegExp(
-  String.raw`(?<!\b(?:have|had|has|did|do|does)\s(?:(?:the|your|their)\s)?)\b(?:` +
-    // "you mentioned", "as you said", "they brought up", "your team shared", "Priya mentioned" (any one word but the ones above)
-    String.raw`(?:as |what |like )?(?:you|they|your team|(?!${NOT_A_TELLER}\b)\p{L}[\p{L}'-]*)(?:'ve|'d| have| had)? ${TOLD_VERB}` +
-    String.raw`|as (?:we|you) (?:discussed|said|mentioned)` +
-    // "I saw", "I noticed", "I read", and "I see you're / your team ..." (not "I see." or "I see what you mean")
-    String.raw`|I (?:saw|noticed|read|see(?= (?:that )?(?:you|your|they|their)\b))` +
-    String.raw`)\b`,
-  'iu',
-)
+
+/** The pattern for one request: `names` are the other side's people (escaped), from his notes and the call. */
+function toldPattern(names: readonly string[]): RegExp {
+  const teller = ['you', 'you guys', 'they', 'your team', ...names].join('|')
+  return new RegExp(
+    String.raw`(?<!\b(?:if|when|once|have|had|has|did|do|does)\s(?:(?:the|your|their)\s)?)\b(?:` +
+      String.raw`(?:as |what |like )?(?:${teller})(?:'ve|'d| have| had)? ${TOLD_VERB}` +
+      String.raw`|as (?:we|you) (?:discussed|said|mentioned)` +
+      // "I saw", "I noticed", "I read", and "I see you're / your team ..." (not "I see." or "I see your point")
+      String.raw`|I (?:saw|noticed|read|see(?= (?:that )?(?:you|your|they|their)\b(?! (?:point|concern|question|reasoning|logic|thinking|worry)\b)))` +
+      String.raw`)\b`,
+    'iu',
+  )
+}
+
+/**
+ * The other side's people by name: the capitalized words of his notes' "Who" lines ("Priya Natarajan,
+ * head of ML platform" -> Priya, Natarajan) and the named speakers on the call. Short all-caps words
+ * (VP, ML) and the app's own words are left out.
+ */
+function tellerNames(notesBlock: string, contextText: string): string[] {
+  const who = notesBlock.split('\n').map((l) => noteLines(l)[0]).filter((l) => l?.label === 'Who').map((l) => l!.text.replace(/\[[^\]]*\]/g, ' '))
+  const roster = blocks(contextText, 'participants').join('\n').split('\n').filter((l) => / = (?:buyer|unknown)$/.test(l)).map((l) => l.replace(/ = \w+$/, ''))
+  const names = new Set<string>()
+  for (const w of [...who, ...roster].join(' ').match(/\p{Lu}[\p{Ll}'-]+/gu) ?? []) {
+    if (w.length >= 3 && !COMMON.has(w.toLowerCase()) && !/^(?:Speaker|Keith|Arize)$/.test(w)) names.add(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  }
+  return [...names]
+}
 
 /** Small words that say nothing about where a fact came from. */
 const COMMON = new Set(`
@@ -159,10 +178,11 @@ export function keithNotesChecks(card: Pick<HelpCardContent, 'primary' | 'follow
     const s = stem(w)
     return noteWords.has(s) && !saidWords.has(s) && !(s.length >= 5 && saidRun.includes(s.replace(/[^\p{L}\p{N}]+/gu, '')))
   }
+  const told = toldPattern(tellerNames(block, contextText))
   for (const field of [card.primary ?? '', card.follow_up ?? '']) {
     // Models often write a curly apostrophe ("You’ve mentioned").
     for (const sentence of field.replace(/[’‘]/g, "'").split(/(?<=[.!?;])\s+/)) {
-      const m = TOLD.exec(sentence)
+      const m = told.exec(sentence)
       if (m && words(toldClause(sentence.slice(m.index + m[0].length))).some(fromNotesOnly)) return [CHECK_NOTES_ONLY]
     }
   }
