@@ -11,6 +11,7 @@ import type { CallSetup, HelpCardContent, HelpTiming, HelpUsage } from '../../sh
 import type { Db } from '../db'
 import { fmtClock } from './context'
 import { readFeedback } from './scorecard'
+import { heardSummary, savedHeard } from './heard'
 
 export const EXPORT_PERIODS = { '7d': { days: 7, label: 'Last 7 days' }, '30d': { days: 30, label: 'Last 30 days' }, all: { days: null, label: 'Everything' } } as const
 export type ExportPeriod = keyof typeof EXPORT_PERIODS
@@ -32,6 +33,8 @@ export interface ExportCard {
   bad_reasons: string[]
   used: boolean
   note: string | null
+  /** What the card showed it was answering (M3); absent on older cards. */
+  heard?: string | null
 }
 
 export interface ExportCall {
@@ -104,6 +107,7 @@ export function collectFeedbackCalls(db: Db, sinceIso: string | null, callMinute
         bad_reasons: f?.rating === 'bad' ? [...f.reasons] : [],
         used: f?.used ?? false,
         note: f?.note ?? null,
+        heard: ((h) => (h ? heardSummary(h) : null))(savedHeard((timing as { heard?: unknown }).heard)),
       }
     })
     return {
@@ -185,6 +189,7 @@ export function feedbackMarkdown(calls: ExportCall[], opts: { period: ExportPeri
     call.cards.forEach((c, i) => {
       const kind = c.wrap === 'button' ? ' · WRAP' : c.wrap === 'closing' ? ' · HELP as the call was ending' : ''
       out.push(`### ${i + 1}. ${c.at_session_ms === null ? 'time unknown' : `${fmtClock(c.at_session_ms)} into the call`}${kind}${c.move ? ` · move: ${c.move}` : ''}`)
+      if (c.heard) out.push(`- Heard: ${c.heard}`)
       out.push(`- ${c.primary_kind === 'say' ? 'Say' : 'Ask'}: ${c.primary ? quote(c.primary) : '(no line)'}`)
       if (c.follow_up) out.push(`- Follow-up: ${quote(c.follow_up)}`)
       const rating = c.rating ? `${RATING[c.rating] ?? c.rating}${c.bad_reasons.length ? ` (${c.bad_reasons.map(words).join(', ')})` : ''}` : 'not rated'

@@ -170,6 +170,8 @@ export class HelpService {
   wrapHotkeyRegistered = false
   ready: HelpReadyState = { readiness: 'checking', message: READY_TEXT.checking }
   onReadiness: ((r: HelpReadyState) => void) | null = null
+  /** How long (ms) the meeting audio has had sound with no words back (set by index.ts from the session; heard.ts). */
+  listeningBlindMs: () => number = () => 0
 
   constructor(
     private readonly storage: Storage,
@@ -461,6 +463,10 @@ export class HelpService {
       case 'timing':
         if (ev.sttDelayMs !== null) m.lagMs.set(ev.stream, ev.sttDelayMs)
         break
+      case 'speech_end':
+        // They finished speaking: the background card starts now instead of after the debounce.
+        this.engine?.onSpeechEnd(ev.stream, ev.signal)
+        break
     }
   }
 
@@ -475,6 +481,7 @@ export class HelpService {
     // still about the call that ended (the next Stop replaces it).
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
+    this.memory.untranscribedMs = () => this.listeningBlindMs()
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
     this.loadEarlierCalls()
     const model = this.createModel()

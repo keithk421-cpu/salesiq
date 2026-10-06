@@ -9,6 +9,7 @@ import type { CallNoteItem, CallNotesState } from '../shared/help'
 import { expiresLabel, isPastReview } from '../shared/dates'
 import { passageLabel } from '../shared/passageLabel'
 import { HEALTH_LABEL } from '../shared/captureHealth'
+import { initHeard } from './heard'
 import { initCompact } from './compact'
 import { initAccountMemory } from './accountMemory'
 import { initWrapup } from './wrapup'
@@ -708,6 +709,7 @@ $('supportFiles').addEventListener('click', async () => {
 
 setInterval(() => { if (sessionState === 'live' || sessionState === 'paused') setPill() }, 500)
 initCompact(api)
+initHeard(api)
 
 // ------------------------------------------------------------------ M1: HELP card
 const PENDING_TEXT: Record<string, string> = { pending: 'Working…', streaming: 'Working…' }
