@@ -15,6 +15,8 @@ import { initAccountMemory } from './accountMemory'
 import { initCallPlan } from './callPlan'
 import { initWrapup } from './wrapup'
 import { initPressModes } from './pressModes'
+import { initAccountNotes } from './accountNotes'
+import { initForNextTime } from './forNextTime'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -1160,6 +1162,8 @@ void (async () => {
 
 initWrapup(api)
 initPressModes(api)
+initAccountNotes(api)
+initForNextTime(api)
 
 void (async () => {
   const info = await api.info()

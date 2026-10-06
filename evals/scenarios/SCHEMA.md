@@ -49,7 +49,12 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
                                                  // each must pass Level 1 (tests/scenarios.test.ts); when best_moves
                                                  // include technical_answer or handle_competitor the example cites the
                                                  // approved K# ids in context, otherwise it cites none
-  "keith_notes": ""
+  "keith_notes": "",                             // the reviewer's note on this scenario (never sent to HELP)
+  "account": "...",                              // optional: the account name, sent in the call setup
+  "account_notes": "Who · Sep 2: ...\nTheir setup: ..."
+                                                 // optional (M4): Keith's own "What I know" notes on the account, as HELP
+                                                 // gets them in <keith_notes> (not said on the call, not Arize fact; "To learn"
+                                                 // lines are left out). Not the same as keith_notes above.
 }
 ```
 

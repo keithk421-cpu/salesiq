@@ -16,6 +16,7 @@ import { earlierCallsBlock } from './accountMemory'
 import { callNotesBlock } from './callNotes'
 import { questionParts, retrieveKnowledge } from './retrieval'
 import { blindNote } from './heard'
+import { keithNotesBlock } from './keithNotes'
 
 export const HOT_WINDOW_MS = 30_000
 export const THREAD_WINDOW_MS = 180_000
@@ -189,6 +190,9 @@ export function buildHelpContext(opts: {
   // Earlier calls with this account (account memory): dated past statements, never current fact.
   const earlierCalls = earlierCallsBlock(notPlannedNow(memory.earlierCalls, memory.setup))
   if (earlierCalls) parts.push(earlierCalls.text)
+  // Keith's own notes on the account (M4 "What I know"): never said on this call, never Arize fact.
+  const keithNotes = keithNotesBlock(memory.keithNotes)
+  if (keithNotes) parts.push(keithNotes.text)
   if (earlier.length) parts.push(`<earlier_in_call note="relevant moments from earlier; speaker statements, not verified facts">\n${earlier.map(line).join('\n')}\n</earlier_in_call>`)
   if (thread.length) parts.push(`<recent_thread>\n${thread.map(line).join('\n')}\n</recent_thread>`)
   const provisional = interims.map((i) => `(still being transcribed, may be inaccurate) ${i.stream === 'local_mic' ? 'Keith' : 'Remote'}: ${i.text}`)
@@ -231,6 +235,7 @@ export function buildHelpContext(opts: {
     labels: [...memory.labels.values()].map((l) => ({ ...l })),
     // Exactly what the block showed, so a practice moment saved from this press replays the same block.
     ...(earlierCalls ? { earlier_calls: earlierCalls.used } : {}),
+    ...(keithNotes ? { keith_notes: keithNotes.used } : {}),
     gaps_noted: gapNotes,
     provisional_text: interims.length > 0,
     transcript_lag_ms: lag,

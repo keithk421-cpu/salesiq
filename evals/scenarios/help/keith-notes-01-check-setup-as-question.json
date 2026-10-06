@@ -1,0 +1,46 @@
+{
+  "id": "keith-notes-01-check-setup-as-question",
+  "category": "older_context",
+  "tags": ["keith_notes", "older_context"],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Understand how Marrowfield Insurance reviews its claims assistant today and agree a next step",
+  "desired_outcomes": [
+    "Their current review process in their own words",
+    "Who would weigh in on a pilot",
+    "A dated next step"
+  ],
+  "account": "Marrowfield Insurance",
+  "account_notes": "Who · Sep 2: Ines Calloway, head of applied AI [Notion, Sep 2]\nTheir setup: claims assistant evals run from notebooks by two engineers [Notion, Sep 2]\nResearch (not said by them) · Sumble, Oct 1: four open ML platform roles\nTo learn: who signs off · how they test answers today",
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Ines Calloway (Head of Applied AI)" }
+  },
+  "transcript": [
+    { "t": 95, "end": 101, "who": "keith", "text": "Thanks for making the time again. Where would you like to start today?" },
+    { "t": 102, "end": 121, "who": "e1:s0", "text": "Sure. So the claims assistant is in front of more adjusters now, and we're trying to figure out how we keep an eye on the answers as that grows. That's really the main thing on my mind." },
+    { "t": 121.5, "end": 123, "who": "keith", "text": "Okay, makes sense." },
+    { "t": 124, "end": 129, "who": "e1:s0", "text": "Yeah. So, um, that's where we are." }
+  ],
+  "help_at_s": 131,
+  "knowledge": [],
+  "best_moves": ["clarify_current_state"],
+  "acceptable_moves": ["explore_process", "clarify_scale"],
+  "unacceptable_behaviors": [
+    "Says \"you mentioned\" or \"you told us\" about the notebooks or the two engineers: only Keith's notes say that, not anything said on this call",
+    "Brings up the open ML roles or hiring (research from Sumble, never something they said)",
+    "Assumes reviewing answers is a problem or that something is broken",
+    "States how they work today as fact instead of checking it"
+  ],
+  "forbid_regex": [
+    "you (?:mentioned|said|told (?:us|me))[^.?!]*notebook",
+    "\\bI (?:saw|noticed|read)\\b",
+    "\\b(?:open roles|hiring|job post)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "My understanding is a couple of engineers run your evals from notebooks today. Is that still how it works?",
+    "As more adjusters use it, how do you check the answers today?"
+  ],
+  "keith_notes": "Draft for M4 \"What I know\": the notes say how they test today, the call hasn't. A good line checks it as a question; it never says they mentioned it, and never brings up the Sumble research."
+}

@@ -17,6 +17,7 @@ import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
+import { keithNotesChecks } from './keithNotes'
 
 export { findCapabilityClaim }
 
@@ -91,6 +92,8 @@ export function level1(s: Scenario, card: HelpCardContent | null, issues: string
   // Each field is checked on its own so a hedge in one field never excuses a claim in another.
   const claim = citesKnowledge ? null : [card.primary, card.happening ?? '', card.follow_up ?? ''].map(findCapabilityClaim).find((c) => c !== null) ?? null
   if (claim) f.push(`states an Arize capability ("${claim}") without citing an approved knowledge source`)
+  // Keith's notes (M4) are never something they said: "you mentioned X" when only his notes have X.
+  f.push(...keithNotesChecks(card, _contextText).map(() => "says they told Keith something only his notes say"))
   return f
 }
 

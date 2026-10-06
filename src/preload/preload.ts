@@ -80,6 +80,11 @@ const api = {
   // M3 smarter presses: the latest buying signal of the call (the WRAP button's tag)
   helpSignal: () => ipcRenderer.invoke('help:signal') as Promise<{ kind: string; at_ms: number } | null>,
   onBuyingSignal: (cb: (s: { kind: string; at_ms: number } | null) => void) => ipcRenderer.on('buying-signal', (_e, s) => cb(s)),
+  // M4 "What I know about <account>": Keith's notes per account, and the prep prompt he copies
+  notesGet: (account: string) => ipcRenderer.invoke('notes:get', account) as Promise<{ account: string; text: string; updated_at: string | null } | null>,
+  notesSet: (account: string, text: string) => ipcRenderer.invoke('notes:set', { account, text }) as Promise<{ account: string; text: string; updated_at: string | null } | null>,
+  notesPrepend: (account: string, text: string) => ipcRenderer.invoke('notes:prepend', { account, text }) as Promise<{ account: string; text: string; updated_at: string | null } | null>,
+  notesPrepPrompt: (account: string) => ipcRenderer.invoke('notes:prepPrompt', account) as Promise<string>,
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

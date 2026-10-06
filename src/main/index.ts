@@ -534,6 +534,12 @@ function registerIpc(): void {
   // ---- M3 smarter presses: the latest buying signal of the call, a quiet tag on the WRAP button ----
   if (help) help.onSignal = (s) => send('buying-signal', s)
   ipcMain.handle('help:signal', () => help?.signal ?? null)
+  // ---- M4 "What I know about <account>": Keith's notes per account, and the prep prompt he copies (nothing is sent) ----
+  // Every input is checked in HelpService (an account the box could hold, notes text as a string of bounded length).
+  ipcMain.handle('notes:get', (_e, account: unknown) => help?.notesGet(account) ?? null)
+  ipcMain.handle('notes:set', (_e, raw: unknown) => help?.notesSet(raw) ?? null)
+  ipcMain.handle('notes:prepend', (_e, raw: unknown) => help?.notesPrepend(raw) ?? null)
+  ipcMain.handle('notes:prepPrompt', (_e, account: unknown) => help?.notesPrepPrompt(account) ?? '')
 }
 
 function createWindow(): void {

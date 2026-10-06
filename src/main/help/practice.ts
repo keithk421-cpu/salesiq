@@ -11,6 +11,7 @@
  *   (approved, with source, version and scope) so later edits to the knowledge folder don't change
  *   the moment. Review dates are dropped: the moment replays as it was then.
  * - what earlier calls with this account left behind, as the request showed it (<earlier_calls>).
+ * - Keith's own notes on the account ("What I know", M4), as the request showed them (<keith_notes>).
  * Expected moves come only from Keith's own feedback, conservatively (see expectedFrom). Saving the
  * same card again refreshes only what his feedback decides (see refreshFeedback).
  *
@@ -235,6 +236,9 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   // What earlier calls with this account left behind, as the request showed it (older rows: none).
   const earlierCalls = cleanEarlierItems(refs.earlier_calls)
   if (earlierCalls.length) notes.push(`Earlier calls: the ${earlierCalls.length} item(s) from earlier calls with this account that HELP saw are copied in.`)
+  // Keith's own notes on the account (M4 "What I know"), as the request showed them (older rows: none).
+  const accountNotes = typeof refs.keith_notes === 'string' ? refs.keith_notes.trim() : ''
+  if (accountNotes) notes.push(`What I know: the ${accountNotes.split('\n').length} line(s) of your notes on this account that HELP saw are copied in.`)
 
   // The card HELP gave, and Keith's feedback on it.
   const card = parse<HelpCardContent>(row.card_json)
@@ -298,6 +302,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     help_at_s: helpAtS,
     knowledge,
     ...(earlierCalls.length ? { earlier_calls: earlierCalls } : {}),
+    ...(accountNotes ? { account_notes: accountNotes } : {}),
     ...(wrap ? { wrap } : {}),
     ...pressInfo,
     best_moves: [],

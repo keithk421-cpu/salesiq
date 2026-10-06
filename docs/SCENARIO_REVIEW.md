@@ -1,6 +1,6 @@
 # HELP practice moments: review sheet
 
-43 made-up call moments (no real companies or calls). Each one stops where Keith presses HELP.
+45 made-up call moments (no real companies or calls). Each one stops where Keith presses HELP.
 For each: is the "Good HELP" right, and is the "Bad HELP" list right? Reply with the numbers you agree with,
 and a one-line fix for any you don't. Only the ones you approve become the Golden Set that decides which model wins.
 
@@ -335,7 +335,64 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 12. neutral-discovery-01-datadog-otel-current-stack
+## 12. keith-notes-01-check-setup-as-question
+
+**Call:** follow_up. Goal: Understand how Marrowfield Insurance reviews its claims assistant today and agree a next step
+**Docs HELP has:** none
+**Keith's notes (What I know):** Who · Sep 2: Ines Calloway, head of applied AI [Notion, Sep 2] / Their setup: claims assistant evals run from notebooks by two engineers [Notion, Sep 2] / Research (not said by them) · Sumble, Oct 1: four open ML platform roles / To learn: who signs off · how they test answers today
+
+**Last lines before HELP** (press at 2:11):
+> **Keith:** Thanks for making the time again. Where would you like to start today?
+> **Ines Calloway (Buyer):** Sure. So the claims assistant is in front of more adjusters now, and we're trying to figure out how we keep an eye on the answers as that grows. That's really the main thing on my mind.
+> **Keith:** Okay, makes sense.
+> **Ines Calloway (Buyer):** Yeah. So, um, that's where we are.
+
+**Good HELP would:**
+- clarify current state: They mentioned how things are today; learn more about how it actually works.
+- Also fine: explore process, clarify scale
+
+Example good lines:
+- "My understanding is a couple of engineers run your evals from notebooks today. Is that still how it works?"
+- "As more adjusters use it, how do you check the answers today?"
+
+**Bad HELP would:**
+- Says "you mentioned" or "you told us" about the notebooks or the two engineers: only Keith's notes say that, not anything said on this call
+- Brings up the open ML roles or hiring (research from Sumble, never something they said)
+- Assumes reviewing answers is a problem or that something is broken
+- States how they work today as fact instead of checking it
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 13. keith-notes-02-call-overrides-old-notes
+
+**Call:** technical_deep_dive. Goal: Understand how Orrin Freight sends traces today and what a POC would have to show
+**Docs HELP has:** none
+**Keith's notes (What I know):** Their setup · Aug 14: traces go to LangSmith [Notion, Aug 14] / Who: Tomasz Brenner, platform lead [Notion, Aug 14] / To learn: what a POC must prove
+
+**Last lines before HELP** (press at 4:38):
+> **Keith:** How are traces getting out of the routing agent right now?
+> **Tomasz Brenner (Buyer):** So that changed last month, actually. We moved everything onto our own OpenTelemetry collector, so all the agent spans go there first and then we fan them out. It's been fine so far.
+> **Keith:** Okay, got it.
+> **Tomasz Brenner (Buyer):** Yeah, the team set that up pretty quickly.
+
+**Good HELP would:**
+- clarify current state: They mentioned how things are today; learn more about how it actually works.
+- clarify requirement: Pin down a stated requirement precisely before responding to it.
+- Also fine: technical clarification, explore process
+
+Example good lines:
+- "Got it, so the agent spans go to your own OpenTelemetry collector first. Where do they fan out to from there?"
+- "With the collector in place, what would a POC need to show you?"
+
+**Bad HELP would:**
+- Treats the old note (LangSmith) as what they use today, after they just said they moved to their own OpenTelemetry collector
+- Says they mentioned LangSmith: only Keith's August notes say that
+- Assumes the move caused problems or that the old setup was broken
+- States what Arize supports for their collector without an approved source
+
+Approve? ☐ Yes ☐ No. Fix: ______
+
+## 14. neutral-discovery-01-datadog-otel-current-stack
 
 **Call:** discovery. Goal: Understand how Helio Health observes its patient-intake assistant today and who relies on that view
 **Docs HELP has:** none
@@ -366,7 +423,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 13. neutral-discovery-02-weekly-rubric-review
+## 15. neutral-discovery-02-weekly-rubric-review
 
 **Call:** discovery. Goal: Learn how Northwind Logistics judges the quality of its shipper help assistant today
 **Docs HELP has:** none
@@ -396,7 +453,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 14. neutral-discovery-03-shared-ownership-unknown-speaker
+## 16. neutral-discovery-03-shared-ownership-unknown-speaker
 
 **Call:** discovery. Goal: Understand who shapes and judges the quality of Brightwater Mutual's claims-summary assistant
 **Docs HELP has:** none
@@ -426,7 +483,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 15. neutral-discovery-04-rambling-buried-agent-signoff
+## 17. neutral-discovery-04-rambling-buried-agent-signoff
 
 **Call:** discovery. Goal: Understand Larkspur Financial's agent roadmap and what it will take to put agents into production
 **Docs HELP has:** none
@@ -458,7 +515,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 16. neutral-discovery-05-vpc-bedrock-unknown-infra
+## 18. neutral-discovery-05-vpc-bedrock-unknown-infra
 
 **Call:** follow_up. Goal: Understand Meridian Retail Group's hosting and network setup for the shopping assistant
 **Docs HELP has:** Deployment options overview (applies to: saas, self_hosted) (review by 2027-01-31)
@@ -488,7 +545,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 17. neutral-discovery-06-internal-dashboard-during-demo
+## 19. neutral-discovery-06-internal-dashboard-during-demo
 
 **Call:** demo. Goal: Show Quillfeather tracing and evals mapped to how their team works today
 **Docs HELP has:** none
@@ -518,7 +575,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 18. neutral-discovery-07-why-now-planning-cycle
+## 20. neutral-discovery-07-why-now-planning-cycle
 
 **Call:** follow_up. Goal: Understand why Saltmarsh Media is looking now and what a useful outcome is for them
 **Docs HELP has:** none
@@ -548,7 +605,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 19. neutral-discovery-08-buyer-corrects-premise
+## 21. neutral-discovery-08-buyer-corrects-premise
 
 **Call:** discovery. Goal: Understand how Lindenmark Analytics' ML team looks at its research assistant's conversations
 **Docs HELP has:** none
@@ -578,7 +635,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 20. objection-01-budget-next-fiscal
+## 22. objection-01-budget-next-fiscal
 
 **Call:** negotiation. Goal: Review the proposal with Granite Peak Credit Union after a successful pilot and agree a path to purchase
 **Docs HELP has:** Objection handling: budget timing (review by 2027-05-01)
@@ -609,7 +666,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 21. objection-02-build-in-house
+## 23. objection-02-build-in-house
 
 **Call:** technical_deep_dive. Goal: Walk Corvid Analytics' ML engineers through eval workflows and test fit against their current setup
 **Docs HELP has:** Objection handling: 'we could build this' (review by 2027-05-01)
@@ -640,7 +697,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 22. objection-03-security-review-six-months-gap
+## 24. objection-03-security-review-six-months-gap
 
 **Call:** follow_up. Goal: Map Ostrava Biosciences' path from sandbox evaluation to a pilot with production traces
 **Docs HELP has:** Security documentation for vendor reviews (review by 2027-02-01)
@@ -671,7 +728,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 23. objection-04-too-early-not-in-production
+## 25. objection-04-too-early-not-in-production
 
 **Call:** discovery. Goal: Understand where Tidewater Travel's trip-planner agent is and whether a conversation now is useful to them
 **Docs HELP has:** none
@@ -702,7 +759,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 24. objection-05-cheaper-option-no-gap-stated
+## 26. objection-05-cheaper-option-no-gap-stated
 
 **Call:** follow_up. Goal: Understand how Pinecrest Logistics is comparing options after the demo
 **Docs HELP has:** none
@@ -730,7 +787,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 25. objection-06-build-in-house-nothing-built
+## 27. objection-06-build-in-house-nothing-built
 
 **Call:** discovery. Goal: Understand how Marlow Health Tech plans to monitor its new triage assistant
 **Docs HELP has:** none
@@ -757,7 +814,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 26. objection-07-no-budget-no-deadline
+## 28. objection-07-no-budget-no-deadline
 
 **Call:** follow_up. Goal: Understand where Quillfield Media stands after the evaluation
 **Docs HELP has:** none
@@ -784,7 +841,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 27. objection-08-phoenix-in-production
+## 29. objection-08-phoenix-in-production
 
 **Call:** discovery. Goal: Understand how Corvid Robotics runs observability for its planning agent
 **Docs HELP has:** none
@@ -811,7 +868,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 28. older-context-01-march-go-live
+## 30. older-context-01-march-go-live
 
 **Call:** follow_up. Goal: Agree pilot timing and scope for Riverstone Utilities' outage-reporting agent
 **Docs HELP has:** none
@@ -841,7 +898,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 29. older-context-02-model-risk-pii-stakeholder
+## 31. older-context-02-model-risk-pii-stakeholder
 
 **Call:** demo. Goal: Demo evals on Fairhaven Lending's contact-center assistant and shape a pilot
 **Docs HELP has:** none
@@ -870,7 +927,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 30. sa-leading-01-custom-spans-propagation
+## 32. sa-leading-01-custom-spans-propagation
 
 **Call:** technical_deep_dive. Goal: Show Ambergate Retail how their full RAG pipeline, including the in-house retriever, would be traced
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -901,7 +958,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 31. sa-leading-02-eval-criteria-buyer-thinking
+## 33. sa-leading-02-eval-criteria-buyer-thinking
 
 **Call:** demo. Goal: Demo evals for Copperline Bank's mortgage FAQ assistant, grounded in how they judge answers today
 **Docs HELP has:** none
@@ -930,7 +987,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 32. sources-01-stale-security-faq-soc2
+## 34. sources-01-stale-security-faq-soc2
 
 **Call:** negotiation. Goal: Clear Sunfield Energy's remaining procurement and vendor-file items so the order form can route for signature
 **Docs HELP has:** Security FAQ: attestations (illustrative fixture, not verified) (review by 2026-03-31); Draft: security documentation turnaround (not approved) (review by 2027-03-31)
@@ -961,7 +1018,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 33. sources-02-customer-reference-awaiting-clearance
+## 35. sources-02-customer-reference-awaiting-clearance
 
 **Call:** discovery. Goal: Answer Fenwick Care's question about similar customers without naming anyone not cleared
 **Docs HELP has:** Customer reference (awaiting clearance) (not approved)
@@ -986,7 +1043,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 34. sources-03-saas-only-feature-self-hosted-buyer
+## 36. sources-03-saas-only-feature-self-hosted-buyer
 
 **Call:** technical_deep_dive. Goal: Answer Tamsin Bank's deployment question accurately for self-hosting. Buyer's deployment: self-hosted
 **Docs HELP has:** Automatic issue detection (applies to: saas)
@@ -1011,7 +1068,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 35. sources-04-saas-only-feature-unknown-deployment
+## 37. sources-04-saas-only-feature-unknown-deployment
 
 **Call:** discovery. Goal: Answer Alder & Finch's question about issue detection with the right scope
 **Docs HELP has:** Automatic issue detection (applies to: saas)
@@ -1035,7 +1092,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 36. sources-05-pricing-ask-no-pricing-source
+## 38. sources-05-pricing-ask-no-pricing-source
 
 **Call:** discovery. Goal: Understand Ravelstone Credit Union's member-help assistant and agree a sensible next step
 **Docs HELP has:** none
@@ -1064,7 +1121,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 37. sources-06-references-requested-none-approved
+## 39. sources-06-references-requested-none-approved
 
 **Call:** follow_up. Goal: Agree what Silverfen Payments needs to take the evaluation to its steering group
 **Docs HELP has:** none
@@ -1093,7 +1150,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 38. sources-07-acquisition-question-public-fact-only
+## 40. sources-07-acquisition-question-public-fact-only
 
 **Call:** follow_up. Goal: Answer Tillbury Learning's questions about the acquisition news without speculating, then continue the agenda
 **Docs HELP has:** Acquisition announcement (public) (applies to: all) (review by 2027-04-01)
@@ -1123,7 +1180,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 39. sources-08-soc2-saas-only-self-hosted-buyer
+## 41. sources-08-soc2-saas-only-self-hosted-buyer
 
 **Call:** technical_deep_dive. Goal: Answer Wrexbury Health Network's vendor-file questions accurately for a self-hosted deployment. Buyer's deployment: self-hosted
 **Docs HELP has:** SOC 2 report (SaaS) (applies to: saas) (review by 2027-06-30)
@@ -1152,7 +1209,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 40. technical-01-confusion-tracing-evals-monitoring
+## 42. technical-01-confusion-tracing-evals-monitoring
 
 **Call:** demo. Goal: Demo tracing and evals for Wrenfield Education's tutoring assistant to a mixed product and engineering audience
 **Docs HELP has:** Tracing vs. evaluation vs. monitoring (review by 2027-01-01)
@@ -1182,7 +1239,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 41. technical-02-otel-pipeline-approved-answer
+## 43. technical-02-otel-pipeline-approved-answer
 
 **Call:** technical_deep_dive. Goal: Confirm Sablewood Systems can instrument its maintenance agent within their existing OpenTelemetry setup
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -1211,7 +1268,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 42. technical-03-retention-question-no-source
+## 44. technical-03-retention-question-no-source
 
 **Call:** technical_deep_dive. Goal: Work through Ironbark Legal Tech's security and data-handling requirements for the contract-review assistant
 **Docs HELP has:** Tracing is OpenTelemetry-based (review by 2027-02-28)
@@ -1242,7 +1299,7 @@ Example good lines:
 
 Approve? ☐ Yes ☐ No. Fix: ______
 
-## 43. technical-04-poc-shape-no-approved-source
+## 45. technical-04-poc-shape-no-approved-source
 
 **Call:** follow_up. Goal: After the tracing demo, understand what Copperwick Energy would want a proof of concept to prove
 **Docs HELP has:** Pilot outline (draft, not approved) (not approved)

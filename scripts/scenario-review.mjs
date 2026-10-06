@@ -41,6 +41,8 @@ files.forEach((f, i) => {
   } else {
     out.push('**Docs HELP has:** none')
   }
+  // M4: Keith's own notes on the account ("What I know"), as HELP gets them.
+  if (sc.account_notes) out.push(`**Keith's notes (What I know):** ${sc.account_notes.split('\n').join(' / ')}`)
   out.push('')
   out.push(`**Last lines before HELP** (press at ${mmss(sc.help_at_s)}):`)
   for (const l of before) {

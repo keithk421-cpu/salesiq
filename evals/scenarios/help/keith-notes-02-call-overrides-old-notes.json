@@ -1,0 +1,44 @@
+{
+  "id": "keith-notes-02-call-overrides-old-notes",
+  "category": "older_context",
+  "tags": ["keith_notes", "older_context"],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Understand how Orrin Freight sends traces today and what a POC would have to show",
+  "desired_outcomes": [
+    "Their trace pipeline in their own words",
+    "What a POC must prove"
+  ],
+  "account": "Orrin Freight",
+  "account_notes": "Their setup · Aug 14: traces go to LangSmith [Notion, Aug 14]\nWho: Tomasz Brenner, platform lead [Notion, Aug 14]\nTo learn: what a POC must prove",
+  "speakers": {
+    "e1:s0": { "role": "buyer", "name": "Tomasz Brenner (Platform Lead)" }
+  },
+  "transcript": [
+    { "t": 240, "end": 245, "who": "keith", "text": "How are traces getting out of the routing agent right now?" },
+    { "t": 246, "end": 268, "who": "e1:s0", "text": "So that changed last month, actually. We moved everything onto our own OpenTelemetry collector, so all the agent spans go there first and then we fan them out. It's been fine so far." },
+    { "t": 268.5, "end": 270, "who": "keith", "text": "Okay, got it." },
+    { "t": 271, "end": 276, "who": "e1:s0", "text": "Yeah, the team set that up pretty quickly." }
+  ],
+  "help_at_s": 278,
+  "knowledge": [],
+  "best_moves": ["clarify_current_state", "clarify_requirement"],
+  "acceptable_moves": ["technical_clarification", "explore_process"],
+  "unacceptable_behaviors": [
+    "Treats the old note (LangSmith) as what they use today, after they just said they moved to their own OpenTelemetry collector",
+    "Says they mentioned LangSmith: only Keith's August notes say that",
+    "Assumes the move caused problems or that the old setup was broken",
+    "States what Arize supports for their collector without an approved source"
+  ],
+  "forbid_regex": [
+    "you(?:'re| are) (?:on|using|still on) LangSmith",
+    "you (?:mentioned|said|told (?:us|me))[^.?!]*LangSmith"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Got it, so the agent spans go to your own OpenTelemetry collector first. Where do they fan out to from there?",
+    "With the collector in place, what would a POC need to show you?"
+  ],
+  "keith_notes": "Draft for M4 \"What I know\": Keith's August note is out of date and the call just said so. What was said on the call wins; the note is never stated as current."
+}

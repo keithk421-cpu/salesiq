@@ -7,8 +7,8 @@ import { replayAt } from '../src/main/help/replay'
 const scenarios = loadScenarios(fileURLToPath(new URL('../evals/scenarios/help', import.meta.url)))
 
 describe('HELP scenario set', () => {
-  it('has the M1 drafts (25 + 8 from the knowledge review + 10 practice moments), none approved by anyone but Keith', () => {
-    expect(scenarios).toHaveLength(43)
+  it('has the M1 drafts (25 + 8 from the knowledge review + 10 practice moments + 2 with Keith\'s notes), none approved by anyone but Keith', () => {
+    expect(scenarios).toHaveLength(45)
     // Only Keith flips this. If this fails after his review, update the expected count here.
     expect(scenarios.filter((s) => s.golden_approved)).toHaveLength(0)
     // The repo is public: every scenario is made up.

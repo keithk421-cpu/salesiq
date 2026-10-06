@@ -34,6 +34,11 @@ export class CallMemory {
    */
   hadEarlierCalls = false
   /**
+   * "What I know about <account>" (M4): Keith's own notes on this call's account, set at call start and
+   * when he saves them or changes the account. HELP may check them as a question, never as said.
+   */
+  keithNotes = ''
+  /**
    * Live calls only: how long (ms) the meeting audio has had sound with no words back from the speech
    * service (session.ts untranscribedMs). Replay and tests leave it unset (heard.ts blindNote).
    */

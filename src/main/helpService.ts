@@ -26,6 +26,9 @@ import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
 import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
+import { ACCOUNT_NOTES_MAX_CHARS, type AccountNotes } from '../shared/help'
+import { getAccountNotes, noteLines, prependAccountNotes, setAccountNotes } from './help/accountNotes'
+import { prepPrompt } from './help/prepPrompt'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
 
@@ -508,6 +511,7 @@ export class HelpService {
     this.clearSignal()
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
     this.loadEarlierCalls()
+    this.loadKeithNotes()
     const model = this.createModel()
     this.engine = new HelpEngine({
       memory: this.memory, kb: this.kb, model, config: this.modelConfig(), playbook: this.playbook, db: this.db,
@@ -549,7 +553,89 @@ export class HelpService {
   refreshEarlierCalls(): void {
     if (!this.memory) return
     this.loadEarlierCalls()
+    this.loadKeithNotes()
     this.engine?.discardPrefetch()
+  }
+
+  // ---------------------------------------------------------------- M4 "What I know about <account>"
+
+  /**
+   * Keith's notes on the running call's account, for HELP (keithNotes.ts cuts what it sends). Loaded at
+   * call start, when the account changes and when he saves them. Logs keep counts only.
+   */
+  private loadKeithNotes(): void {
+    const m = this.memory
+    if (!m) return
+    try {
+      m.keithNotes = getAccountNotes(this.db, m.setup.account).text
+      this.log('keith_notes', { chars: m.keithNotes.length, lines: noteLines(m.keithNotes).length })
+    } catch (err) {
+      // Never stops a call: HELP just goes without them.
+      m.keithNotes = ''
+      this.log('keith_notes_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
+    }
+  }
+
+  /** The account an IPC call names: a string the account box could hold, with a name in it. */
+  private notesAccount(raw: unknown): string | null {
+    return typeof raw === 'string' && raw.length <= 120 && accountKey(raw) ? raw : null
+  }
+
+  /** Notes text from the box: a string, at most a pasted page (the store keeps ACCOUNT_NOTES_MAX_CHARS). */
+  private notesText(raw: unknown): string | null {
+    return typeof raw === 'string' && raw.length <= ACCOUNT_NOTES_MAX_CHARS * 3 ? raw : null
+  }
+
+  /** The notes the running call's HELP uses changed: the next press (and no older background card) sees them. */
+  private notesChanged(n: AccountNotes): void {
+    const m = this.memory
+    if (!m || !this.callInProgress() || accountKey(m.setup.account) !== accountKey(n.account)) return
+    m.keithNotes = n.text
+    this.engine?.discardPrefetch()
+  }
+
+  /** "What I know about <account>": the box shows these (empty text when there are none). */
+  notesGet(raw: unknown): AccountNotes | null {
+    const account = this.notesAccount(raw)
+    return account === null ? null : getAccountNotes(this.db, account)
+  }
+
+  /** Save the box (empty text clears them). Null when the input isn't an account and its notes. */
+  notesSet(raw: unknown): AccountNotes | null {
+    const r = (raw ?? {}) as Record<string, unknown>
+    const account = this.notesAccount(r.account)
+    const text = this.notesText(r.text)
+    if (account === null || text === null) return null
+    const n = setAccountNotes(this.db, account, text)
+    if (!n) return null
+    this.log(n.text ? 'notes_saved' : 'notes_cleared', { chars: n.text.length, lines: noteLines(n.text).length, in_call: this.callInProgress() })
+    this.notesChanged(n)
+    return n
+  }
+
+  /** "Save to What I know" after a call: the lines go on top of the account's notes. */
+  notesPrepend(raw: unknown): AccountNotes | null {
+    const r = (raw ?? {}) as Record<string, unknown>
+    const account = this.notesAccount(r.account)
+    const text = this.notesText(r.text)
+    if (account === null || text === null) return null
+    const n = prependAccountNotes(this.db, account, text)
+    if (!n) return null
+    this.log('notes_prepended', { chars: n.text.length, lines: noteLines(n.text).length, added_lines: noteLines(text).length })
+    this.notesChanged(n)
+    return n
+  }
+
+  /**
+   * "Copy prep prompt": the request Keith pastes into Claude himself (the app sends nothing), from the
+   * setup strip, what earlier calls with the account left behind and his notes so far.
+   */
+  notesPrepPrompt(raw: unknown, today = new Date()): string {
+    const account = this.notesAccount(raw) ?? this.setup.account
+    const running = this.callInProgress() ? this.memory?.sessionId : null
+    const text = prepPrompt({ setup: { ...this.setup, account }, memory: accountMemory(this.db, account, running), notes: getAccountNotes(this.db, account).text, today })
+    this.log('notes_prep_prompt', { chars: text.length })
+    return text
   }
 
   /** A buying signal the other side just gave (null: none in those words) becomes the WRAP tag. */
