@@ -156,7 +156,7 @@ const DEMO = /\b(?:a|an|the|our|product|live|full|tailored|custom|platform|arize
 // renews", "once their current contract ends"): taken out of the step before NEGOTIATION is checked.
 const THEIR_CONTRACT = [
   /\b(?:current|existing)\s+(?:[\w-]+\s+){0,2}?contracts?\b/gi,
-  /\btheir\s+[A-Z][\w-]*(?:\s+[A-Z][\w-]*)?\s+contracts?\b/g,
+  /\b[Tt]heir\s+[A-Z][\w-]*(?:\s+[A-Z][\w-]*)?\s+contracts?\b/g,
   /\bcontracts?\s+(?:with\s+[\w-]+\s+)?(?:renew\w*|ends?|ended|expir\w*|is up|runs? out)\b/gi,
   /\brenewals?\b/gi,
 ]
@@ -246,7 +246,8 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
 /** The item as a must-learn keeps it (one line, at most MUST_LEARN_MAX_CHARS); a longer one is cut at a word, with no "…". */
 function wholeItem(raw: string): string {
   const t = sanitizeMustLearn([raw])[0] ?? ''
-  if (raw.replace(/\s+/g, ' ').trim().length <= t.length) return t
+  // Only a cut item is exactly MUST_LEARN_MAX_CHARS long (a ';' turned into ',' doesn't make one look cut).
+  if (t.length < MUST_LEARN_MAX_CHARS || raw.replace(/\s+/g, ' ').trim().length <= t.length) return t
   const space = t.lastIndexOf(' ')
   return (space > MUST_LEARN_MAX_CHARS / 2 ? t.slice(0, space) : t).replace(/[\s,;:.-]+$/, '')
 }

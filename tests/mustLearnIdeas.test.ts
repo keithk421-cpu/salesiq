@@ -75,6 +75,7 @@ describe('the likely type of the next call', () => {
       'Revisit once their current contract with Langfuse ends in Q2',
       'Check in when their existing tracing contract is up',
       'Talk again before their renewal in March',
+      'Their Datadog contract runs to June; talk again then',
       // A demo already held, or a thing from it.
       'Follow-up call Thursday to answer questions from the demo',
       'Send a recap of the demo and the slides',
@@ -181,6 +182,8 @@ describe('ideas from the account', () => {
     // A click saves the whole item, never the "…"; one that fits has no second form.
     expect(ideas[0].full).toBe('How their eval reviewers decide which answers to escalate to the platform team')
     expect(ideas[1].full).toBeUndefined()
+    // A ';' in an item becomes ',' when it is kept; that is not a cut.
+    expect(mustLearnIdeas({ setup: { call_type: 'other', deployment: 'saas' }, memory: mem({ items: [it_('to_learn', 'Who reviews flagged answers; how often they meet')] }) })[0].full).toBe('Who reviews flagged answers, how often they meet')
     // Once set (the whole item), it isn't offered again.
     const after = mustLearnIdeas({
       setup: { call_type: 'other', deployment: 'saas', must_learn: [ideas[0].full!] },
