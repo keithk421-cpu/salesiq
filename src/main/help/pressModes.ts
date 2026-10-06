@@ -322,6 +322,10 @@ function openingBlock(contextText: string, detail: PressDetail): string {
   const ml = detail.must_learn ?? []
   // No goal and no must-learns: nothing to build an agenda from, so ask what they'd like from today.
   const noGoal = /\ngoal: \(not set\)\n/.test(contextText) && !ml.length
+  // No earlier calls in the app, but Keith's own notes (M4) may say they've met: never "first call".
+  const met = /<keith_notes\b/.test(contextText)
+    ? "This is the first call with them in the app, but Keith may have met them before (his notes): never say it's the first conversation, or what happened before."
+    : null
   const lines = [
     'Keith pressed HELP at the start of the call: the other side has said little so far.',
     '- If they just asked a question or raised something, answer or handle that first (the normal rules) and put the opening in FOLLOW.',
@@ -332,8 +336,8 @@ function openingBlock(contextText: string, detail: PressDetail): string {
           ? `- This is a follow-up call, with nothing they said on earlier calls on file. ASK: reconnect briefly, then what they'd like to get out of today, and check the time they have. Never say what happened or was said last time.`
           : `- This is a follow-up call, with nothing they said on earlier calls on file. ASK or SAY: reconnect briefly, then set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never say what happened or was said last time. Never state a must-learn${block !== null ? ` or a "${TO_LEARN_LABEL}" line` : ''} as something they said: it is Keith's own question.`
         : noGoal
-          ? "- This is the first call with them, and no call goal is set. ASK what they'd like to get out of today, and check the time they have."
-          : `- This is the first call with them. ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
+          ? `- ${met ? `${met} No call goal is set.` : 'This is the first call with them, and no call goal is set.'} ASK what they'd like to get out of today, and check the time they have.`
+          : `- ${met ?? 'This is the first call with them.'} ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
     "- If Keith already set the agenda or did the check-in on this call (his lines in the transcript), don't repeat it: give the next natural question toward the goal or a must-learn.",
     ...(ml.length ? [`- Keith's must-learns for this call: ${ml.map((m) => `"${oneLine(m, MUST_LEARN_MAX_CHARS)}"`).join('; ')}.`] : []),
     '- Use only the call setup, earlier_calls and what was said on this call: no outside research or guesses about their company, and no pain, problem or need they have not voiced.',

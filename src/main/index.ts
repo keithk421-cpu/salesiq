@@ -539,6 +539,12 @@ function registerIpc(): void {
   // ---- M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up (text checked in WrapupKeeper) ----
   ipcMain.handle('help:mustLearnIdeas', () => help?.mustLearnIdeas() ?? [])
   ipcMain.handle('wrapup:addToLearn', (_e, raw: unknown) => help?.addWrapupToLearn(raw) ?? { ok: false, wrapup: null })
+  // ---- M4 "What I know about <account>": Keith's notes per account, and the prep prompt he copies (nothing is sent) ----
+  // Every input is checked in HelpService (an account the box could hold, notes text as a string of bounded length).
+  ipcMain.handle('notes:get', (_e, account: unknown) => help?.notesGet(account) ?? null)
+  ipcMain.handle('notes:set', (_e, raw: unknown) => help?.notesSet(raw) ?? null)
+  ipcMain.handle('notes:prepend', (_e, raw: unknown) => help?.notesPrepend(raw) ?? null)
+  ipcMain.handle('notes:prepPrompt', (_e, account: unknown) => help?.notesPrepPrompt(account) ?? '')
 }
 
 function createWindow(): void {

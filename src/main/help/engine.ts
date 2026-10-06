@@ -28,6 +28,7 @@ import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
 import { planStillOpen, type WrapWhy } from './wrap'
 import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
+import { keithNotesChecks } from './keithNotes'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 import { planKey } from './callPlan'
 
@@ -452,6 +453,7 @@ export class HelpEngine {
       run.card = v.card
       run.content = v.card
       run.checks = cardChecks(v.card, v.issues, new Map([...run.ctx.sources].map(([id, x]) => [id, x.kind])))
+      run.checks.push(...keithNotesChecks(v.card, run.ctx.text))
       run.completeWall = this.wallNow()
       this.finish(run, 'complete')
     } catch (err) {
@@ -588,6 +590,8 @@ export class HelpEngine {
     // Nor what earlier calls left behind: those copies would outlive deleting the earlier call. Once
     // shown, the row is written again with them (a practice moment saved from it replays them).
     const { earlier_calls: _earlier, ...unseenRefs } = run.ctx.refs
+    // Nor Keith's own notes (M4): they're his, kept with a request only once he saw its card.
+    delete unseenRefs.keith_notes
     db.sql.prepare(
       `INSERT INTO help_requests (id, session_id, origin, created_at, at_session_ms, status, model_json, context_refs_json, request_text, output_raw, card_json, timing_json, usage_json, error, prefetch)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

@@ -502,3 +502,19 @@ body.compact .help-card[data-press="plan_item"] #hcFollow:not([hidden]) { displa
 /* Wrap-up "Learn next time": not-covered topics as "+" chips, and a small box to add one. */
 .wu-learn-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .wu-learn-add .wu-learn-new { flex: 0 1 220px; min-width: 140px; height: 28px; font-size: 13px; }
+/* ---- M4 "What I know about <account>" (accountNotes.ts) and the wrap-up's "For next time" (forNextTime.ts) ---- */
+.ak-box { padding: 10px 14px; }
+.ak-head { display: flex; align-items: center; gap: 10px; }
+.ak-head .btn { flex: none; }
+.ak-body { margin-top: 8px; display: grid; gap: 6px; }
+.ak-text { width: 100%; height: auto; min-height: 64px; padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.4; resize: vertical; }
+.ak-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 28px; }
+.ak-grow { flex: 1; }
+.ak-near { color: var(--warn); }
+.ak-ask { color: var(--text); }
+.ak-hide { display: none; }
+.wu-next { display: grid; gap: 6px; margin-bottom: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); }
+.wn-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.wn-text { width: 100%; height: auto; padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.4; resize: vertical; }
+.wn-foot { margin: 0; gap: 8px; }
+.ak-box.am-chip { padding: 6px 14px; }

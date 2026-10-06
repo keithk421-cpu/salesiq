@@ -72,6 +72,11 @@ export interface Scenario {
   observed?: ObservedCard
   /** What earlier calls with this account left behind, as HELP saw it at the press (the <earlier_calls> block). Absent on older moments. */
   earlier_calls?: EarlierCallItem[]
+  /**
+   * "What I know about <account>" (M4): Keith's own notes on the account, as HELP saw them at the press
+   * (the <keith_notes> block's lines). Not keith_notes above, which is the reviewer's note on the scenario.
+   */
+  account_notes?: string
   /** Saved from a WRAP press ('button'), or a HELP press as the call sounded like it was ending ('closing'): replayed with the same wrap instruction. */
   wrap?: WrapWhy
   /** Saved from a smarter press (M3): the opening, a buying signal's next step, or another angle: replayed with the same block. */
@@ -128,6 +133,7 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   if (ml.length) setup.must_learn = ml
   memory.setup = setup
   memory.earlierCalls = cleanEarlierItems(s.earlier_calls)
+  memory.keithNotes = typeof s.account_notes === 'string' ? s.account_notes : ''
   for (const [cluster, sp] of Object.entries(s.speakers)) {
     if (sp.role === 'unknown' && !sp.name) continue // unlabeled: Keith never tagged them
     const label: SpeakerLabel = { cluster, role: sp.role, name: sp.name }

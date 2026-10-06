@@ -16,6 +16,8 @@ import { initCallPlan } from './callPlan'
 import { initWrapup } from './wrapup'
 import { initPressModes } from './pressModes'
 import { initPlanPress } from './planPress'
+import { initAccountNotes } from './accountNotes'
+import { initForNextTime } from './forNextTime'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -1162,6 +1164,8 @@ void (async () => {
 initWrapup(api)
 initPressModes(api)
 initPlanPress(api, (text) => showBanner('info', text))
+initAccountNotes(api)
+initForNextTime(api)
 
 void (async () => {
   const info = await api.info()

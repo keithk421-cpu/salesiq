@@ -85,6 +85,11 @@ const api = {
   // M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up
   helpMustLearnIdeas: () => ipcRenderer.invoke('help:mustLearnIdeas'),
   wrapupAddToLearn: (text: string) => ipcRenderer.invoke('wrapup:addToLearn', text),
+  // M4 "What I know about <account>": Keith's notes per account, and the prep prompt he copies
+  notesGet: (account: string) => ipcRenderer.invoke('notes:get', account) as Promise<{ account: string; text: string; updated_at: string | null } | null>,
+  notesSet: (account: string, text: string) => ipcRenderer.invoke('notes:set', { account, text }) as Promise<{ account: string; text: string; updated_at: string | null } | null>,
+  notesPrepend: (account: string, text: string, replace?: string) => ipcRenderer.invoke('notes:prepend', { account, text, replace }) as Promise<{ account: string; text: string; updated_at: string | null; dropped_lines: number } | null>,
+  notesPrepPrompt: (account: string) => ipcRenderer.invoke('notes:prepPrompt', account) as Promise<string>,
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

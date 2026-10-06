@@ -11,9 +11,10 @@ instruction blocks go in the user message after the call context (as WRAP and th
 Logs, scorecards and support files carry counts, timings, ids and codes only, never note text.
 
 Shared contracts (already in the code): `src/shared/help.ts` `MustLearnIdea`, `MustLearnIdeaSource`,
-`MUST_LEARN_IDEAS_MAX` (4), `MUST_LEARN_IDEA_MAX_CHARS` (40), `AccountNotes`, `ACCOUNT_NOTES_MAX_CHARS`
+`MUST_LEARN_IDEAS_MAX` (4), `MUST_LEARN_IDEA_MAX_CHARS` (40) (an idea cut to fit keeps its whole text in `full`, which is what a click adds), `AccountNotes`, `ACCOUNT_NOTES_MAX_CHARS`
 (2000), `KEITH_NOTES_BLOCK_MAX_CHARS` (700), `HelpContextRefs.keith_notes`, `PressMode` `'plan_item'`,
-`CallWrapup.not_covered`, `AccountMemory.last_deployment` / `next_call_type` / `last_not_covered`.
+`CallWrapup.not_covered`, `AccountMemory.last_deployment` / `next_call_type` / `last_not_covered` (and
+`fact_kind` on fact items, for the "Confirm:" ideas).
 The notes store: `src/main/help/accountNotes.ts` (table `account_notes` in `db.ts`): `getAccountNotes`,
 `setAccountNotes`, `prependAccountNotes`, `noteLines` (labelled lines), `notesToLearn` ("To learn"
 items). Screen hooks: `#akBox` (after the Last time box) and `#wuNext` (top of the wrap-up) in
@@ -111,7 +112,9 @@ must-learns and the call is live. A fresh request (never the background card), `
 `'plan_item'` ahead of another angle, closing words, a buying signal and the opening (WRAP is its own
 button). Instruction block `<plan_press>`: get to "<item>" from where the talk is, as one natural
 question in Keith's voice; if they just asked something or raised a concern, answer that first and
-put the bridge in FOLLOW; if they're mid-answer, SAY to let them finish; never imply they mentioned
-it; asked is not answered. Labelled "Must learn". The item is stored in `timing_json`
+put the bridge in FOLLOW; if they're mid-answer, the question stays the ASK line and HAPPENING says to let
+them finish; a must-learn they just answered isn't asked again; never imply they mentioned it; asked
+is not answered. Clicked again for the same moment (2-20 s, nothing new said), it tells HELP the line he
+already has and asks for a different way in (and records a 'passed' row, as another angle does). Labelled "Must learn". The item is stored in `timing_json`
 (`press_plan_item`) and `PressDetail.plan_item`, so a practice moment replays it; the scorecard counts
 these presses; the MOCK model answers it.
