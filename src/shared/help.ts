@@ -21,6 +21,8 @@ export interface CallSetup {
   desired_outcomes: string[]
   account: string
   deployment: Deployment
+  /** Up to 3 things Keith must learn on this call, in his words (M3 call plan: Open / Partial / Done). Absent on older setups. */
+  must_learn?: string[]
 }
 
 export type SpeakerRole = 'keith' | 'buyer' | 'teammate' | 'unknown'
@@ -220,12 +222,28 @@ export interface HelpCardEvent {
   passage?: ApprovedPassage | null
   /** Asked for a wrap card (the WRAP button, or a HELP press while the call sounded like it was ending): labelled "Wrapping up". */
   wrap?: boolean
+  /** What the card is answering: the other side's latest words at the press, who said them and how long before (M3). */
+  heard?: HeardLine | null
+  /** A press that asked for something special (M3): the call's opening, a buying signal's next step, or another angle on a re-press. */
+  press_mode?: PressMode | null
 }
+
+/** The other side's words a card answers, as they were at the press. */
+export interface HeardLine {
+  text: string
+  /** As HELP names them ("Dana (buyer)", "Speaker 1 (unlabeled)"). */
+  speaker: string
+  /** From the end of those words to the press. */
+  ago_ms: number
+}
+
+export type PressMode = 'opening' | 'signal' | 'another_angle'
 
 // ---------------- feedback ----------------
 
 /** A rating (the last one per card counts), whether Keith used the line (last of used/unused counts), or a note. */
-export type FeedbackType = 'useful' | 'should_have_stayed_quiet' | 'bad' | 'used' | 'unused' | 'note'
+/** passed: Keith pressed again for another angle instead of using this card (M3); not a rating. */
+export type FeedbackType = 'useful' | 'should_have_stayed_quiet' | 'bad' | 'used' | 'unused' | 'note' | 'passed'
 export const RATINGS = ['useful', 'should_have_stayed_quiet', 'bad'] as const
 
 /** One card from a finished call, for the after-call review (local only). */
@@ -280,6 +298,18 @@ export interface CallNotes {
   /** Proposed is not agreed: "agreed" only when the other side accepted it. */
   next_steps: Array<CallNoteItem & { status: 'proposed' | 'agreed' }>
   not_covered: NotCoveredTopic[]
+  /** Keith's must-learns (CallSetup.must_learn) and how far each got (M3). Absent on older notes. */
+  plan?: PlanItemStatus[]
+}
+
+/** Asked is not answered: "done" only when the other side's answer settles it; "partial" when it's unclear. */
+export type PlanStatus = 'open' | 'partial' | 'done'
+export interface PlanItemStatus {
+  /** The must-learn as Keith typed it. */
+  item: string
+  status: PlanStatus
+  /** The transcript turns the status rests on (empty while open). */
+  turn_ids: string[]
 }
 
 /** What the call screen's notes panel shows. "finishing": the closing pass after Stop (the last minutes). */
@@ -348,6 +378,8 @@ export interface CallWrapup {
   /** Plain words when building or drafting failed. */
   error: string | null
   mock: boolean
+  /** Keith's must-learns the call ended without (open or partial), for the next call with them (M3). */
+  plan_open?: string[]
 }
 
 // ---------------- account memory ----------------
@@ -357,7 +389,8 @@ export function accountKey(account: string): string {
   return account.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-export type AccountMemoryKind = 'wants' | 'promised' | 'they_owe' | 'agreed' | 'open' | 'fact'
+/** to_learn: one of Keith's must-learns a call ended without (M3 call plan). */
+export type AccountMemoryKind = 'wants' | 'promised' | 'they_owe' | 'agreed' | 'open' | 'fact' | 'to_learn'
 
 /** "Last time with <account>": what earlier calls with this account left behind, newest first. */
 export interface AccountMemory {

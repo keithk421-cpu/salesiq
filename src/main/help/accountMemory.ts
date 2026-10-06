@@ -34,6 +34,8 @@ const SECTION_KIND: Record<string, AccountMemoryKind> = { we_owe: 'promised', th
 const BLOCK_LABEL: Record<AccountMemoryKind, string> = {
   promised: 'Arize promised', they_owe: 'They said they would', agreed: 'Agreed next step',
   open: 'Still open', wants: 'They wanted', fact: 'They told us',
+  // M3 call plan: filled from CallWrapup.plan_open by the call-plan builder.
+  to_learn: 'Keith still wanted to learn',
 }
 
 export interface AccountSummary {
