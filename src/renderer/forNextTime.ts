@@ -35,6 +35,29 @@ export function initForNextTime(api: CopilotApi): void {
   let edited = false
   /** Saved as it stands: "Saved" until he edits it again. */
   let saved = false
+  /**
+   * What he last saved from this wrap-up. A later save (he removed or fixed an item since) replaces it
+   * in his notes rather than stacking a second copy. Kept in memory only, per call: notes text never
+   * goes into browser storage.
+   */
+  let savedText = ''
+  const savedFor = new Map<string, string>()
+  const same = (a: string, b: string) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim()
+
+  /**
+   * After a restart nothing is in memory: when every line of the draft is already in his notes, it was
+   * saved before, so the button reads "Saved" (and a later change updates those lines).
+   */
+  async function alreadySaved(w: CallWrapup, lines: string): Promise<void> {
+    const n = lines.trim() ? await api.notesGet(w.account.trim()) : null
+    if (!n || shownFor !== w.session_id || savedText || edited || draft !== lines) return
+    const have = new Set(n.text.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()))
+    if (!lines.split('\n').every((l) => have.has(l.replace(/\s+/g, ' ').trim()))) return
+    savedText = lines
+    savedFor.set(w.session_id, lines)
+    saved = true
+    render()
+  }
 
   function render(): void {
     const w = wrap
@@ -43,10 +66,13 @@ export function initForNextTime(api: CopilotApi): void {
       box.hidden = true
       return
     }
-    if (w.session_id !== shownFor) {
+    const fresh = w.session_id !== shownFor
+    if (fresh) {
       shownFor = w.session_id
       edited = false
+      savedText = savedFor.get(w.session_id) ?? ''
       saved = false
+      draft = ''
       msg.textContent = ''
     }
     const practice = w.mock
@@ -55,20 +81,25 @@ export function initForNextTime(api: CopilotApi): void {
     if (!edited && next !== draft) {
       draft = next
       text.value = next
-      saved = false
+      saved = !!savedText && same(next, savedText)
     }
+    if (fresh && !practice && !savedText) void alreadySaved(w, next)
     box.hidden = !practice && !text.value.trim() && !edited
     ;(document.getElementById('wnPractice') as HTMLElement).hidden = !practice
     ;(document.getElementById('wnEdit') as HTMLElement).hidden = practice
-    document.getElementById('wnHint')!.textContent = practice ? '' : `Goes at the top of What I know about ${w.account.trim()}.`
+    document.getElementById('wnHint')!.textContent = practice
+      ? ''
+      : savedText && !saved
+        ? 'Changed since you saved. Update swaps in these lines.'
+        : `Goes at the top of What I know about ${w.account.trim()}.`
     text.rows = Math.min(6, Math.max(2, text.value.split('\n').length))
     save.disabled = saved || !text.value.trim()
-    save.textContent = saved ? 'Saved' : 'Save to What I know'
+    save.textContent = saved ? 'Saved' : savedText ? 'Update What I know' : 'Save to What I know'
   }
 
   text.addEventListener('input', () => {
     edited = true
-    saved = false
+    saved = !!savedText && same(text.value, savedText)
     msg.textContent = ''
     render()
   })
@@ -76,14 +107,20 @@ export function initForNextTime(api: CopilotApi): void {
     const w = wrap
     if (!w || w.mock || !text.value.trim()) return
     save.disabled = true
-    const r = await api.notesPrepend(w.account, text.value)
+    const sent = text.value
+    const r = await api.notesPrepend(w.account, sent, savedText || undefined)
     if (!r) {
       msg.textContent = "That didn't save. Try again."
       save.disabled = false
       return
     }
-    saved = true
-    msg.textContent = ''
+    if (shownFor === w.session_id) {
+      savedText = sent
+      savedFor.set(w.session_id, sent)
+      saved = same(text.value, sent)
+    }
+    const dropped = r.dropped_lines ?? 0
+    msg.textContent = dropped ? `${dropped} older line${dropped === 1 ? '' : 's'} dropped to fit.` : ''
     window.dispatchEvent(new CustomEvent(NOTES_EVENT, { detail: { account: r.account } }))
     render()
   })

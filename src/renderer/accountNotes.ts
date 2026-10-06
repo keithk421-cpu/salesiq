@@ -11,6 +11,7 @@
 import type { CopilotApi } from '../preload/preload'
 import type { AccountNotes } from '../shared/help'
 import { ACCOUNT_NOTES_MAX_CHARS, accountKey } from '../shared/help'
+import { plainAnswer } from '../main/help/prepPrompt'
 
 const IN_CALL = new Set(['checking', 'live', 'paused', 'stopping'])
 /** Fired after a save, so other parts of the setup (the must-learn ideas) can read the notes again. */
@@ -53,7 +54,7 @@ export function initAccountNotes(api: CopilotApi): void {
       <button id="akPrep" class="btn btn-sm btn-ghost" title="Copies a request to paste into Claude, where Sumble, Notion and Drive are connected. Paste its answer back here.">Copy prep prompt</button>
     </div>
     <div id="akBody" class="ak-body">
-      <textarea id="akText" class="input ak-text" rows="3" maxlength="${ACCOUNT_NOTES_MAX_CHARS}" aria-label="What I know"
+      <textarea id="akText" class="input ak-text" rows="3" aria-label="What I know"
         placeholder="Who's who, their setup, what happened before. Or paste Claude's prep answer here."></textarea>
       <div class="ak-foot">
         <span id="akCount" class="muted small"></span>
@@ -77,9 +78,12 @@ export function initAccountNotes(api: CopilotApi): void {
 
   const dirty = () => !!notes && text.value !== notes.text
 
+  /** Characters past the limit (no maxlength: a cut-off paste would lose its last lines unseen). */
+  const over = () => Math.max(0, text.value.length - ACCOUNT_NOTES_MAX_CHARS)
+
   function counter(): void {
     const n = text.value.length
-    $('akCount').textContent = `${n}/${ACCOUNT_NOTES_MAX_CHARS}`
+    $('akCount').textContent = over() ? `${n}/${ACCOUNT_NOTES_MAX_CHARS}: ${over()} over, shorten before saving` : `${n}/${ACCOUNT_NOTES_MAX_CHARS}`
     $('akCount').classList.toggle('ak-near', n > ACCOUNT_NOTES_MAX_CHARS * 0.9)
   }
 
@@ -97,6 +101,8 @@ export function initAccountNotes(api: CopilotApi): void {
     // Prep is for before the call.
     $('akPrep').hidden = folded || inCall
     $('akClear').hidden = !text.value && !notes.text
+    // Tall enough to read a pasted answer at a glance, like the wrap-up's For next time box.
+    text.rows = Math.min(8, Math.max(3, text.value.split('\n').length))
     counter()
   }
 
@@ -107,11 +113,19 @@ export function initAccountNotes(api: CopilotApi): void {
   /** A save in flight (leaving the box and clicking Save both save: the second waits for the first). */
   let saving: Promise<void> | null = null
 
-  /** Save what's in the box under the account it was loaded for (never under a name being typed). */
-  async function save(): Promise<void> {
+  /**
+   * Save what's in the box under the account it was loaded for (never under a name being typed). Too
+   * long, leaving the box or Save waits for him to shorten it; switching account or Start can't wait,
+   * so they keep what fits (`cut`).
+   */
+  async function save(cut = false): Promise<void> {
     while (saving) await saving
     const n = notes
     if (!n || !dirty()) return
+    if (over() && !cut) {
+      say(`Not saved: ${over()} characters too long.`)
+      return
+    }
     const sent = text.value
     saving = (async () => {
       const saved = await api.notesSet(n.account, sent)
@@ -123,7 +137,7 @@ export function initAccountNotes(api: CopilotApi): void {
         notes = { ...saved, account: n.account }
         // Show what was kept (trimmed, at most the limit), unless he typed on meanwhile (saved when he leaves).
         if (text.value === sent) text.value = saved.text
-        say(saved.text ? 'Saved' : 'Cleared')
+        say(!saved.text ? 'Cleared' : sent.length > ACCOUNT_NOTES_MAX_CHARS ? `Saved the first ${ACCOUNT_NOTES_MAX_CHARS} characters` : 'Saved')
         render()
       }
       window.dispatchEvent(new CustomEvent(NOTES_EVENT, { detail: { account: saved.account, from: 'box' } }))
@@ -142,7 +156,7 @@ export function initAccountNotes(api: CopilotApi): void {
     if (key === shownKey && !force) return
     const changed = key !== shownKey
     // Edits not saved yet belong to the account they were typed for.
-    if (changed && dirty()) await save()
+    if (changed && dirty()) await save(true)
     shownKey = key
     const mine = ++seq
     const n = key ? await api.notesGet(name) : null
@@ -165,6 +179,15 @@ export function initAccountNotes(api: CopilotApi): void {
   text.addEventListener('input', () => {
     say('')
     render()
+  })
+  // A pasted answer in Markdown (bold labels, headings) is made plain, so its labels read as labels.
+  text.addEventListener('paste', (e) => {
+    const raw = e.clipboardData?.getData('text/plain') ?? ''
+    const plain = plainAnswer(raw)
+    if (!raw || plain === raw) return
+    e.preventDefault()
+    text.setRangeText(plain, text.selectionStart, text.selectionEnd, 'end')
+    text.dispatchEvent(new Event('input'))
   })
   // Leaving the box saves it (Save is there too, for peace of mind).
   text.addEventListener('blur', () => void save())
@@ -203,7 +226,7 @@ export function initAccountNotes(api: CopilotApi): void {
     inCall = IN_CALL.has(ev.state)
     if (inCall && !was) {
       // Typed but not saved yet: HELP should have it from the start.
-      void save()
+      void save(true)
       folded = true
       render()
     }

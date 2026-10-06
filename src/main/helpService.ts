@@ -27,7 +27,8 @@ import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
 import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
 import { ACCOUNT_NOTES_MAX_CHARS, type AccountNotes } from '../shared/help'
-import { getAccountNotes, noteLines, prependAccountNotes, setAccountNotes } from './help/accountNotes'
+import { getAccountNotes, noteLines, setAccountNotes } from './help/accountNotes'
+import { notesWithNextTime } from './help/forNextTime'
 import { prepPrompt } from './help/prepPrompt'
 import type { SessionEvent } from './session'
 import type { Storage } from './storage'
@@ -613,17 +614,23 @@ export class HelpService {
     return n
   }
 
-  /** "Save to What I know" after a call: the lines go on top of the account's notes. */
-  notesPrepend(raw: unknown): AccountNotes | null {
+  /**
+   * "Save to What I know" after a call: the lines go on top of the account's notes. `replace` is what
+   * he saved from the same wrap-up before, taken out first so a second save updates it, never stacks
+   * it. When the notes are full, older after-call lines go before his own (dropped_lines says how many).
+   */
+  notesPrepend(raw: unknown): (AccountNotes & { dropped_lines: number }) | null {
     const r = (raw ?? {}) as Record<string, unknown>
     const account = this.notesAccount(r.account)
     const text = this.notesText(r.text)
-    if (account === null || text === null) return null
-    const n = prependAccountNotes(this.db, account, text)
+    const replace = r.replace === undefined || r.replace === null ? '' : this.notesText(r.replace)
+    if (account === null || text === null || replace === null) return null
+    const { text: all, dropped } = notesWithNextTime(getAccountNotes(this.db, account).text, text, ACCOUNT_NOTES_MAX_CHARS, replace)
+    const n = setAccountNotes(this.db, account, all)
     if (!n) return null
-    this.log('notes_prepended', { chars: n.text.length, lines: noteLines(n.text).length, added_lines: noteLines(text).length })
+    this.log('notes_prepended', { chars: n.text.length, lines: noteLines(n.text).length, added_lines: noteLines(text).length, replaced: !!replace.trim(), dropped_lines: dropped })
     this.notesChanged(n)
-    return n
+    return { ...n, dropped_lines: dropped }
   }
 
   /**

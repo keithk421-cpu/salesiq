@@ -59,6 +59,7 @@ export function prepPrompt(o: { setup: CallSetup; memory: AccountMemory | null; 
     '',
     `Answer with at most ${PREP_MAX_LINES} short lines and nothing else. Start each line with one of these labels and a colon: ${PREP_LABELS.join(' / ')}.`,
     'End each line with the source and its date in brackets, like: Who: Dana Reyes, VP of AI [Notion, Sep 30]',
+    'Plain text only: no bold, bullets, headings or numbering. Write each label exactly as above, including "Research (not said by them)", then a colon.',
     'Rules:',
     '- Only what the sources show. No guesses and no guessed numbers. If you are unsure of something, add "(unsure)".',
     '- Leave out what I already have above.',
@@ -67,4 +68,22 @@ export function prepPrompt(o: { setup: CallSetup; memory: AccountMemory | null; 
     '- If the sources show nothing new, answer with one line: Nothing new.',
   )
   return out.join('\n')
+}
+
+/**
+ * A pasted answer made readable to the notes reader: Claude often answers in Markdown anyway
+ * ("- **Who:** Dana", "## Prep notes"), and a label in bold isn't a label to noteLines. Strips bold and
+ * headings, and reads a bare "Research:" as the research label. Pure; the box runs it on paste.
+ */
+export function plainAnswer(text: string): string {
+  return text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((l) =>
+      l
+        .replace(/^\s*#{1,6}\s+/, '')
+        .replace(/\*\*|__/g, '')
+        .replace(/^(\s*(?:[-*•]|\d+[.)])?\s*)Research\s*:/i, '$1Research (not said by them):'),
+    )
+    .join('\n')
 }

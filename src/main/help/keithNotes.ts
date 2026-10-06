@@ -19,6 +19,8 @@ const TAIL = '</keith_notes>'
 /** One pasted paragraph can't take the whole block: it's cut at a word. */
 const LINE_MAX_CHARS = 200
 const RESEARCH = 'Research (not said by them)'
+/** A line "For next time" wrote after a call ("They owe · Oct 6: ..."): what earlier_calls has too. */
+const AFTER_CALL = /^(?:Deal so far|They owe|We promised) · [A-Z][a-z]{2} \d{1,2}:/
 
 /** The plain check shown on the card (and the Level 1 failure's reason). */
 export const CHECK_NOTES_ONLY = 'Says they told you something only your notes say: check it'
@@ -51,9 +53,12 @@ export function keithNotesBlock(text: unknown): { text: string; used: string } |
   }
   let room = KEITH_NOTES_BLOCK_MAX_CHARS - HEAD.length - TAIL.length - 1
   const lines: string[] = []
-  // His own notes first; research only once all of them fit, so it's what goes when the notes are long.
+  // Who's who, their setup and calls before the app first; then what "For next time" saved after a
+  // call (earlier_calls already gives HELP those items, so they give way); research only once all of
+  // them fit, so it's what goes when the notes are long.
+  const ranked = [...plain.filter((l) => !AFTER_CALL.test(l)), ...plain.filter((l) => AFTER_CALL.test(l))]
   let full = false
-  for (const [i, l] of [...plain, ...research].entries()) {
+  for (const [i, l] of [...ranked, ...research].entries()) {
     if (full && i >= plain.length) break
     if (l.length + 1 > room) {
       full = true
@@ -124,9 +129,22 @@ export function keithNotesChecks(card: Pick<HelpCardContent, 'primary' | 'follow
     return noteWords.has(s) && !saidWords.has(s) && !(s.length >= 5 && saidRun.includes(s.replace(/[^\p{L}\p{N}]+/gu, '')))
   }
   for (const field of [card.primary ?? '', card.follow_up ?? '']) {
-    for (const sentence of field.split(/(?<=[.!?;])\s+/)) {
-      if (TOLD.test(sentence) && words(sentence).some(fromNotesOnly)) return [CHECK_NOTES_ONLY]
+    // Models often write a curly apostrophe ("You’ve mentioned").
+    for (const sentence of field.replace(/[’‘]/g, "'").split(/(?<=[.!?;])\s+/)) {
+      const m = TOLD.exec(sentence)
+      if (m && words(toldClause(sentence.slice(m.index + m[0].length))).some(fromNotesOnly)) return [CHECK_NOTES_ONLY]
     }
   }
   return []
+}
+
+/**
+ * The words "you mentioned" (or "I saw") is about: up to the next comma, colon or dash, or the next
+ * clause ("so how...", "what would..."). "You mentioned hallucinations, so how do you catch them before
+ * production?" rests on "hallucinations", not on "production" from his notes. "As you said, Priya
+ * owns this" puts it after the comma.
+ */
+function toldClause(rest: string): string {
+  const after = rest.replace(/^\s*[,:—–-]?\s*/, '')
+  return after.split(/\s*[,;:—–]\s*|\s+-\s+|\s+\b(?:so|how|what|which|who|where|when|why|is|are|do|does)\b/i)[0] ?? ''
 }

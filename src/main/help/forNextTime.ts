@@ -56,3 +56,39 @@ export function forNextTimeDraft(w: Pick<CallWrapup, 'items' | 'plan_open' | 'st
     .map(([label, items]) => `${label} · ${day}: ${items.slice(0, ITEMS_PER_LINE).join(' · ')}`)
     .join('\n')
 }
+
+/** A line "For next time" wrote ("They owe · Oct 6: ..."): the first to go when the notes are full. */
+const AFTER_CALL_LINE = /^(?:Deal so far|They owe|We promised|To learn) · [A-Z][a-z]{2} \d{1,2}:/
+
+const norm = (l: string) => l.replace(/\s+/g, ' ').trim()
+
+/**
+ * The account's notes with "For next time" on top, within `max` characters. `replace` is what Keith
+ * saved from this same wrap-up before (he removed or fixed an item since): those lines come out first,
+ * so the notes never hold the same call twice, or an item he took back. When it's too long, older
+ * after-call lines go before his own (who's who, their setup, calls before the app, research), and
+ * only then lines from the bottom. Returns how many older lines were dropped, so the screen can say so.
+ */
+export function notesWithNextTime(old: string, add: string, max: number, replace?: string | null): { text: string; dropped: number } {
+  const split = (t: string) => t.replace(/\r\n?/g, '\n').split('\n').map(norm)
+  const top = split(add).filter(Boolean)
+  const rest = split(old)
+  // Each line of the earlier save, once (Keith may have edited other lines in the box since).
+  for (const l of split(replace ?? '').filter(Boolean)) {
+    const at = rest.indexOf(l)
+    if (at >= 0) rest.splice(at, 1)
+  }
+  while (rest.length && !rest[0]) rest.shift()
+  const join = () => (top.length && rest.some(Boolean) ? [...top, '', ...rest] : [...top, ...rest]).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  let dropped = 0
+  // Oldest after-call lines first (from the bottom), then anything from the bottom.
+  for (let i = rest.length - 1; i >= 0 && join().length > max; i--) {
+    if (!AFTER_CALL_LINE.test(rest[i])) continue
+    rest.splice(i, 1)
+    dropped++
+  }
+  while (rest.length && join().length > max) {
+    if (rest.pop()) dropped++
+  }
+  return { text: join(), dropped }
+}
