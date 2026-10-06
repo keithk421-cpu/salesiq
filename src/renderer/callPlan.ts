@@ -81,7 +81,8 @@ export function initCallPlan(api: CopilotApi): void {
     // The compact strip is about 440px wide: shorter words there, so all three fit and none is cut to a fragment.
     for (const [el, max] of [[line, 28], [strip, 17]] as const) {
       el.hidden = !ps.length
-      el.innerHTML = ps.map((p) => `<span class="pl-item pl-${p.status}" title="${esc(hover(p))}"><span class="pl-mark">${PLAN_MARK[p.status]}</span> ${esc(shortItem(p.item, max))}</span>`).join('<span class="pl-sep"> · </span>')
+      // data-item / data-status: a click on an open item asks HELP for the line that gets there (M4, planPress.ts).
+      el.innerHTML = ps.map((p) => `<span class="pl-item pl-${p.status}" data-item="${esc(p.item)}" data-status="${p.status}" title="${esc(hover(p))}"><span class="pl-mark">${PLAN_MARK[p.status]}</span> ${esc(shortItem(p.item, max))}</span>`).join('<span class="pl-sep"> · </span>')
     }
     strip.title = ps.map((p) => `${PLAN_MARK[p.status]} ${p.item}`).join('\n')
   }

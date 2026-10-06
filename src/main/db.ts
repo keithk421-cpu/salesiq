@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS call_notes (
 CREATE TABLE IF NOT EXISTS call_wrapups (
   session_id TEXT PRIMARY KEY, wrapup_json TEXT NOT NULL, updated_at TEXT NOT NULL, stats_json TEXT NOT NULL DEFAULT '{}'
 );
+CREATE TABLE IF NOT EXISTS account_notes (
+  account_key TEXT PRIMARY KEY, account TEXT NOT NULL, text TEXT NOT NULL, updated_at TEXT NOT NULL
+);
 `
 
 export class Db {

@@ -195,6 +195,8 @@ export interface HelpContextRefs {
   labels?: SpeakerLabel[]
   /** The <earlier_calls> items the request showed (account memory, dated). Absent when there were none, and on older rows. */
   earlier_calls?: Array<{ kind: AccountMemoryKind; text: string; date: string }>
+  /** The <keith_notes> text the request showed ("What I know about <account>", as cut for HELP; M4). Absent when there were none, and on older rows. */
+  keith_notes?: string
   gaps_noted: string[]
   provisional_text: boolean
   transcript_lag_ms: number | null
@@ -237,7 +239,8 @@ export interface HeardLine {
   ago_ms: number
 }
 
-export type PressMode = 'opening' | 'signal' | 'another_angle'
+/** plan_item (M4): Keith clicked one of his open must-learns, for the line that gets there from where the talk is. */
+export type PressMode = 'opening' | 'signal' | 'another_angle' | 'plan_item'
 
 // ---------------- feedback ----------------
 
@@ -382,6 +385,8 @@ export interface CallWrapup {
   mock: boolean
   /** Keith's must-learns the call ended without (open or partial), for the next call with them (M3). */
   plan_open?: string[]
+  /** Topics the call's final notes listed as not covered yet: "Learn next time" offers them as one-click adds (M4). */
+  not_covered?: NotCoveredTopic[]
 }
 
 // ---------------- account memory ----------------
@@ -403,4 +408,47 @@ export interface AccountMemory {
   /** The last call's setup, for "Reuse last setup". */
   last_setup: CallSetup | null
   items: Array<{ kind: AccountMemoryKind; text: string; date: string; session_id: string }>
+  /** M4 faster setup: the newest deployment set for this account that isn't "not sure" (absent: never set). */
+  last_deployment?: Deployment
+  /** M4 faster setup: the call type the next call likely is, from the last call's agreed next step (default follow_up). */
+  next_call_type?: CallType
+  /** M4 must-learn ideas: topics the last call's final notes listed as not covered yet (absent: no notes, or a Practice call). */
+  last_not_covered?: NotCoveredTopic[]
 }
+
+// ---------------- M4: prep before the call ----------------
+
+/** Where a must-learn idea comes from: this account's gaps first, then Keith's own notes, then starters for the call type. */
+export type MustLearnIdeaSource = 'still_to_learn' | 'they_owe' | 'not_covered' | 'confirm' | 'my_notes' | 'deployment' | 'starter'
+
+/**
+ * One grey suggestion under "Must learn" before Start: a topic to learn in plain words (not a scripted
+ * question), neutral (no assumed pain, urgency or deadline). One click makes it a must-learn chip.
+ */
+export interface MustLearnIdea {
+  /** The chip text (at most MUST_LEARN_IDEA_MAX_CHARS). */
+  text: string
+  source: MustLearnIdeaSource
+  /** The call day it comes from (YYYY-MM-DD), or null (a starter, his notes). */
+  date: string | null
+  /** Hover: where it came from ("Not covered on the Sep 28 call", "Discovery starter"). */
+  hint: string
+}
+export const MUST_LEARN_IDEAS_MAX = 4
+export const MUST_LEARN_IDEA_MAX_CHARS = 40
+
+/**
+ * "What I know about <account>": Keith's own notes, typed or pasted by him (calls before the app, who's
+ * who, their setup, research). Kept per account across calls. HELP may check them as a question, never
+ * as something said on the call or as Arize fact.
+ */
+export interface AccountNotes {
+  /** As Keith last typed the account. */
+  account: string
+  text: string
+  /** When he last saved them (ISO), or null when there are none. */
+  updated_at: string | null
+}
+export const ACCOUNT_NOTES_MAX_CHARS = 2000
+/** What HELP gets of them, tags included (like EARLIER_CALLS_BLOCK_MAX_CHARS). */
+export const KEITH_NOTES_BLOCK_MAX_CHARS = 700

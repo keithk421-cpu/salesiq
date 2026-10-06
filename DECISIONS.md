@@ -12,6 +12,7 @@ Do not reopen these unless implementation evidence shows failure.
 - Live UI frozen: topic tracker + Deeper + Coach + HELP. Discovery ladder hidden.
 - M2 (Keith, 2026-10-05): approved UI additions: wrap-up after Stop with a follow-up draft (copied by Keith, never sent), account memory ("Last time with..."), the WRAP button, shorter card lines, compact window. See docs/M2_PLAN.md.
 - M3 (Keith, 2026-10-06): approved: the card's "Heard" line and listening-blind warning, smarter presses (opening, buying-signal next step, another angle), and his call plan (up to 3 must-learns tracked Open/Partial/Done, the tracker DECISIONS already describes). See docs/M3_PLAN.md.
+- M4 (Keith, 2026-10-06): approved: must-learn ideas before Start, a "What I know about <account>" box (his own notes, filled by pasting from Claude with Sumble/Notion/Drive; HELP may use it as check questions only, never as something said), faster setup (the account fills the rest; "Learn next time" in the wrap-up) and a click on a must-learn mid-call for the line that gets there. See docs/M4_PLAN.md.
 - HELP is manual, immediate, unrestricted by speaker identity, and can use all recent speakers.
 - Deeper quietly refreshes after team inquiry -> buyer answer. Team = Keith or recognized/manually labeled SA. Inquiry detection is semantic, not punctuation-based.
 - Deeper surfaces friction; never presumes it. Unsupported pain/urgency/dissatisfaction/ownership/desire-to-change is a failure.
