@@ -486,9 +486,11 @@ body:not(.in-call) .wrap-signal { display: none; }
 .ml-ideas-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
 .ml-idea, .wu-learn-offer { height: 24px; max-width: 100%; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ml-idea:hover, .wu-learn-offer:hover { color: var(--text); border-style: solid; background: var(--surface-2); }
-/* "Filled from the Sep 28 call · Undo" in the Last time box head. */
+/* "Filled from the Sep 28 call · Undo" in the Last time box head. On a narrow window the head wraps, so
+   the line drops under the title instead of pushing Reuse (and the page) off the side. */
 .am-filled { flex: none; white-space: nowrap; }
 .am-filled .link { font-size: inherit; }
+.am-head:has(.am-filled:not([hidden])) { flex-wrap: wrap; row-gap: 4px; }
 /* Wrap-up "Learn next time": not-covered topics as "+" chips, and a small box to add one. */
 .wu-learn-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
 .wu-learn-add .wu-learn-new { flex: 0 1 220px; min-width: 140px; height: 28px; font-size: 13px; }

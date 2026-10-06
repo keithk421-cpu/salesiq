@@ -434,6 +434,8 @@ export interface MustLearnIdea {
   date: string | null
   /** Hover: where it came from ("Not covered on the Sep 28 call", "Discovery starter"). */
   hint: string
+  /** The whole item a click saves as the must-learn, when `text` had to be cut (M4 fix: never save the "…"). */
+  full?: string
 }
 export const MUST_LEARN_IDEAS_MAX = 4
 export const MUST_LEARN_IDEA_MAX_CHARS = 40

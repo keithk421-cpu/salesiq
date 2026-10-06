@@ -349,8 +349,9 @@ export class WrapupKeeper {
   private notePlanOpen(): void {
     const plan = this.d.memory.callNotes?.notes.plan
     const tracked = Array.isArray(plan) ? planOpen(mustLearnOf(this.d.memory.setup), plan) : []
-    // M4 "Learn next time": the ones Keith added join them (at most 3 in all, his after the call's).
-    const open = sanitizeMustLearn([...tracked, ...this.learnAdded]).filter((t) => !this.learnRemoved.has(planKey(t)))
+    // M4 "Learn next time": the ones Keith added join them (at most 3 in all, his after the call's). The
+    // removed ones go first, so one he removed doesn't take a place from one he adds next.
+    const open = sanitizeMustLearn([...tracked, ...this.learnAdded].filter((t) => !this.learnRemoved.has(planKey(t))))
     if (open.length) this.w.plan_open = open
     else delete this.w.plan_open
     // M4: the final notes' not-covered topics, offered as one-click adds (read defensively: older notes).

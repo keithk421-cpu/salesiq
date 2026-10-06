@@ -48,6 +48,14 @@ describe('the likely type of the next call', () => {
     expect(nextCallType(['A demo for their VP', 'Security review with their CISO'])).toBe('demo')
     // Inside one step, the later stage wins.
     expect(nextCallType(['Demo the eval workflow as part of the POC scoping'])).toBe('technical_deep_dive')
+    // Their contract with someone else is taken out, Arize's paperwork still counts in the same step.
+    expect(nextCallType(['Review their contract redlines'])).toBe('negotiation')
+    expect(nextCallType(['Their legal team to review the contract'])).toBe('negotiation')
+    expect(nextCallType(['Once their Datadog contract renews, send our order form'])).toBe('negotiation')
+    // A demo already held is taken out; a demo still to come counts.
+    expect(nextCallType(['Agree the scope of the demo for their VP'])).toBe('demo')
+    expect(nextCallType(['Questions from the demo, then a full demo for their VP'])).toBe('demo')
+    expect(nextCallType(['Set up the demo call with their team'])).toBe('demo')
   })
 
   it("must not match: their own demo inside their company, a past demo, a document, a pilot that isn't being scoped", () => {
@@ -62,6 +70,16 @@ describe('the likely type of the next call', () => {
       'Their internal pilot of the chatbot continues',
       'Contractors join the next call',
       'Talk again in two weeks',
+      // Their contract with another vendor is not the paperwork with Arize.
+      'Reconnect in January after their Datadog contract renews',
+      'Revisit once their current contract with Langfuse ends in Q2',
+      'Check in when their existing tracing contract is up',
+      'Talk again before their renewal in March',
+      // A demo already held, or a thing from it.
+      'Follow-up call Thursday to answer questions from the demo',
+      'Send a recap of the demo and the slides',
+      'Keith to send the demo recording',
+      'Share the demo deck with their VP',
       '',
     ]) expect(nextCallType([t]), t).toBe('follow_up')
     expect(nextCallType([])).toBe('follow_up')
@@ -160,6 +178,29 @@ describe('ideas from the account', () => {
     })
     expect(ideas.map((i) => i.text)).toEqual(['How their eval reviewers decide which…', 'Eval owner', 'what they want from today'])
     expect(ideas[0].text.length).toBeLessThanOrEqual(MUST_LEARN_IDEA_MAX_CHARS)
+    // A click saves the whole item, never the "…"; one that fits has no second form.
+    expect(ideas[0].full).toBe('How their eval reviewers decide which answers to escalate to the platform team')
+    expect(ideas[1].full).toBeUndefined()
+    // Once set (the whole item), it isn't offered again.
+    const after = mustLearnIdeas({
+      setup: { call_type: 'other', deployment: 'saas', must_learn: [ideas[0].full!] },
+      memory: mem({ items: [it_('to_learn', 'How their eval reviewers decide which answers to escalate to the platform team')] }),
+    })
+    expect(after.map((i) => i.text)).toEqual(['what they want from today'])
+  })
+
+  it('"Confirm:" keeps a name or a product as it was written; a plain first word is lower case', () => {
+    const facts = ['Datadog for monitoring today', 'Priya signs off on new tools', 'VP of Engineering signs off', 'Use an in-house dashboard', 'Their CTO decides']
+    const ideas = mustLearnIdeas({
+      setup: { call_type: 'other', deployment: 'saas' },
+      memory: mem({ items: facts.map((t) => it_('fact', t, '2026-09-28', { fact_kind: 'current_tooling' })) }),
+    })
+    expect(ideas.map((i) => i.text)).toEqual(['Confirm: Datadog for monitoring today', 'Confirm: Priya signs off on new tools', 'what they want from today'])
+    const more = mustLearnIdeas({
+      setup: { call_type: 'other', deployment: 'saas' },
+      memory: mem({ items: facts.slice(2).map((t) => it_('fact', t, '2026-09-28', { fact_kind: 'decision_process' })) }),
+    })
+    expect(more.map((i) => i.text)).toEqual(['Confirm: VP of Engineering signs off', 'Confirm: use an in-house dashboard', 'what they want from today'])
   })
 
   it('only decision-process and current-tools facts are offered to confirm', () => {
@@ -194,6 +235,21 @@ describe('ideas from the account', () => {
     expect(owedTopic('Their platform lead to book a call with our SA')).toBe('booking a call with our SA')
     expect(owedTopic('Eval dataset sample')).toBe('eval dataset sample')
     expect(owedTopic('VP sign-off on the pilot')).toBe('VP sign-off on the pilot')
+    // Who goes only when what follows is what to do; an item that starts with what to do stays whole.
+    expect(owedTopic('Their CISO to fill in the security questionnaire')).toBe('filling in the security questionnaire')
+    expect(owedTopic('Security team to review the DPA')).toBe('reviewing the DPA')
+    expect(owedTopic('Dana will intro us to procurement')).toBe('introducing us to procurement')
+    expect(owedTopic('Raj will confirm the budget by Q1')).toBe('confirming the budget by Q1')
+    // Must not take the first words for a person.
+    expect(owedTopic('Introduce Keith to their platform lead (Dana)')).toBe('introducing Keith to their platform lead')
+    expect(owedTopic('Speak to legal about the DPA')).toBe('speaking to legal about the DPA')
+    expect(owedTopic('Talk to their CISO about SOC 2')).toBe('talking to their CISO about SOC 2')
+    expect(owedTopic('Reply to the security questionnaire')).toBe('replying to the security questionnaire')
+    expect(owedTopic('Intro to their head of platform')).toBe('intro to their head of platform')
+    expect(owedTopic('Approval to start the POC')).toBe('approval to start the POC')
+    expect(owedTopic('Budget to be confirmed by Q1')).toBe('budget to be confirmed by Q1')
+    // A name or a product keeps its case.
+    expect(owedTopic('Datadog access for our SA')).toBe('Datadog access for our SA')
     expect(ideaDay('2026-09-28', NOW)).toBe('Sep 28')
     expect(ideaDay('2025-12-01', NOW)).toBe('Dec 1, 2025')
   })
@@ -321,6 +377,26 @@ describe('"Learn next time": WrapupKeeper', () => {
     expect(JSON.stringify(logs)).not.toMatch(/timeline|eval dataset|score answers|signs off/i)
   })
 
+  it('a removed one frees its place: Keith can add another after removing one of 3 (his own or the call\'s)', () => {
+    const logs: Array<{ e: string; d?: Record<string, unknown> }> = []
+    // All 3 of the call's must-learns ended open: the list is full until he removes one.
+    const allOpen: CallNotes = { ...EMPTY_NOTES, plan: PLAN.map((item) => ({ item, status: 'open' as const, turn_ids: [] })) }
+    const w = keeper(allOpen, PLAN, (e, d) => logs.push({ e, d }))
+    expect(w.state().plan_open).toEqual(PLAN)
+    expect(w.addToLearn('Who runs their evals')).toBe(false)
+    expect(w.removeToLearn(PLAN[0])).toBe(true)
+    expect(w.addToLearn('Who runs their evals')).toBe(true)
+    expect(w.state().plan_open).toEqual([PLAN[1], PLAN[2], 'Who runs their evals'])
+    // One he added, then removed, doesn't hold a place either.
+    const two = keeper(allOpen, PLAN.slice(0, 2))
+    expect(two.state().plan_open).toEqual(PLAN.slice(0, 2))
+    expect(two.addToLearn('Timeline to decide')).toBe(true)
+    expect(two.removeToLearn('Timeline to decide')).toBe(true)
+    expect(two.addToLearn('What good looks like')).toBe(true)
+    expect(two.state().plan_open).toEqual([...PLAN.slice(0, 2), 'What good looks like'])
+    expect(JSON.stringify(logs)).not.toMatch(/evals|timeline|good looks/i)
+  })
+
   it('works with notes off (nothing tracked) and on older notes without not_covered', () => {
     const w = keeper(null)
     expect(w.state().plan_open).toBeUndefined()
@@ -446,6 +522,8 @@ describe('a call, its wrap-up, and the next call with them', () => {
     // Set as must-learns, the rest come up: the fact to confirm, then his notes.
     a.help.setMustLearn(['timeline to decide', 'Eval dataset owner', 'what good looks like'])
     expect(a.help.mustLearnIdeas().map((i) => i.text)).toEqual(['status of their eval rubric', 'Confirm: score answers with a rubric…', 'where data must stay', 'how they send traces today'])
+    // The chip is cut; a click saves the whole fact.
+    expect(a.help.mustLearnIdeas()[1].full).toBe('Confirm: score answers with a rubric in a spreadsheet')
     // Logs: counts and codes only, never what Keith wanted to learn, the account or the notes.
     expect(JSON.stringify(a.logs)).not.toMatch(/timeline to decide|Eval dataset|rubric|Thistlewick|Dana|data must stay|good looks/i)
     a.help.shutdown()

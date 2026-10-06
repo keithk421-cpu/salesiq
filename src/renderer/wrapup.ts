@@ -61,6 +61,8 @@ export function initWrapup(api: CopilotApi): void {
   let backAfterReview = false
   /** Start was pressed and the call hasn't gone live yet. */
   let starting = false
+  /** What Keith typed in "Learn next time"'s box and hasn't added yet: kept through redraws and a failed add (M4). */
+  let learnDraft = ''
   /** When each line of this call was said (for the quotes). */
   const said = new Map<string, number>()
 
@@ -155,7 +157,7 @@ export function initWrapup(api: CopilotApi): void {
     return `<section class="wu-sec wu-learn">
       <div class="wu-sec-head"><span class="nt-h">Learn next time</span><span class="muted small">for your next call with them</span></div>
       ${xs.length ? `<ul class="wu-learn-list">${xs.map((x) => `<li><span>${esc(x)}</span><button class="icon-btn wu-learn-x" data-learn="${esc(x)}" title="Remove: you got this">✕</button></li>`).join('')}</ul>` : ''}
-      ${full ? '' : `<div class="wu-learn-add">${offers.map((t) => `<button type="button" class="wu-learn-offer" data-offer="${esc(t)}" title="Not covered on this call">+ ${esc(t)}</button>`).join('')}<input class="input wu-learn-new" maxlength="${MUST_LEARN_MAX_CHARS}" placeholder="Add one · Enter" aria-label="Add something to learn next time" /></div>`}
+      ${full ? '' : `<div class="wu-learn-add">${offers.map((t) => `<button type="button" class="wu-learn-offer" data-offer="${esc(t)}" title="Not covered on this call">+ ${esc(t)}</button>`).join('')}<input class="input wu-learn-new" maxlength="${MUST_LEARN_MAX_CHARS}" value="${esc(learnDraft)}" placeholder="Add one · Enter" aria-label="Add something to learn next time" /></div>`}
     </section>`
   }
 
@@ -164,11 +166,16 @@ export function initWrapup(api: CopilotApi): void {
     const t = text.replace(/\s+/g, ' ').trim()
     if (!t) return
     // Off the box first, so the list redraws with the answer (it waits while Keith is typing in it).
+    // What he typed stays in the box until it is added: a failed add doesn't lose it.
     if (input) {
-      input.value = ''
+      learnDraft = input.value
       input.blur()
     }
-    await change(api.wrapupAddToLearn(t))
+    if ((await change(api.wrapupAddToLearn(t))) && input) {
+      learnDraft = ''
+      const box = $('wuList').querySelector<HTMLInputElement>('.wu-learn-new')
+      if (box && document.activeElement !== box) box.value = ''
+    }
   }
 
   function render(): void {
@@ -209,6 +216,8 @@ export function initWrapup(api: CopilotApi): void {
 
   function take(w: CallWrapup | null): void {
     if (w && wrap && w.session_id !== wrap.session_id) emailShown = null
+    // M4: a new call's wrap-up starts with an empty "Learn next time" box.
+    if (w?.session_id !== wrap?.session_id) learnDraft = ''
     wrap = w
     // Opens by itself once per call (after Stop); the button reopens it.
     if (w && w.session_id !== openedFor && w.status === 'building') {
@@ -219,11 +228,12 @@ export function initWrapup(api: CopilotApi): void {
     render()
   }
 
-  async function change(p: Promise<unknown>): Promise<void> {
+  async function change(p: Promise<unknown>): Promise<boolean> {
     const r = (await p) as ItemResult
     if (!r.ok) $('wuMsg').textContent = "That didn't save. Try again."
     else $('wuMsg').textContent = ''
     if (r.wrapup) take(r.wrapup)
+    return !!r.ok
   }
 
   async function addFrom(input: HTMLInputElement | null): Promise<void> {
@@ -284,6 +294,7 @@ export function initWrapup(api: CopilotApi): void {
       if (e.key === 'Escape') {
         // Clears the box; the window stays open.
         e.stopPropagation()
+        learnDraft = ''
         el.value = ''
         el.blur()
       }
@@ -304,6 +315,11 @@ export function initWrapup(api: CopilotApi): void {
         el.blur()
       }
     }
+  })
+  // M4: what is typed in "Learn next time"'s box survives a redraw of the list.
+  $('wuList').addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement
+    if (el.classList.contains('wu-learn-new')) learnDraft = el.value
   })
   $('wuList').addEventListener('focusout', () => {
     // Moving from one box to the next keeps the cursor; leaving the list draws what arrived meanwhile.

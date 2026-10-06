@@ -21,7 +21,7 @@
  */
 import { MUST_LEARN_IDEAS_MAX, MUST_LEARN_IDEA_MAX_CHARS, NOT_COVERED_TOPICS, type AccountMemory, type CallSetup, type CallType, type MustLearnIdea, type MustLearnIdeaSource, type NotCoveredTopic } from '../../shared/help'
 import { notesToLearn } from './accountNotes'
-import { mustLearnOf, planKey, shortItem } from './callPlan'
+import { MUST_LEARN_MAX_CHARS, mustLearnOf, planKey, sanitizeMustLearn, shortItem } from './callPlan'
 
 /** A topic the call didn't cover, as a must-learn in plain words (the wrap-up's "+" chips use the same words). */
 export const NOT_COVERED_IDEA: Record<NotCoveredTopic, string> = {
@@ -81,9 +81,14 @@ export function ideaDay(s: string | null | undefined, now = new Date()): string 
   return `${MONTHS[mo - 1]} ${d}${y !== now.getFullYear() ? `, ${y}` : ''}`
 }
 
-/** The first letter lower case unless the first word is a name or an acronym ("Use Langfuse" -> "use Langfuse", "VP signs" stays). */
+/**
+ * The first letter lower case when the first word is a plain word that starts a sentence ("Use an
+ * in-house dashboard" -> "use an ..."). Anything else may be a name or a product and keeps its case
+ * ("Datadog for monitoring", "Priya signs off", "VP signs off").
+ */
 function lowerFirst(s: string): string {
-  return /^[A-Z][a-z]+\b(?!['’]s)/.test(s) && !/^(?:I|Arize)\b/.test(s) ? s[0].toLowerCase() + s.slice(1) : s
+  const first = /^([A-Z][a-z]+)\b(?!['’-])/.exec(s)?.[1]
+  return first && (PLAIN_STARTS.has(first.toLowerCase()) || VERBS.has(first.toLowerCase())) ? s[0].toLowerCase() + s.slice(1) : s
 }
 
 // What they said they'd hand over: the thing itself is the topic ("Share their eval dataset" -> "their eval dataset").
@@ -94,7 +99,20 @@ const GERUND: Record<string, string> = {
   find: 'finding', look: 'looking', follow: 'following', introduce: 'introducing', connect: 'connecting', test: 'testing', try: 'trying',
   run: 'running', evaluate: 'evaluating', sign: 'signing', talk: 'talking', ask: 'asking', decide: 'deciding', get: 'getting',
   invite: 'inviting', bring: 'bringing', circle: 'circling', come: 'coming', reach: 'reaching', email: 'emailing', update: 'updating',
+  fill: 'filling', speak: 'speaking', reply: 'replying', go: 'going', respond: 'responding', write: 'writing', use: 'using', score: 'scoring',
 }
+/** Words an owed item starts with when it is what to do, not who does it ("Talk to ...", "Intro to ..."). */
+const VERBS = new Set([
+  ...Object.keys(GERUND), 'share', 'send', 'provide', 'forward', 'pull', 'put', 'gather', 'collect', 'prepare', 'draft', 'give', 'intro',
+])
+/** Plain words a sentence starts with (lower case is right for them mid-sentence): not names or products. */
+const PLAIN_STARTS = new Set([
+  'the', 'their', 'they', 'this', 'that', 'these', 'those', 'a', 'an', 'our', 'we', 'its', 'some', 'any', 'all', 'each', 'no', 'one',
+  'two', 'three', 'most', 'only', 'eval', 'evals', 'budget', 'approval', 'access', 'pricing', 'sample', 'samples', 'feedback',
+  'details', 'answers', 'security', 'legal', 'procurement', 'data', 'team', 'platform', 'decision', 'homegrown', 'manual', 'manually',
+])
+/** "Dana to ...", "Security team will ...": up to 3 words, then "to" or "will" (checked against VERBS below). */
+const WHO_TO = /^((?:[\w.'’-]+ ){0,2}?[\w.'’-]+) (?:to|will)\s+/
 
 /**
  * What they owed, as a topic: "Dana to share a sample of their eval dataset (Dana, by Friday)" ->
@@ -103,10 +121,18 @@ const GERUND: Record<string, string> = {
 export function owedTopic(text: string): string {
   let t = text.replace(/\s*\([^()]*\)\s*$/, '').replace(/[.\s]+$/, '').trim()
   // Who: "Dana to ...", "Their platform lead will ...", "They'll ..."
-  t = t.replace(/^(?:[Tt]hey(?:['’]ll| will| would| to)|[Tt]heir [\w-]+(?: [\w-]+)? (?:to|will)|[A-Z][\w.'’-]*(?: [A-Z][\w.'’-]*)? (?:to|will))\s+/, '')
+  t = t.replace(/^(?:[Tt]hey(?:['’]ll| will| would| to)|[Tt]heir [\w-]+(?: [\w-]+)? (?:to|will))\s+/, '')
+  // "Dana to ...", "Security team will ...": only when what follows is what to do, and the item doesn't
+  // start with it ("Talk to their CISO", "Intro to their platform lead", "Approval to start" stay whole).
+  const who = WHO_TO.exec(t)
+  if (who && !VERBS.has(who[1].split(' ')[0].toLowerCase())) {
+    const rest = t.slice(who[0].length)
+    if (DELIVER.test(rest) || VERBS.has((/^[A-Za-z]+/.exec(rest)?.[0] ?? '').toLowerCase())) t = rest
+  }
   if (DELIVER.test(t)) return t.replace(DELIVER, '')
   const first = /^([A-Za-z]+)\b/.exec(t)?.[1]
-  const g = first ? GERUND[first.toLowerCase()] : undefined
+  // "Intro to ..." is a thing, not a doing ("Intro us to ..." is).
+  const g = first && !/^intro to\b/i.test(t) ? GERUND[first.toLowerCase()] ?? (first.toLowerCase() === 'intro' ? 'introducing' : undefined) : undefined
   return g ? `${g}${t.slice(first!.length)}` : lowerFirst(t)
 }
 
@@ -126,23 +152,35 @@ const TECHNICAL = new RegExp([
 ].join('|'), 'i')
 // A demo Arize gives: "a demo", "the product demo", "demo call", "demo of the eval workflow".
 const DEMO = /\b(?:a|an|the|our|product|live|full|tailored|custom|platform|arize)\s+(?:[\w-]+\s+)?demo\b|\bdemo\s+(?:call|session|meeting|of|for|on|next|with)\b|^demo\b/i
+// Their contract with someone else is not the paperwork with Arize ("after their Datadog contract
+// renews", "once their current contract ends"): taken out of the step before NEGOTIATION is checked.
+const THEIR_CONTRACT = [
+  /\b(?:current|existing)\s+(?:[\w-]+\s+){0,2}?contracts?\b/gi,
+  /\btheir\s+[A-Z][\w-]*(?:\s+[A-Z][\w-]*)?\s+contracts?\b/g,
+  /\bcontracts?\s+(?:with\s+[\w-]+\s+)?(?:renew\w*|ends?|ended|expir\w*|is up|runs? out)\b/gi,
+  /\brenewals?\b/gi,
+]
+// A demo that already happened, or a thing from it ("questions from the demo", "the demo recording"):
+// taken out of the step before DEMO is checked.
+const PAST_DEMO = /\b(?:from|of|about|after|on|since)\s+the\s+demo\b(?!\s+(?:call|session|meeting|next|on|with|for)\b)|\bdemo\s+(?:recordings?|recaps?|decks?|slides?|videos?|notes)\b/gi
 // Their own demo inside their company is not a call with Keith.
 const NOT_OUR_DEMO = /\b(?:they(?:['’]ll| will| would)?|their \w+(?: \w+)? (?:will|to))\s+demo\b|\bdemo (?:it|this|that|arize)\s+(?:to|for|with)\s+(?:their|the|his|her)\b|\binternal(?:ly)?\b/i
 
 /**
  * The likely type of the next call, from the last call's agreed next steps (in the wrap-up's order;
- * the first that says something wins): contract, procurement, order form or legal -> Negotiation; a
- * deep-dive, architecture or security review, or POC scoping -> Technical deep-dive; a demo Arize gives
- * -> Demo; else Follow-up.
+ * the first that says something wins): contract, procurement, order form or legal -> Negotiation (not
+ * their contract with someone else); a deep-dive, architecture or security review, or POC scoping ->
+ * Technical deep-dive; a demo Arize gives (not one already held) -> Demo; else Follow-up.
  */
 export function nextCallType(agreed: readonly string[]): CallType {
   for (const raw of agreed) {
     if (typeof raw !== 'string') continue
     const t = raw.replace(/\s+/g, ' ').trim()
     if (!t) continue
-    if (NEGOTIATION.test(t)) return 'negotiation'
+    if (NEGOTIATION.test(THEIR_CONTRACT.reduce((x, re) => x.replace(re, ' '), t))) return 'negotiation'
     if (TECHNICAL.test(t)) return 'technical_deep_dive'
-    if (DEMO.test(t) && !NOT_OUR_DEMO.test(t)) return 'demo'
+    const d = t.replace(PAST_DEMO, ' ')
+    if (DEMO.test(d) && !NOT_OUR_DEMO.test(d)) return 'demo'
   }
   return 'follow_up'
 }
@@ -171,14 +209,16 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
   const add = (raw: string, source: MustLearnIdeaSource, date: string | null, hint: string, topic?: NotCoveredTopic): void => {
     if (out.length >= MUST_LEARN_IDEAS_MAX) return
     if ((perSource.get(source) ?? 0) >= (SOURCE_MAX[source] ?? MUST_LEARN_IDEAS_MAX)) return
-    const text = shortItem(raw, MUST_LEARN_IDEA_MAX_CHARS)
-    const k = planKey(text)
+    // The chip shows a short form; a click saves the whole item, so the must-learn never ends in "…".
+    const whole = wholeItem(raw)
+    const text = shortItem(whole, MUST_LEARN_IDEA_MAX_CHARS)
+    const k = planKey(whole)
     if (!k || have.has(k)) return
     if (topic && (offered.has(topic) || covered(topic))) return
     have.add(k)
     if (topic) offered.add(topic)
     perSource.set(source, (perSource.get(source) ?? 0) + 1)
-    out.push({ text, source, date, hint })
+    out.push({ text, source, date, hint, ...(text !== whole ? { full: whole } : {}) })
   }
   const items = Array.isArray(memory?.items) ? memory.items.filter((it) => it && typeof it.text === 'string' && it.text.trim()) : []
   const day = (d: string | null | undefined) => ideaDay(d, now)
@@ -201,6 +241,14 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
     if (out.length > before) starters++
   }
   return out
+}
+
+/** The item as a must-learn keeps it (one line, at most MUST_LEARN_MAX_CHARS); a longer one is cut at a word, with no "…". */
+function wholeItem(raw: string): string {
+  const t = sanitizeMustLearn([raw])[0] ?? ''
+  if (raw.replace(/\s+/g, ' ').trim().length <= t.length) return t
+  const space = t.lastIndexOf(' ')
+  return (space > MUST_LEARN_MAX_CHARS / 2 ? t.slice(0, space) : t).replace(/[\s,;:.-]+$/, '')
 }
 
 /** The calendar day of a timestamp on this PC's clock (YYYY-MM-DD), as accountMemory dates its items. */

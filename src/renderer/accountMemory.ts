@@ -64,6 +64,8 @@ export function initAccountMemory(api: CopilotApi): void {
   let touched = false
   /** Set around the app's own 'change' events (they save the strip), so they don't count as his. */
   let byApp = false
+  /** The call went live: its Stop starts the next setup fresh. A Start that failed or was stopped while checking doesn't. */
+  let wentLive = false
   /** What the last fill set, and what was there before it (for Undo). ml null: the must-learns weren't filled. */
   let filled: { key: string; day: string; prev: Fields; set: { type: string; deploy: string; ml: string[] | null } } | null = null
   const fillLine = document.createElement('span')
@@ -221,17 +223,25 @@ export function initAccountMemory(api: CopilotApi): void {
     inCall = IN_CALL.has(ev.state)
     if (inCall && !was) {
       folded = true
-      // Nothing changes by itself during a call: no Undo from here on.
-      filled = null
       render()
       renderFill()
+    }
+    // Nothing changes by itself during a call: no Undo from here on. (While it's only checking, the
+    // line is hidden; if the Start fails, the setup is still his and Undo comes back.)
+    if (ev.state === 'live' && !wentLive) {
+      wentLive = true
+      filled = null
     }
     // Stop clears the account box a moment later, and the call just held is now "last time". The box
     // stays a chip until then, so it doesn't flash open as the call ends.
     if (ev.state === 'stopped' || ev.state === 'idle') {
-      // The next call's setup starts fresh: the account may fill the rest in again.
-      touched = false
-      filled = null
+      // After a call, the next call's setup starts fresh: the account may fill the rest in again. A
+      // Start that never went live leaves his choices (and the fill) as they were.
+      if (wentLive) {
+        touched = false
+        filled = null
+      }
+      wentLive = false
       setTimeout(() => {
         if (!inCall) folded = false
         void recheck()

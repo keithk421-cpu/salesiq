@@ -123,11 +123,13 @@ export function initCallPlan(api: CopilotApi): void {
   function renderIdeas(): void {
     // Never during a call (nothing changes by itself then), and not once all 3 are set.
     const have = new Set(items.map(planKey))
-    const shown = ideas.filter((x) => !have.has(planKey(x.text)))
+    // A click saves the whole item (full, when the chip text is cut), so that is what counts as set.
+    const whole = (x: MustLearnIdea) => (typeof x.full === 'string' && x.full ? x.full : x.text)
+    const shown = ideas.filter((x) => !have.has(planKey(whole(x))))
     ideasRow.hidden = inCall || items.length >= MUST_LEARN_MAX || !shown.length
     if (ideasRow.hidden) return
     ideasRow.innerHTML = `<span class="ml-ideas-label">Ideas</span>${shown
-      .map((x) => `<button type="button" class="ml-idea" data-text="${esc(x.text)}" title="${esc(x.hint)}">+ ${esc(x.text)}</button>`)
+      .map((x) => `<button type="button" class="ml-idea" data-text="${esc(whole(x))}" title="${esc(x.hint)}">+ ${esc(x.text)}</button>`)
       .join('')}`
   }
 
