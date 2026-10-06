@@ -479,3 +479,16 @@ body.compact .wrap-signal .ws-asked, body.compact .wrap-signal .ws-at { display:
 body.compact .m2-controls:has(.health-dots[hidden]) .wrap-signal { display: none; }
 /* Between calls it's hidden in both windows: the last call's signal mustn't sit next to the next call's setup. */
 body:not(.in-call) .wrap-signal { display: none; }
+/* ---------- M4 prep: must-learn ideas, faster setup, "Learn next time" (callPlan.ts, accountMemory.ts, wrapup.ts) ---------- */
+/* The Ideas row under the Must learn chips: grey, quiet, one click adds one. Wraps on a narrow window. */
+.setup-strip .ml-ideas { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; margin-top: -2px; }
+.ml-ideas[hidden] { display: none !important; }
+.ml-ideas-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.ml-idea, .wu-learn-offer { height: 24px; max-width: 100%; padding: 0 10px; border: 1px dashed var(--border-strong); border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-idea:hover, .wu-learn-offer:hover { color: var(--text); border-style: solid; background: var(--surface-2); }
+/* "Filled from the Sep 28 call · Undo" in the Last time box head. */
+.am-filled { flex: none; white-space: nowrap; }
+.am-filled .link { font-size: inherit; }
+/* Wrap-up "Learn next time": not-covered topics as "+" chips, and a small box to add one. */
+.wu-learn-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+.wu-learn-add .wu-learn-new { flex: 0 1 220px; min-width: 140px; height: 28px; font-size: 13px; }

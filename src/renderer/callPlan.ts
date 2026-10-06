@@ -4,13 +4,17 @@
  * ○ open, ◐ partial, ● done, in Keith's words, at the top of the Call notes panel and in the compact
  * strip. Hover shows the line a status rests on. No timer, score or percentage; nothing pops up.
  *
+ * M4: before Start, a quiet "Ideas" row under the chips: up to 4 grey "+ text" suggestions (from the
+ * account's earlier calls, Keith's notes and starters for the call type; mustLearnIdeas.ts). One click
+ * makes it a must-learn; hover says where it came from. Hidden during a call and once 3 are set.
+ *
  * Kept in its own file so it doesn't touch the rest of the call screen: renderer.ts only calls
  * initCallPlan(), and the box and both lines are added to the page here. The statuses come from the
  * call notes (main process, callPlan.ts); mid-call the chips are what counts, so an item added since
  * the last notes update shows as open straight away.
  */
 import type { CopilotApi } from '../preload/preload'
-import type { CallNotesState, CallSetup, PlanItemStatus } from '../shared/help'
+import type { CallNotesState, CallSetup, MustLearnIdea, PlanItemStatus } from '../shared/help'
 import { MUST_LEARN_MAX, MUST_LEARN_MAX_CHARS, PLAN_MARK, planKey, planNow, shortItem } from '../main/help/callPlan'
 
 const IN_CALL = new Set(['checking', 'live', 'paused', 'stopping'])
@@ -20,6 +24,11 @@ const STATUS_WORD: Record<PlanItemStatus['status'], string> = { open: 'Not answe
 let fill: ((items: string[]) => void) | null = null
 export function fillMustLearn(items: string[]): void {
   fill?.(items)
+}
+/** The must-learns in the box now (M4 faster setup fills an empty box only, and Undo puts these back). */
+let current: () => string[] = () => []
+export function currentMustLearn(): string[] {
+  return current()
 }
 
 export function initCallPlan(api: CopilotApi): void {
@@ -44,6 +53,14 @@ export function initCallPlan(api: CopilotApi): void {
   box.innerHTML = `<span class="ml-label">Must learn</span><span id="mlChips" class="ml-chips"></span><input id="mlInput" class="input ml-input" maxlength="${MUST_LEARN_MAX_CHARS}" placeholder="e.g. who signs off · Enter adds" aria-label="Must learn on this call" />`
   $('hotkeyHint').before(box)
   const input = $<HTMLInputElement>('mlInput')
+
+  // M4: the Ideas row, under the chips (a row of its own in the strip).
+  const ideasRow = document.createElement('div')
+  ideasRow.id = 'mlIdeas'
+  ideasRow.className = 'ml-ideas'
+  ideasRow.hidden = true
+  box.after(ideasRow)
+  let ideas: MustLearnIdea[] = []
 
   // The plan line: at the top of the Call notes panel, and in the compact strip under the buttons.
   const line = document.createElement('div')
@@ -91,6 +108,7 @@ export function initCallPlan(api: CopilotApi): void {
     items = next
     renderChips()
     renderLine()
+    renderIdeas()
   }
 
   async function save(next: string[]): Promise<void> {
@@ -98,13 +116,61 @@ export function initCallPlan(api: CopilotApi): void {
     // The main process keeps at most 3 short items; show what it kept.
     const su = (await api.helpSetMustLearn(next)) as CallSetup | null
     if (su) show(Array.isArray(su.must_learn) ? su.must_learn : [])
+    refreshIdeas()
   }
+
+  // ---- M4: must-learn ideas ----
+  function renderIdeas(): void {
+    // Never during a call (nothing changes by itself then), and not once all 3 are set.
+    const have = new Set(items.map(planKey))
+    const shown = ideas.filter((x) => !have.has(planKey(x.text)))
+    ideasRow.hidden = inCall || items.length >= MUST_LEARN_MAX || !shown.length
+    if (ideasRow.hidden) return
+    ideasRow.innerHTML = `<span class="ml-ideas-label">Ideas</span>${shown
+      .map((x) => `<button type="button" class="ml-idea" data-text="${esc(x.text)}" title="${esc(x.hint)}">+ ${esc(x.text)}</button>`)
+      .join('')}`
+  }
+
+  let ideasSeq = 0
+  let ideasTimer: ReturnType<typeof setTimeout> | undefined
+  /** Ask again (a moment later, so a burst of changes asks once); a slower older answer never wins. */
+  function refreshIdeas(): void {
+    clearTimeout(ideasTimer)
+    ideasTimer = setTimeout(async () => {
+      if (inCall) return renderIdeas()
+      const mine = ++ideasSeq
+      const next = ((await api.helpMustLearnIdeas()) as MustLearnIdea[] | null) ?? []
+      if (mine !== ideasSeq) return
+      ideas = Array.isArray(next) ? next : []
+      renderIdeas()
+    }, 120)
+  }
+
+  ideasRow.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('.ml-idea')?.dataset.text
+    if (!t || inCall || items.length >= MUST_LEARN_MAX || items.some((x) => planKey(x) === planKey(t))) return
+    void save([...items, t])
+  })
+  // The account typed (the ideas come from its earlier calls and notes): the strip saves fields on
+  // 'change', so a pause in typing saves it, then the ideas are asked again.
+  let accountTimer: ReturnType<typeof setTimeout> | undefined
+  $('csAccount').addEventListener('input', () => {
+    clearTimeout(accountTimer)
+    accountTimer = setTimeout(() => {
+      if (inCall) return
+      $('csAccount').dispatchEvent(new Event('change'))
+    }, 400)
+  })
+  for (const id of ['csAccount', 'csType', 'csDeploy']) $(id).addEventListener('change', refreshIdeas)
+  // The "What I know" box saved his notes (its "To learn" lines are ideas too).
+  window.addEventListener('copilot:account-notes', refreshIdeas)
 
   async function reload(): Promise<void> {
     // The box is for the next call now: text typed but never added doesn't look carried over.
     input.value = ''
     const info = (await api.helpInfo()) as { setup?: CallSetup } | null
     show(Array.isArray(info?.setup?.must_learn) ? info.setup.must_learn : [])
+    refreshIdeas()
   }
 
   /** What's typed in the box becomes a chip: on Enter, on leaving the box, and at Start. */
@@ -131,6 +197,7 @@ export function initCallPlan(api: CopilotApi): void {
     input.focus()
   })
   fill = (next) => void save(next.slice(0, MUST_LEARN_MAX))
+  current = () => [...items]
 
   api.onCallNotes((raw) => {
     notes = raw as CallNotesState | null
@@ -150,6 +217,7 @@ export function initCallPlan(api: CopilotApi): void {
       // Stop clears the must-learns with the rest of the per-call setup (the line keeps what the call ended with).
       if (ev.state === 'stopped' || ev.state === 'idle') void reload()
       renderLine()
+      renderIdeas()
     } else if (ev.type === 'turn' && ev.event?.turn) {
       const t = ev.event.turn
       said.set(t.turn_id, { text: t.text, start_ms: t.start_ms })

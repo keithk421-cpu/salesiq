@@ -80,6 +80,9 @@ const api = {
   // M3 smarter presses: the latest buying signal of the call (the WRAP button's tag)
   helpSignal: () => ipcRenderer.invoke('help:signal') as Promise<{ kind: string; at_ms: number } | null>,
   onBuyingSignal: (cb: (s: { kind: string; at_ms: number } | null) => void) => ipcRenderer.on('buying-signal', (_e, s) => cb(s)),
+  // M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up
+  helpMustLearnIdeas: () => ipcRenderer.invoke('help:mustLearnIdeas'),
+  wrapupAddToLearn: (text: string) => ipcRenderer.invoke('wrapup:addToLearn', text),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

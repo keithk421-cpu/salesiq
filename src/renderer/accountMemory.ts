@@ -4,11 +4,16 @@
  * Open before Start; during the call it folds to a one-line chip Keith can open (and folds again when
  * a HELP card comes, so the card stays in view). "Reuse last setup" copies the last call's goal,
  * outcomes and deployment, as a Follow-up, and what it still had to learn (M3 call plan).
+ *
+ * M4 faster setup: before Start, when the typed account has earlier calls and Keith hasn't changed the
+ * call type or deployment himself since the app opened or the last Stop, they fill in from the last
+ * calls (the likely next call type, the deployment last set) and an empty Must learn takes what the
+ * last call still had to learn. One quiet line in the box says so, with Undo. Never during a call.
  */
 import type { CopilotApi } from '../preload/preload'
 import type { AccountMemory, AccountMemoryKind } from '../shared/help'
 import { accountKey } from '../shared/help'
-import { fillMustLearn } from './callPlan'
+import { currentMustLearn, fillMustLearn } from './callPlan'
 
 type Summary = { account: string; calls: number; last_call_at: string }
 
@@ -51,6 +56,21 @@ export function initAccountMemory(api: CopilotApi): void {
   let folded = false
   let lastCardId = ''
 
+  // ---- M4 faster setup ----
+  const typeEl = $<HTMLSelectElement>('csType')
+  const deployEl = $<HTMLSelectElement>('csDeploy')
+  type Fields = { type: string; deploy: string; ml: string[] }
+  /** Keith changed the call type or deployment himself since the app opened or the last Stop: leave them be. */
+  let touched = false
+  /** Set around the app's own 'change' events (they save the strip), so they don't count as his. */
+  let byApp = false
+  /** What the last fill set, and what was there before it (for Undo). ml null: the must-learns weren't filled. */
+  let filled: { key: string; day: string; prev: Fields; set: { type: string; deploy: string; ml: string[] | null } } | null = null
+  const fillLine = document.createElement('span')
+  fillLine.className = 'am-filled muted small'
+  fillLine.hidden = true
+  $('amReuse').before(fillLine)
+
   async function refreshAccounts(): Promise<void> {
     accounts = ((await api.memoryAccounts()) as Summary[] | null) ?? []
     $('amAccounts').innerHTML = accounts.map((a) => `<option value="${esc(a.account)}"></option>`).join('')
@@ -80,6 +100,74 @@ export function initAccountMemory(api: CopilotApi): void {
     $('amBody').innerHTML = html || '<div class="muted small">Nothing noted from those calls.</div>'
   }
 
+  function renderFill(): void {
+    fillLine.hidden = !filled || inCall || !memory || folded
+    if (fillLine.hidden) return
+    fillLine.innerHTML = `Filled from the ${esc(filled!.day)} call · <button type="button" class="link am-undo">Undo</button>`
+  }
+
+  /** Set the call type and deployment, and save the strip (its fields save together on 'change'). */
+  function setFields(type: string, deploy: string): void {
+    typeEl.value = type
+    deployEl.value = deploy
+    byApp = true
+    try {
+      typeEl.dispatchEvent(new Event('change'))
+    } finally {
+      byApp = false
+    }
+  }
+
+  /** Put back what was there before a fill (must-learns Keith added since stay). */
+  function restore(f: NonNullable<typeof filled>): void {
+    setFields(f.prev.type, f.prev.deploy)
+    const set = f.set.ml
+    if (set) fillMustLearn([...f.prev.ml, ...currentMustLearn().filter((x) => !set.includes(x))])
+  }
+
+  /** After the typed account was looked up: fill the rest in from its earlier calls (see the top). */
+  function autoFill(): void {
+    if (inCall) return
+    if (filled && filled.key === shownKey) return
+    // A different account now: what came from the last one goes back (a hand change would have ended
+    // the fill already; must-learns Keith added since stay).
+    if (filled) {
+      const f = filled
+      filled = null
+      restore(f)
+    }
+    if (touched || !memory) return renderFill()
+    const prev: Fields = { type: typeEl.value, deploy: deployEl.value, ml: currentMustLearn() }
+    const type = memory.next_call_type ?? 'follow_up'
+    const deploy = memory.last_deployment ?? prev.deploy
+    const ml = !prev.ml.length && memory.last_setup?.must_learn?.length ? memory.last_setup.must_learn.slice(0, 3) : null
+    // Nothing would change: no line.
+    if (type === prev.type && deploy === prev.deploy && !ml) return renderFill()
+    setFields(type, deploy)
+    if (ml) fillMustLearn(ml)
+    filled = { key: shownKey, day: dayLabel(memory.last_call_at), prev, set: { type, deploy, ml } }
+    renderFill()
+  }
+
+  for (const el of [typeEl, deployEl]) {
+    el.addEventListener('change', () => {
+      if (byApp) return
+      touched = true
+      // He took over: Undo would now undo his own choice.
+      filled = null
+      renderFill()
+    })
+  }
+  fillLine.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('.am-undo') || !filled || inCall) return
+    const f = filled
+    filled = null
+    restore(f)
+    // Undo is his choice: the next account he types doesn't fill them in again.
+    touched = true
+    renderFill()
+  })
+
   /** Look up the typed account (only one that earlier calls had, so typing doesn't query on every key). */
   async function check(): Promise<void> {
     const key = accountKey(input.value)
@@ -91,6 +179,8 @@ export function initAccountMemory(api: CopilotApi): void {
     if (mine !== seq) return
     memory = m
     render()
+    autoFill()
+    renderFill()
   }
 
   /** Look again even if the account didn't change (a call just ended or was deleted). */
@@ -106,10 +196,15 @@ export function initAccountMemory(api: CopilotApi): void {
   $('amToggle').addEventListener('click', () => {
     folded = !folded
     render()
+    renderFill()
   })
   $('amReuse').addEventListener('click', () => {
     const su = memory?.last_setup
     if (!su) return
+    // M4: Reuse is his choice; the fill line goes and the account no longer fills in by itself.
+    touched = true
+    filled = null
+    renderFill()
     $<HTMLSelectElement>('csType').value = 'follow_up'
     $<HTMLInputElement>('csGoal').value = su.call_goal
     $<HTMLInputElement>('csOutcomes').value = su.desired_outcomes.join(', ')
@@ -126,11 +221,17 @@ export function initAccountMemory(api: CopilotApi): void {
     inCall = IN_CALL.has(ev.state)
     if (inCall && !was) {
       folded = true
+      // Nothing changes by itself during a call: no Undo from here on.
+      filled = null
       render()
+      renderFill()
     }
     // Stop clears the account box a moment later, and the call just held is now "last time". The box
     // stays a chip until then, so it doesn't flash open as the call ends.
     if (ev.state === 'stopped' || ev.state === 'idle') {
+      // The next call's setup starts fresh: the account may fill the rest in again.
+      touched = false
+      filled = null
       setTimeout(() => {
         if (!inCall) folded = false
         void recheck()
@@ -145,6 +246,7 @@ export function initAccountMemory(api: CopilotApi): void {
     if (!folded) {
       folded = true
       render()
+      renderFill()
     }
   })
   // Saved calls were deleted (by Keith or by the keep-calls limit): show only what is left.

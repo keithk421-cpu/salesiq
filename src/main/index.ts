@@ -534,6 +534,9 @@ function registerIpc(): void {
   // ---- M3 smarter presses: the latest buying signal of the call, a quiet tag on the WRAP button ----
   if (help) help.onSignal = (s) => send('buying-signal', s)
   ipcMain.handle('help:signal', () => help?.signal ?? null)
+  // ---- M4 prep: must-learn ideas before Start, and "Learn next time" in the wrap-up (text checked in WrapupKeeper) ----
+  ipcMain.handle('help:mustLearnIdeas', () => help?.mustLearnIdeas() ?? [])
+  ipcMain.handle('wrapup:addToLearn', (_e, raw: unknown) => help?.addWrapupToLearn(raw) ?? { ok: false, wrapup: null })
 }
 
 function createWindow(): void {
