@@ -77,6 +77,9 @@ const api = {
   wrapupDraft: () => ipcRenderer.invoke('wrapup:draft'),
   wrapupRetry: () => ipcRenderer.invoke('wrapup:retry'),
   onWrapup: (cb: (w: unknown) => void) => ipcRenderer.on('wrapup', (_e, w) => cb(w)),
+  // M3 smarter presses: the latest buying signal of the call (the WRAP button's tag)
+  helpSignal: () => ipcRenderer.invoke('help:signal') as Promise<{ kind: string; at_ms: number } | null>,
+  onBuyingSignal: (cb: (s: { kind: string; at_ms: number } | null) => void) => ipcRenderer.on('buying-signal', (_e, s) => cb(s)),
 }
 
 contextBridge.exposeInMainWorld('copilot', api)

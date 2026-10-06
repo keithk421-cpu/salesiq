@@ -7,12 +7,13 @@
  */
 import fs from 'node:fs'
 import type { Stream } from '../../shared/contracts'
-import type { CallSetup, CallType, Deployment, KnowledgeCategory, KnowledgeDocMeta, SpeakerLabel } from '../../shared/help'
+import type { CallSetup, CallType, Deployment, KnowledgeCategory, KnowledgeDocMeta, PressMode, SpeakerLabel } from '../../shared/help'
 import { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
 import { cleanEarlierItems, type EarlierCallItem } from './accountMemory'
 import { CallMemory } from './callMemory'
 import type { WrapWhy } from './wrap'
+import type { PressDetail } from './pressModes'
 
 export const FINAL_DELAY_MS = 1000
 const WORDS_PER_SEC = 2.5
@@ -67,6 +68,10 @@ export interface Scenario {
   earlier_calls?: EarlierCallItem[]
   /** Saved from a WRAP press ('button'), or a HELP press as the call sounded like it was ending ('closing'): replayed with the same wrap instruction. */
   wrap?: WrapWhy
+  /** Saved from a smarter press (M3): the opening, a buying signal's next step, or another angle: replayed with the same block. */
+  press_mode?: PressMode
+  /** What that block (or a WRAP press's buying-signal note) showed: the signal, the line already given, the must-learns. */
+  press_detail?: PressDetail
 }
 
 export interface ObservedCard {

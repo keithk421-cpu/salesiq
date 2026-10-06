@@ -19,6 +19,7 @@ import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
 import { WrapupKeeper } from './help/wrapup'
+import { latestSignal, signalIn, type SignalSeen } from './help/pressModes'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
@@ -173,6 +174,9 @@ export class HelpService {
   onReadiness: ((r: HelpReadyState) => void) | null = null
   /** How long (ms) the meeting audio has had sound with no words back (set by index.ts from the session; heard.ts). */
   listeningBlindMs: () => number = () => 0
+  /** The latest buying signal of this call (M3): a quiet tag on the WRAP button. Cleared at a new call. */
+  signal: SignalSeen | null = null
+  onSignal: ((s: SignalSeen | null) => void) | null = null
 
   constructor(
     private readonly storage: Storage,
@@ -427,6 +431,7 @@ export class HelpService {
     const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 60) : null
     const label: SpeakerLabel = { cluster: r.cluster, role, name }
     this.memory.setLabel(label)
+    this.relabelSignal()
     return { ok: true }
   }
 
@@ -466,6 +471,7 @@ export class HelpService {
         m.upsertTurn({ id: t.turn_id, stream: t.stream, cluster: t.speaker_cluster, start_ms: t.start_ms, end_ms: t.end_ms, text: t.text, available_ms: now }, ev.event.type === 'turn_final')
         this.engine?.onFinalWords(t.stream)
         if (ev.event.type === 'turn_final') this.notes?.onFinalTurn(t.turn_id)
+        if (ev.event.type === 'turn_final') this.noteSignal(signalIn(m, { stream: t.stream, cluster: t.speaker_cluster, text: t.text, start_ms: t.start_ms }))
         break
       }
       case 'interim':
@@ -499,6 +505,7 @@ export class HelpService {
     this.memory = new CallMemory(sessionId, this.db, this.kb.aliasMap)
     this.memory.setup = { ...this.setup }
     this.memory.untranscribedMs = () => this.listeningBlindMs()
+    this.clearSignal()
     this.db.sql.prepare('INSERT OR REPLACE INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(sessionId, new Date().toISOString(), JSON.stringify(this.setup))
     this.loadEarlierCalls()
     const model = this.createModel()
@@ -543,6 +550,33 @@ export class HelpService {
     this.engine?.discardPrefetch()
   }
 
+  /** A buying signal the other side just gave (null: none in those words) becomes the WRAP tag. */
+  private noteSignal(s: SignalSeen | null): void {
+    if (!s) return
+    this.signal = s
+    this.log('buying_signal', { kind: s.kind, at_ms: s.at_ms })
+    this.onSignal?.(s)
+  }
+
+  /**
+   * A speaker tagged (or untagged) as a teammate: the tag is what the next WRAP builds on, so it is
+   * worked out again the way the press will (latestSignal), from the other side only.
+   */
+  private relabelSignal(): void {
+    if (!this.memory) return
+    const s = latestSignal(this.memory, this.sessionNow())
+    if (s?.kind === this.signal?.kind && s?.at_ms === this.signal?.at_ms) return
+    this.signal = s
+    this.onSignal?.(s)
+  }
+
+  /** A new call starts without one. */
+  private clearSignal(): void {
+    if (!this.signal) return
+    this.signal = null
+    this.onSignal?.(null)
+  }
+
   /** Running call notes for this call: same model and settings as HELP, never while a pressed HELP is answered. */
   private startNotes(model: HelpModel): void {
     const memory = this.memory
@@ -583,6 +617,8 @@ export class HelpService {
     this.notes = null
     // Its notes went with it: the panel empties.
     this.onNotes?.(null)
+    // ...and so does the WRAP tag about it.
+    this.clearSignal()
     this.memory = null
   }
 
@@ -742,7 +778,7 @@ export class HelpService {
 
   feedback(raw: unknown): { ok: boolean } {
     const r = (raw ?? {}) as Record<string, unknown>
-    const types: FeedbackType[] = ['useful', 'should_have_stayed_quiet', 'bad', 'used', 'unused', 'note']
+    const types: FeedbackType[] = ['useful', 'should_have_stayed_quiet', 'bad', 'used', 'unused', 'note', 'passed']
     const reasons: BadReason[] = ['wrong_move', 'assumed_too_much', 'already_known', 'too_generic', 'too_late', 'bad_wording', 'unsupported', 'other']
     if (typeof r.card_id !== 'string' || !types.includes(r.type as FeedbackType)) return { ok: false }
     const eng = this.engine
@@ -787,6 +823,7 @@ export class HelpService {
         id: r.id, at_session_ms: r.at_session_ms, status: r.status, primary_kind: c.primary_kind ?? null, primary: c.primary ?? null,
         follow_up: c.follow_up ?? null, rating: f?.rating ?? null, bad_reason: (f && f.rating === 'bad' ? ([...f.reasons].at(-1) ?? null) : null) as BadReason | null,
         used: f?.used ?? false, note: f?.note ?? null,
+        ...(f?.passed ? { passed: true } : {}),
       }
     })
   }

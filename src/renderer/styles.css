@@ -458,3 +458,20 @@ body.compact .help-card .hc-heard > span { flex: none; white-space: pre; }
 body.compact .help-card .hc-heard .hh-short { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.compact .help-card .hc-heard .hh-who { display: none; }
 body.compact .help-card .hc-heard .hh-ago { display: inline; }
+/* ---- M3 smarter presses (pressModes.ts): the card's label, the WRAP button's buying-signal tag ---- */
+.help-card[data-press] .hc-top::before { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; white-space: nowrap; color: var(--accent); background: var(--accent-soft); }
+.help-card[data-press="opening"] .hc-top::before { content: "Opening"; }
+.help-card[data-press="signal"] .hc-top::before { content: "Next step"; color: var(--ok); background: var(--ok-soft); }
+.help-card[data-press="another_angle"] .hc-top::before { content: "Another angle"; }
+body.compact .help-card[data-press="opening"] .hc-primary .kind::before { content: "Opening · "; }
+body.compact .help-card[data-press="signal"] .hc-primary .kind::before { content: "Next step · "; color: var(--ok); }
+body.compact .help-card[data-press="another_angle"] .hc-primary .kind::before { content: "Another angle · "; }
+/* After a buying signal the next step is in FOLLOW, and so is the opening when they had just asked something: compact keeps it, one line. */
+body.compact .help-card[data-press="signal"] #hcFollow:not([hidden]), body.compact .help-card[data-press="opening"] #hcFollow:not([hidden]) { display: block !important; }
+.wrap-signal { align-self: center; font-size: 11px; font-weight: 600; color: var(--ok); background: var(--ok-soft); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
+body.compact .wrap-signal { font-size: 10.5px; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rv-passed { margin-top: 2px; font-style: italic; }
+/* The tag gives way before HELP does: the WRAP group may shrink, and the strip drops " asked". Between calls it's hidden. */
+body.compact .m2-controls { min-width: 0; }
+body.compact .wrap-signal .ws-asked { display: none; }
+body.compact:not(.in-call) .wrap-signal { display: none; }

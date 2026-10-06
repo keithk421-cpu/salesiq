@@ -15,7 +15,7 @@
  *   trustworthy is on screen before Claude answers (passage.ts). It stays if Claude fails.
  */
 import { randomUUID } from 'node:crypto'
-import type { ApprovedPassage, Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage } from '../../shared/help'
+import type { ApprovedPassage, Deployment, FeedbackEvent, HelpCardContent, HelpCardEvent, HelpModelConfig, HelpOrigin, HelpStatus, HelpTiming, HelpUsage, PressMode } from '../../shared/help'
 import type { HeardLine } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
 import type { Db } from '../db'
@@ -24,10 +24,11 @@ import type { CallMemory } from './callMemory'
 import { buildHelpContext, type BuiltContext } from './context'
 import { describeError, type HelpError, type HelpModel } from './models'
 import { findApprovedPassage } from './passage'
-import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
+import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
-import { wrapReason, wrapUserMessage, type WrapWhy } from './wrap'
+import { type WrapWhy } from './wrap'
 import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
+import { anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -93,6 +94,12 @@ interface Run {
   knowledgeMs: number
   /** Asked for a wrap card (the WRAP button, or closing words before a HELP press); null: a normal card. */
   wrap: WrapWhy | null
+  /** A smarter press (M3, pressModes.ts): the opening, a buying signal's next step, or another angle; null: none. */
+  mode: PressMode | null
+  /** What that press's block shows (the signal, the line already given, the must-learns, WRAP's latest signal). */
+  detail: PressDetail
+  /** Another angle: the card it was asked on (its id, kept with the request). */
+  angleOf: string | null
   /** Approved knowledge was in this request's context (so the card could still cite it). */
   knowledgeInContext: boolean
   /** How many checks were on screen while the line was still streaming (diagnostics). */
@@ -149,12 +156,17 @@ export class HelpEngine {
     }
     // Found now (also for a prefetched card), so it goes out with this press's very first event.
     const passage = this.findPassage()
-    // WRAP, or HELP while the call sounds like it's ending: always a fresh request for a next-step card.
-    const wrap = wrapReason(origin, this.d.memory, this.d.sessionNowMs())
+    // Another angle on the card on screen (nothing new said since): a fresh request, never the candidate.
+    const angle = origin === 'help_requested' ? this.angleOn(pressedWall, key, liveSpeech) : null
+    // Which press this is (pressModes.ts): WRAP, or HELP while the call sounds like it's ending, is always
+    // a fresh request for a next-step card; an opening or buying-signal press can use a candidate built for it.
+    const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null)
+    const wrap = decision.wrap
+    if (angle) this.recordFeedback({ card_id: angle.run.id, origin: angle.run.origin, type: 'passed', bad_reason: null, optional_note: null })
 
     // Reuse a prefetched candidate only if nothing new was said since it was built.
     const pf = this.prefetchRun
-    if (pf && !wrap && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
+    if (pf && !wrap && !angle && pf.mode === decision.mode && JSON.stringify(pf.detail) === JSON.stringify(decision.detail) && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
       this.prefetchRun = null
       pf.seq = ++this.seq
       pf.origin = origin
@@ -162,16 +174,34 @@ export class HelpEngine {
       pf.passage = passage
       pf.heard = heardLine(this.d.memory, this.d.sessionNowMs())
       this.current = pf
-      this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status, passage: !!passage })
+      this.d.log('help_press', { request_id: pf.id, seq: pf.seq, served_from_prefetch: true, prefetch_status: pf.status, passage: !!passage, press_mode: pf.mode, signal: pf.detail.signal ?? null })
       // On screen first; shown now, so its request is kept like any pressed request.
       this.emit(pf)
       this.persist(pf, this.userMessage(pf))
       return pf.id
     }
     this.abortPrefetch()
-    const run = this.start(origin, false, pressedWall, passage, wrap)
-    this.d.log('help_press', { request_id: run.id, seq: run.seq, served_from_prefetch: false, passage: !!passage, wrap: wrap !== null, closing: wrap === 'closing' })
+    const run = this.start(origin, false, pressedWall, passage, wrap, decision, angle?.run.id ?? null)
+    this.d.log('help_press', {
+      request_id: run.id, seq: run.seq, served_from_prefetch: false, passage: !!passage, wrap: wrap !== null, closing: wrap === 'closing',
+      press_mode: decision.mode, signal: decision.detail.signal ?? null, angle_of: run.angleOf, wrap_signal: decision.detail.wrap_signal?.kind ?? null,
+    })
     return run.id
+  }
+
+  /**
+   * The card Keith would get another angle on: the one on screen, finished, shown for ~2-20 s, and
+   * built from the same transcript as now with no words still being transcribed (nothing new said).
+   */
+  private angleOn(pressedWall: number, key: string, liveSpeech: boolean): { run: Run; prior: PriorCard } | null {
+    const r = this.current
+    if (!r || r.status !== 'complete' || !r.card || r.completeWall === null) return null
+    // Never on a wrap card: HELP again as the call ends goes back through WRAP or closing words for a next step.
+    if (r.wrap !== null) return null
+    // On screen from when it finished, or from the press that showed an already finished candidate.
+    const shownWall = Math.max(r.completeWall, r.pressedWall ?? r.completeWall)
+    if (!anotherAngleOk(shownWall, pressedWall, !liveSpeech && r.snapshotKey === key)) return null
+    return { run: r, prior: { move: r.card.move, primary_kind: r.card.primary_kind, primary: r.card.primary } }
   }
 
   /** The approved passage for what the other side just said; a problem finding it never stops HELP. */
@@ -225,7 +255,9 @@ export class HelpEngine {
     }
     this.prefetchStarts.push(now)
     this.abortPrefetch()
-    this.prefetchRun = this.start('help_requested', true, null)
+    // Built for the press it would serve: an opening or buying-signal press gets its block (never a wrap card).
+    const d = decidePress('help_requested', this.d.memory, this.d.sessionNowMs())
+    this.prefetchRun = this.start('help_requested', true, null, null, null, d.wrap ? undefined : d)
   }
 
   /** The meeting audio is untranscribed at the press (heard.ts): logged as a number only. */
@@ -299,7 +331,7 @@ export class HelpEngine {
     return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
   }
 
-  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null, wrap: WrapWhy | null = null): Run {
+  private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null, wrap: WrapWhy | null = null, press?: PressDecision, angleOf: string | null = null): Run {
     const atMs = this.d.sessionNowMs()
     const c0 = this.wallNow()
     const ctx = buildHelpContext({ memory: this.d.memory, kb: this.d.kb, atMs, clock: this.wallNow })
@@ -334,6 +366,9 @@ export class HelpEngine {
       contextMs,
       knowledgeMs: ctx.knowledge_ms,
       wrap,
+      mode: press?.mode ?? null,
+      detail: press?.detail ?? {},
+      angleOf,
       knowledgeInContext: [...ctx.sources.values()].some((x) => x.kind === 'knowledge'),
       earlyChecks: 0,
     }
@@ -346,9 +381,9 @@ export class HelpEngine {
     return run
   }
 
-  /** What this run sends: the call context, then the HELP or wrap-card instruction (also what is kept on disk). */
+  /** What this run sends: the call context, then the HELP, wrap-card or press instruction (also what is kept on disk). */
   private userMessage(run: Run): string {
-    return run.wrap ? wrapUserMessage(run.ctx.text, run.wrap) : buildUserMessage(run.ctx.text)
+    return pressUserMessage(run.ctx.text, run.wrap, run.mode, run.detail)
   }
 
   private async execute(run: Run): Promise<void> {
@@ -453,7 +488,7 @@ export class HelpEngine {
       served_from_prefetch: t.served_from_prefetch, input_tokens: run.usage?.input_tokens, output_tokens: run.usage?.output_tokens,
       cache_read: run.usage?.cache_read_input_tokens, cost_usd: run.usage?.cost_usd, issues: run.issues.length, error: run.errorCode,
       passage_ms: t.passage_ms, passage_used: run.passage ? this.passageUsed(run) : null, context_ms: t.context_ms, knowledge_ms: t.knowledge_ms,
-      wrap: run.wrap, early_checks: run.earlyChecks, checks: run.checks.length,
+      wrap: run.wrap, early_checks: run.earlyChecks, checks: run.checks.length, press_mode: run.mode,
     })
     // A finished prefetch nobody pressed for stays in memory, unseen.
     if (run.pressedWall !== null || !run.prefetch) this.emit(run)
@@ -523,6 +558,7 @@ export class HelpEngine {
       sources,
       passage: run.passage ? { ...run.passage, used_by_card: this.passageUsed(run) } : null,
       ...(run.wrap ? { wrap: true } : {}),
+      ...(run.mode ? { press_mode: run.mode } : {}),
     }
     this.d.emit(ev)
   }
@@ -555,6 +591,11 @@ export class HelpEngine {
         passage_chunk_ids: run.passage?.chunk_ids ?? null, passage_used: run.passage ? this.passageUsed(run) : null,
         // A wrap card ('button' or 'closing'), so the feedback export and practice moments can tell them apart.
         ...(run.wrap ? { wrap: run.wrap } : {}),
+        // A smarter press (codes, ids and call times only), so a practice moment replays the same block.
+        ...(run.mode ? { press_mode: run.mode } : {}),
+        ...(run.detail.signal ? { press_signal: run.detail.signal } : {}),
+        ...(run.angleOf ? { angle_of: run.angleOf } : {}),
+        ...(run.detail.wrap_signal ? { wrap_signal: run.detail.wrap_signal } : {}),
       }),
       run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )

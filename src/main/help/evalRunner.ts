@@ -13,10 +13,10 @@ import { cleanEarlierItems } from './accountMemory'
 import { buildHelpContext } from './context'
 import type { HelpModel } from './models'
 import { findApprovedPassage } from './passage'
-import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
+import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
 import { replayAt, type Scenario } from './replay'
-import { wrapUserMessage } from './wrap'
+import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 
 export { findCapabilityClaim }
 
@@ -112,8 +112,8 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   let status: ScenarioResult['status'] = 'complete'
   try {
     const res = await model.run({
-      // A moment saved from a WRAP press replays with the wrap instruction it had (stored, not re-detected).
-      system: buildSystemPrompt(playbook), user: s.wrap === 'button' || s.wrap === 'closing' ? wrapUserMessage(ctx.text, s.wrap) : buildUserMessage(ctx.text), config, signal: abort.signal,
+      // A moment saved from a WRAP or smarter press replays with the instruction it had (stored, not re-detected).
+      system: buildSystemPrompt(playbook), user: pressUserMessage(ctx.text, s.wrap === 'button' || s.wrap === 'closing' ? s.wrap : null, cleanPressMode(s.press_mode), cleanPressDetail(s.press_detail)), config, signal: abort.signal,
       onText: (c) => { firstTokenAt ??= performance.now(); raw += c; parser.feed(c) },
     })
     usage = res.usage
