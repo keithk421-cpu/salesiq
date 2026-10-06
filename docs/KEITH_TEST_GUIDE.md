@@ -161,3 +161,20 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 
 ## After Stop
 - The wrap-up shows **Still to learn**: the must-learns you didn't get. Remove any you don't care about; the rest show up next time under "Last time with…". (Not in Practice mode: a MOCK wrap-up never feeds "Last time with…" or "Reuse last setup".)
+
+# M4: ready before the call
+
+## Before the call
+- **Type the account, the rest fills in.** When the account matches one you've had calls with, the strip fills itself: the call type the last call pointed to (a booked demo gives **Demo**, a deep-dive or security review **Technical deep-dive**, contract or procurement **Negotiation**, anything else **Follow-up**), the deployment you set last time, and the must-learns the last call didn't get. The Last time box says **Filled from the Sep 28 call · Undo**; **Undo** puts back what was there. Goal and outcomes are left alone (**Reuse last setup** still copies the old ones). If you already changed the call type or deployment yourself, it leaves them.
+- **Ideas** under **Must learn**: up to 4 grey suggestions. Click one and it becomes a must-learn. This account's gaps come first: what you still had to learn, "status of" something they said they'd do, topics the last call never covered (like "timeline to decide"), and **Confirm:** for something they told you last time (it may have changed). Then the **To learn** lines from your notes, "SaaS or self-hosted" while Deployment is "not sure", and a few starters for the call type. Hover one to see where it came from. They hide when the call starts.
+- **What I know about <Account>**: your own notes on the account, kept from call to call. Type or paste anything: calls you had before the app, who's who, their setup, research. It saves when you click away (or **Save**); **Clear** asks once.
+- **Copy prep prompt** copies a ready-made request. Paste it into Claude (where Sumble, Notion and Drive are connected), then paste Claude's answer back into the box. The answer comes as short labelled lines (**Who**, **Their setup**, **Before the app**, **They owe**, **We promised**, **Research (not said by them)**, **To learn**). The **To learn** lines show up as Ideas. The app itself sends nothing.
+
+## During the call
+- The Ideas row hides and **What I know** folds to one line, like Last time. Click it to open it.
+- HELP sees your notes, but only as **your** notes: it may check one as a question ("My understanding is you're on LangSmith today. Is that still right?"). It never says "you mentioned…" about something only your notes say, and research never comes out at all. If a line ever does that, the card shows a yellow note: **"Says they told you something only your notes say: check it"**.
+- **Click a must-learn.** On the plan line (○ / ◐), click one that's still open and you get a card labelled **Must learn**: one natural question that gets there from where the talk is. If they just asked you something, the card answers that first and the way to the must-learn is underneath. If they're mid-answer, it says to let them finish. Click the same one again within about 20 seconds for a different way in.
+
+## After Stop
+- **Learn next time** (in the wrap-up, where "Still to learn" was): the must-learns you didn't get, plus **+** chips for topics the call never covered and a box to add your own. At most 3. What you keep shows up next time as Ideas and fills the strip.
+- **For next time** at the top of the wrap-up: a few short lines on where it stands (the agreed or proposed next step, what they owe, what you promised, what's left to learn), built from the items you kept. Edit them, then **Save to What I know** to put them at the top of the account's notes, or **Copy**. Change the wrap-up after saving and the button becomes **Update What I know**, which swaps the lines instead of adding them twice. In Practice mode there's nothing to save.
