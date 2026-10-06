@@ -506,7 +506,7 @@ describe('in the app', () => {
     expect(cards.find((c) => c.id === 'c1')).toMatchObject({ rating: 'useful', passed: true })
     expect(cards.find((c) => c.id === 'c2')).not.toHaveProperty('passed')
     const card = buildScorecard(help.db, 's1', 60_000)
-    expect(card.presses).toEqual({ opening: 1, signal: 1, another_angle: 1, passed: 1 })
+    expect(card.presses).toEqual({ opening: 1, signal: 1, another_angle: 1, passed: 1, plan_item: 0 })
     expect(card.feedback).toMatchObject({ useful: 1, bad: 0, should_have_stayed_quiet: 0 })
     help.shutdown()
   })

@@ -7,7 +7,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { HelpModelConfig, HelpUsage } from '../../shared/help'
 import { isWrapRequest } from './wrap'
-import { pressModeOf, priorMoveOf } from './pressModes'
+import { planItemOf, pressModeOf, priorMoveOf } from './pressModes'
+import { shortItem } from './callPlan'
 
 export interface HelpModelRun {
   system: string
@@ -277,7 +278,7 @@ export class MockHelpModel implements HelpModel {
     const last = /\[(T\d+)\][^\n]*$/m.exec(req.user.split('<last_30_seconds>')[1] ?? '')?.[1]
     // A WRAP press gets a next-step placeholder, so Practice mode shows what that card looks like.
     const wrap = isWrapRequest(req.user)
-    // An opening, buying-signal or another-angle press (pressModes.ts) gets a placeholder of its kind too.
+    // An opening, buying-signal, another-angle or must-learn press (pressModes.ts) gets a placeholder of its kind too.
     const press = wrap ? null : mockPress(req.user)
     const lines = [
       press ? `MOVE: ${press.move}` : wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
@@ -342,6 +343,11 @@ function mockPress(user: string): { move: string; line: string; follow: string }
       const had = priorMoveOf(user)
       const pick = MOCK_ANGLES.find((a) => a.move !== had) ?? MOCK_ANGLES[0]
       return { ...pick, follow: '-' }
+    }
+    case 'plan_item': {
+      // The must-learn Keith clicked, cut short so the line stays inside the card's word limit.
+      const item = planItemOf(user)
+      return { move: 'clarify_current_state', line: `ASK: [MOCK] To get to ${item ? shortItem(item) : 'your must-learn'}: how does that work?`, follow: '-' }
     }
     default:
       return null

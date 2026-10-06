@@ -534,6 +534,8 @@ function registerIpc(): void {
   // ---- M3 smarter presses: the latest buying signal of the call, a quiet tag on the WRAP button ----
   if (help) help.onSignal = (s) => send('buying-signal', s)
   ipcMain.handle('help:signal', () => help?.signal ?? null)
+  // ---- M4: click a must-learn mid-call (the item's text, checked against this call's must-learns in HelpService) ----
+  ipcMain.handle('help:pressPlanItem', (_e, item: unknown) => help?.pressPlanItem(item) ?? { ok: false, reason: 'HELP unavailable' })
 }
 
 function createWindow(): void {

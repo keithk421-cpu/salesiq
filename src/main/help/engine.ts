@@ -142,8 +142,12 @@ export class HelpEngine {
     return !!r && (r.status === 'pending' || r.status === 'streaming')
   }
 
-  /** Keith pressed HELP (hotkey or button). Returns the request id. */
-  press(origin: HelpOrigin = 'help_requested'): string {
+  /**
+   * Keith pressed HELP (hotkey or button). Returns the request id. `opts.planItem`: he clicked that
+   * must-learn on the plan line (M4), so the card is the line that gets there: always a fresh request.
+   */
+  press(origin: HelpOrigin = 'help_requested', opts: { planItem?: string } = {}): string {
+    const planItem = origin === 'help_requested' && opts.planItem?.trim() ? opts.planItem : null
     this.cancelled = false
     const pressedWall = this.wallNow()
     const key = this.snapshotKey()
@@ -157,16 +161,17 @@ export class HelpEngine {
     // Found now (also for a prefetched card), so it goes out with this press's very first event.
     const passage = this.findPassage()
     // Another angle on the card on screen (nothing new said since): a fresh request, never the candidate.
-    const angle = origin === 'help_requested' ? this.angleOn(pressedWall, key, liveSpeech) : null
+    // A must-learn click asks for something new, not another angle on the card on screen (so no 'passed' row).
+    const angle = origin === 'help_requested' && !planItem ? this.angleOn(pressedWall, key, liveSpeech) : null
     // Which press this is (pressModes.ts): WRAP, or HELP while the call sounds like it's ending, is always
     // a fresh request for a next-step card; an opening or buying-signal press can use a candidate built for it.
-    const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null, angle?.earlier)
+    const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null, angle?.earlier, planItem)
     const wrap = decision.wrap
     if (angle) this.recordFeedback({ card_id: angle.run.id, origin: angle.run.origin, type: 'passed', bad_reason: null, optional_note: null })
 
     // Reuse a prefetched candidate only if nothing new was said since it was built.
     const pf = this.prefetchRun
-    if (pf && !wrap && !angle && pf.mode === decision.mode && JSON.stringify(pf.detail) === JSON.stringify(decision.detail) && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
+    if (pf && !wrap && !angle && !planItem && pf.mode === decision.mode && JSON.stringify(pf.detail) === JSON.stringify(decision.detail) && !liveSpeech && pf.snapshotKey === key && pressedWall - pf.startedWall < PREFETCH_MAX_AGE_MS && pf.status !== 'failed' && pf.status !== 'timeout' && pf.status !== 'cancelled') {
       this.prefetchRun = null
       pf.seq = ++this.seq
       pf.origin = origin
@@ -603,6 +608,8 @@ export class HelpEngine {
         ...(run.angleOf ? { angle_of: run.angleOf } : {}),
         ...(run.detail.earlier_calls ? { press_earlier: true } : {}),
         ...(run.detail.wrap_signal ? { wrap_signal: run.detail.wrap_signal } : {}),
+        // The must-learn Keith clicked (M4), in his words, kept like the request text: only once shown.
+        ...(shown && run.detail.plan_item ? { press_plan_item: run.detail.plan_item } : {}),
         // WRAP asked a must-learn the notes still had open (a replay has no notes to tell).
         ...(run.wrap === 'button' && planStillOpen(run.ctx.text) ? { wrap_plan: true } : {}),
       }),
