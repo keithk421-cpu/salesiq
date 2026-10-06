@@ -14,6 +14,7 @@ import type { CallWrapup } from '../shared/help'
 import { Db } from './db'
 import { KnowledgeBase, importKnowledgeFiles, removeKnowledgeFile, type KnowledgeImport } from './knowledge'
 import { accountMemory } from './help/accountMemory'
+import { mustLearnOf, sanitizeMustLearn } from './help/callPlan'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
@@ -362,18 +363,34 @@ export class HelpService {
       account: str(r.account, 120),
       deployment: (DEPLOYMENTS as readonly string[]).includes(r.deployment as string) ? (r.deployment as Deployment) : 'unknown',
     }
+    // M3 call plan: the strip's other fields save without the must-learns (they have their own box), so
+    // leaving them out keeps the ones set; at most 3 short items (callPlan.ts).
+    const hasMustLearn = typeof raw === 'object' && raw !== null && 'must_learn' in raw
+    const mustLearn = hasMustLearn ? sanitizeMustLearn(r.must_learn) : mustLearnOf(this.setup)
+    if (mustLearn.length) setup.must_learn = mustLearn
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
     if (this.memory && this.callInProgress()) {
       // Editable mid-call: the next HELP press uses it, and the call's record keeps the latest.
       // After Stop the strip is for the next call; the finished call's record keeps what it was.
       const accountChanged = accountKey(this.memory.setup.account) !== accountKey(setup.account)
+      const planChanged = mustLearnOf(this.memory.setup).join('\n') !== mustLearn.join('\n')
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
       // The account is often typed after Start: HELP then gets that account's earlier calls.
       if (accountChanged) this.refreshEarlierCalls()
+      // A must-learn added or removed: the plan line shows it now, and a background card built on the old plan goes.
+      if (planChanged) {
+        this.engine?.discardPrefetch()
+        this.onNotes?.(this.callNotes())
+      }
     }
     return setup
+  }
+
+  /** The setup strip's "Must learn" box (M3): only the must-learns change; the rest of the setup stays. */
+  setMustLearn(raw: unknown): CallSetup {
+    return this.setSetup({ ...this.setup, must_learn: raw })
   }
 
   /** Waiting to go live, live or paused: the call that `memory` belongs to is still going. */
@@ -671,6 +688,12 @@ export class HelpService {
   addWrapupItem(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
     const ok = !!this.wrap?.addItem(raw)
     if (ok) this.rescoreWrapup()
+    return { ok, wrapup: this.wrapup() }
+  }
+
+  /** × on a "Still to learn" item (M3 call plan): it isn't carried to the next call. */
+  removeWrapupToLearn(raw: unknown): { ok: boolean; wrapup: CallWrapup | null } {
+    const ok = this.wrap?.removeToLearn(raw) ?? false
     return { ok, wrapup: this.wrapup() }
   }
 

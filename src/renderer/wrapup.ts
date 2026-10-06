@@ -130,6 +130,15 @@ export function initWrapup(api: CopilotApi): void {
       </section>`
     }).join('')
     if (building) $('wuList').insertAdjacentHTML('afterbegin', '<div class="wu-building">Finishing notes and wrap-up… (you can add items meanwhile)</div>')
+    if (w.plan_open?.length) $('wuList').insertAdjacentHTML('beforeend', stillToLearn(w.plan_open))
+  }
+
+  /** Keith's must-learns the call ended without (M3 call plan); the next call with them shows them too, unless he removes one. */
+  function stillToLearn(xs: string[]): string {
+    return `<section class="wu-sec wu-learn">
+      <div class="wu-sec-head"><span class="nt-h">Still to learn</span><span class="muted small">from your must-learns</span></div>
+      <ul class="wu-learn-list">${xs.map((x) => `<li><span>${esc(x)}</span><button class="icon-btn wu-learn-x" data-learn="${esc(x)}" title="Remove: you got this">✕</button></li>`).join('')}</ul>
+    </section>`
   }
 
   function render(): void {
@@ -226,6 +235,8 @@ export function initWrapup(api: CopilotApi): void {
     const id = t.closest<HTMLElement>('.wu-item')?.dataset.id
     if (id && t.closest('.wu-remove')) void change(api.wrapupUpdateItem({ id, state: 'removed' }))
     else if (id && t.closest('.wu-restore')) void change(api.wrapupUpdateItem({ id, state: 'pending' }))
+    const learn = t.closest<HTMLElement>('.wu-learn-x')?.dataset.learn
+    if (learn) void change(api.wrapupRemoveToLearn(learn))
     const add = t.closest<HTMLElement>('[data-add]')?.dataset.add as WrapupSection | undefined
     if (add) {
       adding = add

@@ -3,11 +3,12 @@
  * the typed account has earlier calls, a "Last time with <account>" box shows what they left behind.
  * Open before Start; during the call it folds to a one-line chip Keith can open (and folds again when
  * a HELP card comes, so the card stays in view). "Reuse last setup" copies the last call's goal,
- * outcomes and deployment, as a Follow-up.
+ * outcomes and deployment, as a Follow-up, and what it still had to learn (M3 call plan).
  */
 import type { CopilotApi } from '../preload/preload'
 import type { AccountMemory, AccountMemoryKind } from '../shared/help'
 import { accountKey } from '../shared/help'
+import { fillMustLearn } from './callPlan'
 
 type Summary = { account: string; calls: number; last_call_at: string }
 
@@ -16,6 +17,7 @@ const SECTIONS: Array<{ kind: AccountMemoryKind; title: string }> = [
   { kind: 'they_owe', title: 'They owe' },
   { kind: 'agreed', title: 'Agreed next step' },
   { kind: 'open', title: 'Still open' },
+  { kind: 'to_learn', title: 'Still to learn' },
   { kind: 'wants', title: 'They want' },
   { kind: 'fact', title: 'What they told us' },
 ]
@@ -114,6 +116,8 @@ export function initAccountMemory(api: CopilotApi): void {
     $<HTMLSelectElement>('csDeploy').value = su.deployment
     // The strip saves itself on change (all fields at once).
     $('csGoal').dispatchEvent(new Event('change'))
+    // What the last call still had to learn (M3 call plan; saved on its own).
+    if (su.must_learn?.length) fillMustLearn(su.must_learn)
   })
   api.onSession((raw) => {
     const ev = raw as { type: string; state?: string }

@@ -11,6 +11,7 @@
  */
 import { CALL_TYPES, accountKey, type AccountMemory, type AccountMemoryKind, type CallNotes, type CallSetup, type CallWrapup, type HelpContextRefs, type WrapupItem } from '../../shared/help'
 import type { Db } from '../db'
+import { mustLearnOf, planKey, sanitizeMustLearn } from './callPlan'
 
 /** One dated item as HELP sees it (no call ids: a saved practice moment carries these as they were). */
 export type EarlierCallItem = NonNullable<HelpContextRefs['earlier_calls']>[number]
@@ -25,7 +26,7 @@ const ITEM_MAX_CHARS = 160
 export const EARLIER_CALLS_BLOCK_MAX_CHARS = 700
 const BLOCK_ITEM_MAX_CHARS = 110
 
-export const MEMORY_KINDS: readonly AccountMemoryKind[] = ['promised', 'they_owe', 'agreed', 'open', 'wants', 'fact']
+export const MEMORY_KINDS: readonly AccountMemoryKind[] = ['promised', 'they_owe', 'agreed', 'open', 'to_learn', 'wants', 'fact']
 /** Facts about their setup that are worth carrying to the next call (budget and "other" stay with the call). */
 const FACT_KINDS = new Set(['current_tooling', 'team', 'timeline', 'decision_process'])
 const SECTION_KIND: Record<string, AccountMemoryKind> = { we_owe: 'promised', they_owe: 'they_owe', agreed: 'agreed', open_questions: 'open', proposed: 'open' }
@@ -148,6 +149,10 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
   const notesStmt = db.sql.prepare('SELECT notes_json FROM call_notes WHERE session_id = ?')
   const items: AccountMemory['items'] = []
   const seen = new Set<string>()
+  // Must-learns a newer call set out to learn again: that call's own plan says whether they're still open.
+  const planned = new Set<string>()
+  /** The last call's must-learns still to learn (at most 3), for "Reuse last setup". */
+  let lastOpen: string[] = []
   let wants = 0
   let facts = 0
   const add = (kind: AccountMemoryKind, text: string, date: string, sessionId: string): void => {
@@ -172,7 +177,16 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
       const kind = it && typeof it === 'object' ? SECTION_KIND[it.section] : undefined
       if (kind && it.state !== 'removed' && textOf(it)) found.push({ kind, text: withWhoWhen(it) })
     }
+    // M3 call plan: what Keith still wanted to learn when this call ended (same rule: never from a MOCK wrap-up).
+    const verdict = !!wrap && wrap.mock !== true
+    const open = verdict ? sanitizeMustLearn(wrap!.plan_open) : []
+    if (c === calls[0]) lastOpen = open
+    for (const t of open) if (!planned.has(planKey(t))) found.push({ kind: 'to_learn', text: t })
     const notes = parse<Partial<CallNotes>>((notesStmt.get(c.id) as { notes_json: string | null } | undefined)?.notes_json)
+    // Only a must-learn this call's notes tracked, with a real wrap-up, settles an older one: no wrap-up,
+    // a MOCK one or notes that never tracked it say nothing about it.
+    const tracked = new Set((verdict && Array.isArray(notes?.plan) ? notes.plan : []).map((p) => (p && typeof p.item === 'string' ? planKey(p.item) : '')))
+    for (const t of mustLearnOf(parse<Partial<CallSetup>>(c.setup_json))) if (tracked.has(planKey(t))) planned.add(planKey(t))
     for (const w of Array.isArray(notes?.buyer_wants) ? notes.buyer_wants : []) if (textOf(w)) found.push({ kind: 'wants', text: textOf(w) })
     for (const f of Array.isArray(notes?.facts) ? notes.facts : []) if (f && FACT_KINDS.has(f.kind) && textOf(f)) found.push({ kind: 'fact', text: textOf(f) })
     // Within a call: what was promised and agreed first, then what they want and told us.
@@ -180,11 +194,14 @@ export function accountMemory(db: Db, account: string, excludeSessionId?: string
     for (const f of found) add(f.kind, f.text, date, c.id)
   }
   const last = calls[0]
+  const lastSetup = cleanSetup(parse<Partial<CallSetup>>(last.setup_json))
+  // "Reuse last setup" brings over what the last call still had to learn, not everything it set out to.
+  if (lastSetup && lastOpen.length) lastSetup.must_learn = lastOpen
   return {
     account: last.account,
     calls: calls.length,
     last_call_at: last.started_at,
-    last_setup: cleanSetup(parse<Partial<CallSetup>>(last.setup_json)),
+    last_setup: lastSetup,
     items,
   }
 }
