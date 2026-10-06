@@ -324,17 +324,19 @@ describe('what an update sends and keeps', () => {
 
   it('stores the latest notes per call with counts; logs carry counts and codes, never note or call text', async () => {
     const s = setup()
+    // M3: Keith's must-learns and their statuses are counted, never logged.
+    s.memory.setup = { ...s.memory.setup, must_learn: ['Who signs off on SECRETPLAN'] }
     s.keeper.resume()
     s.buyerMinute('Early')
-    s.model.calls[0].release(answer({ open_questions: [{ text: 'Does it work with their SECRETSTACK?', lines: ['L3'] }] }))
+    s.model.calls[0].release(answer({ open_questions: [{ text: 'Does it work with their SECRETSTACK?', lines: ['L3'] }], plan: [{ item: 'Who signs off on SECRETPLAN', status: 'partial', lines: ['L2'] }] }))
     await vi.advanceTimersByTimeAsync(0)
     const row = s.db.sql.prepare('SELECT notes_json, as_of_ms, stats_json FROM call_notes WHERE session_id = ?').get('sess-1') as { notes_json: string; as_of_ms: number; stats_json: string }
     expect(JSON.parse(row.notes_json).open_questions).toEqual([{ text: 'Does it work with their SECRETSTACK?', turn_ids: ['t3'] }])
     expect(row.as_of_ms).toBe(63_000)
     expect(JSON.parse(row.stats_json)).toMatchObject({ started: 1, updated: 1, cost_usd: 0.004 })
     const logs = JSON.stringify(s.logs)
-    expect(logs).not.toMatch(/SECRETSTACK|review process|Early|Northwind|outputs/)
-    expect(s.logs.find((l) => l.e === 'call_notes_done')?.d).toMatchObject({ status: 'updated', items: { open_questions: 1, not_covered: 3 }, cost_usd: 0.004 })
+    expect(logs).not.toMatch(/SECRETSTACK|SECRETPLAN|review process|Early|Northwind|outputs/)
+    expect(s.logs.find((l) => l.e === 'call_notes_done')?.d).toMatchObject({ status: 'updated', items: { open_questions: 1, not_covered: 3 }, cost_usd: 0.004, plan: { open: 0, partial: 1, done: 0 } })
   })
 })
 

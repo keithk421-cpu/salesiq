@@ -20,6 +20,7 @@ import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
 import type { CallMemory } from './callMemory'
 import { notesForModel } from './callNotes'
+import { mustLearnLine, mustLearnOf, planOpen } from './callPlan'
 import { fmtClock, speakerName } from './context'
 import { FOLLOWUP_MAX_TOKENS, FOLLOWUP_SCHEMA, FOLLOWUP_SYSTEM_PROMPT, FOLLOWUP_TIMEOUT_MS, buildFollowupInput, followupUserMessage, mockFollowup, validateFollowup } from './followup'
 import { describeError, type HelpError, type HelpModel } from './models'
@@ -61,7 +62,7 @@ export const WRAPUP_SCHEMA: Record<string, unknown> = {
 export const WRAPUP_SYSTEM_PROMPT = `You write the wrap-up of a sales call that has just ended, for Keith, an enterprise account executive at Arize (AI observability and LLM evaluation). Keith reads it right after the call to make sure nothing slips: what his side promised, what the buyer's side promised, the next step they agreed, what was only suggested, and the buyer's questions nobody answered. He confirms each item himself, and may turn the confirmed items into a follow-up email, so every item must be something that was actually said on this call.
 
 What you receive:
-- call_setup: what Keith typed about the call (type, goal, outcomes, account, deployment). It is context, not something anyone said.
+- call_setup: what Keith typed about the call (type, goal, outcomes, account, deployment, and what he wanted to learn on the call). It is context, not something anyone said.
 - call_notes: the running notes kept during the call (JSON, citing line ids), or "(none)". They are a summary and may lag; the transcript wins when they disagree. For a long call, the notes are the only record of the part of the call the transcript below leaves out.
 - transcript: the finished transcript, oldest first. Each line has an id like [L12], a time, and who spoke: Keith (Arize), an Arize teammate, the buyer, or an unlabeled remote speaker (usually the buyer's side, but it could be an Arize teammate).
 - transcript_status (sometimes): parts of the call that were not heard. Never guess what was said in a gap.
@@ -117,7 +118,7 @@ const deploymentText = (s: CallSetup) =>
   s.deployment === 'saas' ? "Arize's SaaS" : s.deployment === 'self_hosted' ? 'self-hosted' : 'not known (SaaS or self-hosted)'
 
 export function setupBlock(s: CallSetup): string {
-  return `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${deploymentText(s)}\n</call_setup>`
+  return `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${deploymentText(s)}${mustLearnLine(s)}\n</call_setup>`
 }
 
 /**
@@ -144,7 +145,7 @@ export function wrapupUserMessage(memory: CallMemory, notes: CallNotes | null, a
   const notesJson = notes ? notesForModel(notes, (id) => lineOf.get(id)) : null
   // An item may cite a line the notes cite: the notes cover the part of a long call left out here.
   if (notes) {
-    const cited = [notes.topic, ...notes.buyer_wants, ...notes.open_questions, ...notes.concerns, ...notes.facts, ...notes.next_steps].flatMap((x) => x?.turn_ids ?? [])
+    const cited = [notes.topic, ...notes.buyer_wants, ...notes.open_questions, ...notes.concerns, ...notes.facts, ...notes.next_steps, ...(notes.plan ?? [])].flatMap((x) => x?.turn_ids ?? [])
     for (const id of cited) {
       const l = lineOf.get(id)
       if (l) lineIds.set(l, id)
@@ -329,7 +330,20 @@ export class WrapupKeeper {
 
   /** A copy, so nothing outside changes it. */
   state(): CallWrapup {
-    return { ...this.w, items: this.w.items.map((i) => ({ ...i, turn_ids: [...i.turn_ids] })), email: this.w.email ? { ...this.w.email, checks: [...this.w.email.checks] } : null }
+    return {
+      ...this.w, items: this.w.items.map((i) => ({ ...i, turn_ids: [...i.turn_ids] })), email: this.w.email ? { ...this.w.email, checks: [...this.w.email.checks] } : null,
+      ...(this.w.plan_open ? { plan_open: [...this.w.plan_open] } : {}),
+    }
+  }
+
+  /**
+   * Keith's must-learns the call ended without (open or partial in the final notes; with no plan in
+   * the notes, all of them): "Still to learn", read only, and the next call's account memory.
+   */
+  private notePlanOpen(): void {
+    const open = planOpen(mustLearnOf(this.d.memory.setup), this.d.memory.callNotes?.notes.plan)
+    if (open.length) this.w.plan_open = open
+    else delete this.w.plan_open
   }
 
   /**
@@ -342,6 +356,7 @@ export class WrapupKeeper {
     this.empty = !this.d.memory.turnsAsOf(Number.POSITIVE_INFINITY).some((t) => t.text.trim())
     this.w.status = this.empty ? 'ready' : 'building'
     this.w.error = null
+    this.notePlanOpen()
     if (this.empty) {
       this.stats.errors.empty_call = (this.stats.errors.empty_call ?? 0) + 1
       this.d.log('wrapup_skipped', { reason: 'empty_call' })
@@ -354,6 +369,8 @@ export class WrapupKeeper {
     if (this.disposed || this.empty) return
     const m = this.d.memory
     const notes = m.callNotes?.notes ?? null
+    // The closing notes pass is done by now: the final plan.
+    this.notePlanOpen()
     const input = wrapupUserMessage(m, notes)
     const quoteOf = (turnId: string) => quoteFrom(input.turns.get(turnId)?.text ?? '')
     const t0 = this.now()
@@ -418,6 +435,8 @@ export class WrapupKeeper {
     this.d.log('wrapup_done', {
       status: this.w.status, error: code, ms: this.stats.build_ms, model: this.d.model.mock ? 'mock' : this.d.config.model, dropped: this.dropped, items: this.countBySection(),
       input_tokens: usage?.input_tokens, output_tokens: usage?.output_tokens, cache_read: usage?.cache_read_input_tokens, cost_usd: usage?.cost_usd, built: added,
+      // Keith's must-learns still to learn: a count, never the items.
+      plan_open: this.w.plan_open?.length ?? 0,
     })
     this.changed()
   }

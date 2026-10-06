@@ -10,6 +10,7 @@
  */
 import type { CallMemory } from './callMemory'
 import { HOT_WINDOW_MS } from './context'
+import { PLAN_SECTION_LABEL } from './callPlan'
 
 /** Why this press asks for a wrap card: the WRAP button, or closing words just before a HELP press. */
 export type WrapWhy = 'button' | 'closing'
@@ -91,8 +92,22 @@ const WRAP_REASON: Record<WrapWhy, string> = {
     'Keith pressed HELP and the last 30 seconds sound like the call may be ending. If they just asked a question or raised a concern, answer or handle that first (the normal rules) and put the next-step question in FOLLOW instead. If the call is not actually ending, ignore this block.',
 }
 
+/**
+ * The call context lists a must-learn of Keith's still open or partial (M3 call plan): the notes block
+ * leads with them (callNotes.ts, PLAN_SECTION_LABEL). Read from the context itself, so every caller
+ * (a live press, the speed test) needs no extra argument.
+ */
+export function planStillOpen(contextText: string): boolean {
+  const block = /^<call_notes\b[^\n]*>\n([\s\S]*?)\n<\/call_notes>$/m.exec(contextText)?.[1] ?? ''
+  return block.split('\n').some((l) => l.startsWith(`${PLAN_SECTION_LABEL}: `))
+}
+
+/** WRAP with a must-learn still open: FOLLOW asks one, instead of the recap of what Keith owes them. */
+const FOLLOW_PLAN = `instead of a recap, one thing Keith still wants to learn (listed first in call_notes), asked as one short natural question in Keith's voice ("Before we go, who else would weigh in on a decision like this?"), the one that matters most for the next step. Only if the transcript shows they already answered every one: `
+
 /** The user message for a wrap card: the same call context, then what this card is for. */
 export function wrapUserMessage(contextText: string, why: WrapWhy): string {
+  const askPlan = why === 'button' && planStillOpen(contextText)
   return `${contextText}
 
 <wrap_card>
@@ -101,7 +116,7 @@ ${WRAP_REASON[why]} Before they hang up, help Keith lock a concrete next step.
 - If no date or time was said, ask for one ("What day works for you?"); never pick a date, a name or a commitment nobody said. Keep to any timeframe they named ("after our Q1 planning").
 - If they said not now or not interested, don't push for a meeting: ask how and when they'd like Keith to follow up.
 - MOVE: ${why === 'button' ? 'confirm_next_step. Use call_control only if they are mid-thought and Keith should let them finish.' : 'confirm_next_step when the line locks the next step; when it answers what they just asked, the move that fits that.'}
-- FOLLOW: ${why === 'button' ? '' : 'the next-step question, when the line answers something else; otherwise '}what Keith still owes them from this call, as a short line in Keith's voice recapping only what he or a teammate promised to send or do ("I'll send over the SOC 2 report."); no new items or dates; "-" if nothing.
+- FOLLOW: ${askPlan ? FOLLOW_PLAN : why === 'button' ? '' : 'the next-step question, when the line answers something else; otherwise '}what Keith still owes them from this call, as a short line in Keith's voice recapping only what he or a teammate promised to send or do ("I'll send over the SOC 2 report."); no new items or dates; "-" if nothing.
 </wrap_card>
 
 ${why === 'button' ? 'Give Keith his line to lock the next step.' : 'Give Keith his next line.'}`

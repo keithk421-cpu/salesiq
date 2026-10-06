@@ -319,6 +319,28 @@ label.inline.check { font-weight: 400; color: var(--muted); }
 .nt-k.proposed { color: var(--warn); }
 .nt-k.agreed { color: var(--ok); }
 .notes-hint { margin: 8px 0 0; }
+/* ---------- M3: your call plan (callPlan.ts) ---------- */
+/* "Must learn" in the setup strip: a row of its own, up to 3 chips and the box to add one. */
+.setup-strip .ml-box { flex: 1 1 100%; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.ml-label { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin-right: 2px; }
+.ml-chips { display: contents; }
+.ml-chip { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; height: 26px; padding: 0 2px 0 10px; border-radius: 999px; background: var(--accent-soft); color: var(--text); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ml-x { border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 15px; line-height: 1; padding: 2px 7px; border-radius: 999px; }
+.ml-x:hover { color: var(--text); background: var(--surface-2); }
+.setup-strip .ml-input { flex: 1 1 200px; min-width: 160px; max-width: 340px; height: 28px; }
+/* The plan line: one quiet line at the top of the Call notes panel (○ open, ◐ partial, ● done). */
+.plan-line { font-size: 13px; color: var(--muted); margin: 0 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-item { color: var(--text); cursor: default; }
+.pl-mark { color: var(--muted); }
+.pl-partial .pl-mark { color: var(--warn); }
+.pl-done .pl-mark { color: var(--ok); }
+.pl-sep { color: var(--muted); }
+/* The same line in the compact strip (during a call only, like the card): one line, cut with "…". */
+.plan-compact { display: none; }
+body.compact.in-call #callView > #planCompact:not([hidden]):not(#helpCard):not(#banner):not(#idleBanner) { display: block !important; font-size: 12px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+/* Wrap-up: "Still to learn", read only. */
+.wu-learn-list { margin: 0; padding-left: 18px; font-size: 14px; }
+.wu-learn-list li { margin: 2px 0; }
 
 /* ---------- M2: WRAP card, compact window ---------- */
 .m2-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

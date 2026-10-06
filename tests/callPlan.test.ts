@@ -1,0 +1,425 @@
+// Keith's call plan (M3 C): must-learns tracked Open / Partial / Done. Every company, name and line here is made up.
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import Anthropic from '@anthropic-ai/sdk'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CallNotes, CallNotesState, CallWrapup, PlanItemStatus } from '../src/shared/help'
+import type { Turn } from '../src/shared/contracts'
+import { Db } from '../src/main/db'
+import { accountMemory, cleanEarlierItems, earlierCallsBlock } from '../src/main/help/accountMemory'
+import { CallMemory } from '../src/main/help/callMemory'
+import { EMPTY_NOTES, NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, callNotesBlock, notesForModel, validateNotes } from '../src/main/help/callNotes'
+import { MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, mergePlan, planLineText, planNow, planOpen, sanitizeMustLearn, shortItem } from '../src/main/help/callPlan'
+import { buildHelpContext } from '../src/main/help/context'
+import { MockHelpModel, type HelpModel, type HelpModelResult, type HelpModelRun, type HelpNotesResult, type HelpNotesRun } from '../src/main/help/models'
+import { buildSystemPrompt, loadPlaybook } from '../src/main/help/prompt'
+import { planStillOpen, wrapUserMessage } from '../src/main/help/wrap'
+import { WRAPUP_SYSTEM_PROMPT, WrapupKeeper, wrapupUserMessage } from '../src/main/help/wrapup'
+import { HelpService } from '../src/main/helpService'
+import type { SessionEvent } from '../src/main/session'
+import { Storage } from '../src/main/storage'
+
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
+const playbook = loadPlaybook(path.join(ROOT, 'config', 'playbook.json'))
+const plainBox = { isEncryptionAvailable: () => false, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }
+const USAGE = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 800, cache_creation_input_tokens: 0, cost_usd: 0.003 }
+const CALL_ID = 's-2026-10-06T10-00-00-000Z-plan01'
+const ACCOUNT = 'Larkspur Health (invented)'
+const PLAN = ['Who signs off on new tools', 'How they score answers today', 'Deep-dive scope']
+
+const notesAnswer = (over: Record<string, unknown> = {}) =>
+  JSON.stringify({ topic: null, buyer_wants: [], open_questions: [], concerns: [], facts: [], next_steps: [], not_covered: [], ...over })
+
+describe('must-learns from the setup strip', () => {
+  it('at most 3, each trimmed and at most 80 characters, repeats and empty ones dropped', () => {
+    expect(sanitizeMustLearn(['  Who signs off  on new tools ', '', '   ', 'who signs off on NEW tools?', 'How they score answers today', 'Deep-dive scope', 'A fourth one'])).toEqual(
+      ['Who signs off on new tools', 'How they score answers today', 'Deep-dive scope'],
+    )
+    const long = sanitizeMustLearn(['x'.repeat(300)])
+    expect(long[0].length).toBe(MUST_LEARN_MAX_CHARS)
+    // Angle brackets would break the prompt's tags.
+    expect(sanitizeMustLearn(['<b>Budget</b> owner'])).toEqual(['bBudget/b owner'])
+  })
+
+  it('anything that is not a list of strings is no must-learns (older setups, a broken message)', () => {
+    for (const raw of [undefined, null, 'Who signs off', 42, { 0: 'x' }]) expect(sanitizeMustLearn(raw)).toEqual([])
+    expect(sanitizeMustLearn([7, null, 'Rollout timing', { a: 1 }])).toEqual(['Rollout timing'])
+  })
+})
+
+describe('the plan from the notes', () => {
+  const lineIds = new Map([['L1', 't1'], ['L2', 't2'], ['L3', 't3']])
+
+  it("only Keith's items, in his words and order; done needs a cited line; open cites nothing; left out keeps its last status", () => {
+    const previous: PlanItemStatus[] = [{ item: 'Deep-dive scope', status: 'partial', turn_ids: ['t0'] }]
+    const plan = mergePlan(PLAN, [
+      { item: 'how they score answers TODAY', status: 'done', lines: ['L2', '[L3]'] },
+      { item: 'Who signs off on new tools', status: 'done', lines: ['L99'] }, // no line that was sent
+      { item: 'Their budget for next year', status: 'done', lines: ['L1'] }, // not Keith's
+    ], previous, lineIds)
+    expect(plan).toEqual([
+      { item: 'Who signs off on new tools', status: 'partial', turn_ids: [] },
+      { item: 'How they score answers today', status: 'done', turn_ids: ['t2', 't3'] },
+      { item: 'Deep-dive scope', status: 'partial', turn_ids: ['t0'] },
+    ])
+  })
+
+  it('an unknown status is unclear (partial); open never rests on lines; no answer at all keeps everything as it was', () => {
+    expect(mergePlan(['Rollout timing'], [{ item: 'Rollout timing', status: 'mostly', lines: ['L1'] }], null, lineIds)).toEqual([{ item: 'Rollout timing', status: 'partial', turn_ids: ['t1'] }])
+    expect(mergePlan(['Rollout timing'], [{ item: 'Rollout timing', status: 'open', lines: ['L1'] }], null, lineIds)).toEqual([{ item: 'Rollout timing', status: 'open', turn_ids: [] }])
+    const before: PlanItemStatus[] = [{ item: 'Rollout timing', status: 'done', turn_ids: ['t1'] }]
+    expect(mergePlan(['Rollout timing', 'Who signs off'], undefined, before, lineIds)).toEqual([
+      { item: 'Rollout timing', status: 'done', turn_ids: ['t1'] },
+      { item: 'Who signs off', status: 'open', turn_ids: [] },
+    ])
+  })
+
+  it('validateNotes carries the plan only when Keith set must-learns, and a broken plan never fails the notes', () => {
+    const answer = notesAnswer({ topic: { text: 'Their review process', lines: ['L1'] }, plan: [{ item: 'Deep-dive scope', status: 'done', lines: ['L1'] }] })
+    const without = validateNotes(answer, lineIds)
+    expect(without.ok && without.notes.plan).toBeUndefined()
+    const withPlan = validateNotes(answer, lineIds, { mustLearn: PLAN })
+    expect(withPlan.ok && withPlan.notes.plan).toEqual([
+      { item: PLAN[0], status: 'open', turn_ids: [] }, { item: PLAN[1], status: 'open', turn_ids: [] }, { item: PLAN[2], status: 'done', turn_ids: ['t1'] },
+    ])
+    // The MOCK model answers without a plan: the last statuses stand.
+    const prev: PlanItemStatus[] = [{ item: PLAN[0], status: 'partial', turn_ids: ['t2'] }]
+    const mock = validateNotes(notesAnswer({ plan: 'nonsense' }), lineIds, { mustLearn: [PLAN[0]], previous: prev })
+    expect(mock.ok && mock.notes.plan).toEqual(prev)
+  })
+
+  it('the next update sees the plan with line ids, like every other note', () => {
+    const n: CallNotes = { ...EMPTY_NOTES, plan: [{ item: PLAN[1], status: 'done', turn_ids: ['t2'] }] }
+    expect(notesForModel(n, (id) => (id === 't2' ? 'L2' : undefined)).plan).toEqual([{ item: PLAN[1], status: 'done', lines: ['L2'] }])
+    expect(notesForModel(EMPTY_NOTES, () => undefined).plan).toEqual([])
+  })
+
+  it('planNow follows the must-learns as they are now; planOpen is what the call ended without', () => {
+    const plan: PlanItemStatus[] = [{ item: 'Who signs off on new tools', status: 'done', turn_ids: ['t1'] }, { item: 'Removed by Keith', status: 'partial', turn_ids: ['t2'] }]
+    expect(planNow(['who signs off on new tools', 'Rollout timing'], plan)).toEqual([
+      { item: 'who signs off on new tools', status: 'done', turn_ids: ['t1'] },
+      { item: 'Rollout timing', status: 'open', turn_ids: [] },
+    ])
+    expect(planOpen(PLAN, [{ item: PLAN[0], status: 'partial', turn_ids: ['t1'] }, { item: PLAN[1], status: 'done', turn_ids: ['t2'] }])).toEqual([PLAN[0], PLAN[2]])
+    // Older notes have no plan: every must-learn is still to learn.
+    expect(planOpen(PLAN, undefined)).toEqual(PLAN)
+    expect(planOpen([], undefined)).toEqual([])
+  })
+
+  it('the quiet line: ○ open, ◐ partial, ● done, in Keith\'s words, shortened at a word', () => {
+    expect(planLineText([
+      { item: 'Who signs off', status: 'open', turn_ids: [] },
+      { item: 'Eval process', status: 'partial', turn_ids: ['t1'] },
+      { item: 'Deep-dive scope and who should join it from their side', status: 'done', turn_ids: ['t2'] },
+    ])).toBe('○ Who signs off · ◐ Eval process · ● Deep-dive scope and who…')
+    expect(shortItem('Who signs off')).toBe('Who signs off')
+  })
+})
+
+describe('the notes request', () => {
+  it('the schema asks for the plan; the cached system prompt explains it, stays the same for every call and is long enough to cache', () => {
+    expect((NOTES_SCHEMA.required as string[])).toContain('plan')
+    expect(NOTES_SYSTEM_PROMPT).toMatch(/plan: one entry for each "must learn" item/)
+    expect(NOTES_SYSTEM_PROMPT).toMatch(/Asked is not answered: Keith or a teammate asking about it is not the other side answering/)
+    expect(NOTES_SYSTEM_PROMPT).toMatch(/Use "done" only when lines where the other side answered settle it, and cite those lines; when in doubt, "partial"/)
+    expect(NOTES_SYSTEM_PROMPT).not.toMatch(/Who signs off|Larkspur/)
+    // Sonnet caches 512 tokens or more: about 4 characters a token.
+    expect(NOTES_SYSTEM_PROMPT.length / 4).toBeGreaterThan(900)
+  })
+})
+
+describe('HELP sees the must-learns still open', () => {
+  const memory = () => {
+    const m = new CallMemory('sess-1')
+    m.setup = { call_type: 'discovery', call_goal: 'Learn how they review answers', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', must_learn: PLAN }
+    m.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 5000, text: 'Our VP signs off, but procurement has a say.', available_ms: 5000 }, true)
+    m.upsertTurn({ id: 't2', stream: 'system_remote', cluster: 'e1:s0', start_ms: 6000, end_ms: 9000, text: 'We score answers with a rubric in a spreadsheet.', available_ms: 9000 }, true)
+    return m
+  }
+  const opts = { ref: () => 'T1', clock: () => '1:00' }
+
+  it('they lead the notes block (partial ones say so, done ones are left out) and the first always fits', () => {
+    const big = { ...EMPTY_NOTES, open_questions: Array.from({ length: 6 }, (_, i) => ({ text: `Question ${i} with plenty of words in it to take up the room`, turn_ids: ['t1'] })),
+      plan: [{ item: PLAN[0], status: 'partial' as const, turn_ids: ['t1'] }, { item: PLAN[1], status: 'done' as const, turn_ids: ['t2'] }] }
+    const block = callNotesBlock({ notes: big, as_of_ms: 10_000 }, 20_000, { ...opts, mustLearn: PLAN })!
+    expect(block.split('\n')[1]).toBe(`${PLAN_SECTION_LABEL}: Who signs off on new tools (partly answered) [T1]; Deep-dive scope`)
+    expect(block).not.toContain('How they score answers today')
+    expect(block.length).toBeLessThanOrEqual(800)
+  })
+
+  it('before the first notes (or with notes off) HELP still gets the plan, all open; notes built after the press are not used', () => {
+    const block = callNotesBlock(null, 20_000, { ...opts, mustLearn: PLAN })!
+    expect(block).toBe(`<call_notes note="no notes yet: only what Keith wants to learn on this call">\n${PLAN_SECTION_LABEL}: ${PLAN.join('; ')}\n</call_notes>`)
+    const later = { notes: { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done' as const, turn_ids: ['t1'] }] }, as_of_ms: 30_000 }
+    expect(callNotesBlock(later, 20_000, { ...opts, mustLearn: PLAN })).toContain(PLAN[0])
+    // Without must-learns nothing changes.
+    expect(callNotesBlock(null, 20_000, opts)).toBeNull()
+    expect(callNotesBlock(null, 20_000, { ...opts, mustLearn: [] })).toBeNull()
+  })
+
+  it('in the HELP context, from the setup as it is at the press; never in the cached system prompt', () => {
+    const m = memory()
+    m.callNotes = { notes: { ...EMPTY_NOTES, plan: [{ item: PLAN[1], status: 'done', turn_ids: ['t2'] }] }, as_of_ms: 9000 }
+    const ctx = buildHelpContext({ memory: m, kb: null, atMs: 10_000 })
+    expect(ctx.text).toContain(`${PLAN_SECTION_LABEL}: Who signs off on new tools; Deep-dive scope`)
+    expect(ctx.refs.call_setup?.must_learn).toEqual(PLAN)
+    const system = buildSystemPrompt(playbook)
+    expect(system).not.toContain('call_notes')
+    expect(system).not.toContain('Who signs off')
+    // The rule: steer toward one only in a lull or a long tangent, never over what they just raised.
+    expect(system).toMatch(/what Keith still wants to learn on this call: his own plan, not something anyone said\. Steer toward one only in a lull or after a long tangent/)
+    expect(system).toMatch(/never over a question or concern the other side just raised, and never treat it as answered/)
+  })
+
+  it('a setup without must-learns builds exactly the context it did before', () => {
+    const m = memory()
+    m.setup = { ...m.setup, must_learn: undefined }
+    expect(buildHelpContext({ memory: m, kb: null, atMs: 10_000 }).text).not.toContain('<call_notes')
+  })
+})
+
+describe('WRAP with a must-learn still open', () => {
+  const ctx = (block: string | null) => `<call_setup>\ntype: discovery\n</call_setup>${block ? `\n\n${block}` : ''}\n\n<last_30_seconds>\n[T1] (9:00) Speaker 0 (unlabeled): We have a hard stop in five.\n</last_30_seconds>`
+  const planBlock = `<call_notes note="running summary of the call up to 9:00; may lag; the transcript wins if they disagree">\n${PLAN_SECTION_LABEL}: Who signs off on new tools\nTopic now: Pricing tiers\n</call_notes>`
+
+  it('FOLLOW asks it naturally instead of the recap of what Keith owes them', () => {
+    const msg = wrapUserMessage(ctx(planBlock), 'button')
+    expect(msg).toContain("- FOLLOW: instead of a recap, one thing Keith still wants to learn (listed first in call_notes), asked as one short natural question in Keith's voice")
+    expect(msg).toContain('Only if the transcript shows they already answered every one: what Keith still owes them')
+  })
+
+  it('must not change: no plan, every must-learn done, or closing words on a HELP press', () => {
+    const plain = wrapUserMessage(ctx(null), 'button')
+    expect(plain).toContain("- FOLLOW: what Keith still owes them from this call, as a short line in Keith's voice")
+    expect(plain).not.toContain('Keith still wants to learn')
+    const notesOnly = `<call_notes note="running summary">\nTopic now: Pricing tiers\n</call_notes>`
+    expect(wrapUserMessage(ctx(notesOnly), 'button')).toBe(wrapUserMessage(ctx(null), 'button').replace(ctx(null), ctx(notesOnly)))
+    expect(wrapUserMessage(ctx(planBlock), 'closing')).toContain('- FOLLOW: the next-step question, when the line answers something else; otherwise what Keith still owes them')
+  })
+
+  it("planStillOpen reads only the notes block: the label said in the transcript doesn't count", () => {
+    expect(planStillOpen(ctx(planBlock))).toBe(true)
+    expect(planStillOpen(ctx(null))).toBe(false)
+    const said = `<last_30_seconds>\n${PLAN_SECTION_LABEL}: budget\n</last_30_seconds>`
+    expect(planStillOpen(said)).toBe(false)
+    expect(planStillOpen(`[T4] (1:00) Keith: ${PLAN_SECTION_LABEL}: budget`)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------- the whole call, through the app
+
+/** A real-looking (non-mock) model whose structured answers wait for the test. */
+class Scripted implements HelpModel {
+  readonly mock = false
+  calls: Array<{ req: HelpNotesRun; kind: 'notes' | 'wrapup'; release: (text: string) => void }> = []
+  label() { return 'scripted' }
+  async prewarm() {}
+  async check() { return { readiness: 'ready' as const } }
+  run(_req: HelpModelRun): Promise<HelpModelResult> { throw new Error('not used') }
+  notes(req: HelpNotesRun): Promise<HelpNotesResult> {
+    const kind = req.system === WRAPUP_SYSTEM_PROMPT ? 'wrapup' : 'notes'
+    return new Promise((resolve, reject) => {
+      req.signal.addEventListener('abort', () => reject(new Anthropic.APIUserAbortError()))
+      this.calls.push({ req, kind, release: (text) => resolve({ text, usage: USAGE, stop_reason: 'end_turn' }) })
+    })
+  }
+  of(kind: 'notes' | 'wrapup') {
+    return this.calls.filter((c) => c.kind === kind)
+  }
+}
+
+function app(model: HelpModel = new Scripted()) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cp-'))
+  const logs: Array<{ e: string; d?: Record<string, unknown> }> = []
+  const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, (e, d) => logs.push({ e, d }))
+  help.setSettings({ prefetch: false })
+  help.createModel = () => model
+  const wraps: Array<CallWrapup | null> = []
+  help.onWrapup = (w) => wraps.push(w)
+  const panel: Array<CallNotesState | null> = []
+  help.onNotes = (s) => panel.push(s)
+  let t = 0
+  let n = 0
+  const state = (st: string, call = CALL_ID) => help.onSessionEvent({ type: 'state', state: st, sessionId: call } as SessionEvent, call, () => t)
+  const say = (who: 'buyer' | 'keith', text: string, secs = 5, call = CALL_ID): string => {
+    const start = t
+    t += secs * 1000
+    const turn: Turn = {
+      turn_id: `t${++n}`, session_id: call, stream: who === 'keith' ? 'local_mic' : 'system_remote', speaker_cluster: who === 'keith' ? null : 'e1:s0',
+      speaker_identity_id: null, speaker_role: 'unknown', start_ms: start, end_ms: t, text, final: true, source_word_ids: [], gap_before: null,
+    }
+    help.onSessionEvent({ type: 'turn', event: { type: 'turn_final', turn } }, call, () => t)
+    return turn.turn_id
+  }
+  return { help, logs, wraps, panel, state, say, model: model as Scripted }
+}
+
+const flush = async () => {
+  for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(0)
+}
+
+describe('a call with a plan, start to finish', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it('saved with the setup, tracked by the notes, changed mid-call, cleared at Stop, "Still to learn" after, and remembered for next time', async () => {
+    const a = app()
+    a.help.setSetup({ call_type: 'discovery', call_goal: 'Learn how they review answers', desired_outcomes: [], account: ACCOUNT, deployment: 'self_hosted' })
+    expect(a.help.setMustLearn([...PLAN, 'A fourth one']).must_learn).toEqual(PLAN)
+    // The strip's other fields save without the must-learns: they stay.
+    a.help.setSetup({ call_type: 'discovery', call_goal: 'Learn how they review chatbot answers', desired_outcomes: [], account: ACCOUNT, deployment: 'self_hosted' })
+    expect(a.help.info().setup.must_learn).toEqual(PLAN)
+    a.state('checking')
+    a.state('live')
+    const row = () => JSON.parse((a.help.db.sql.prepare('SELECT setup_json FROM sessions WHERE id = ?').get(CALL_ID) as { setup_json: string }).setup_json)
+    expect(row().must_learn).toEqual(PLAN)
+
+    a.say('buyer', 'Today we score the answers with a rubric in a shared spreadsheet every week', 21)
+    a.say('keith', 'Who would sign off on bringing in a new tool?', 5)
+    a.say('buyer', 'Probably our VP of Engineering, though procurement has a say as well', 21)
+    a.say('buyer', 'And the platform team would run whatever we pick, so they get a vote too', 21)
+    const first = a.model.of('notes')[0]
+    expect(first.req.user).toContain('deployment: self-hosted\nmust learn: Who signs off on new tools; How they score answers today; Deep-dive scope\n</call_setup>')
+    first.release(notesAnswer({
+      topic: { text: 'How they review answers', lines: ['L1'] },
+      plan: [
+        { item: 'Who signs off on new tools', status: 'done', lines: [] }, // no line cited: only partial
+        { item: 'How they score answers today', status: 'done', lines: ['L1'] },
+        { item: 'Their budget', status: 'done', lines: ['L3'] }, // not Keith's
+      ],
+    }))
+    await flush()
+    const plan = () => a.panel.at(-1)?.notes?.plan?.map((p) => [p.item, p.status])
+    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Deep-dive scope', 'open']])
+
+    // HELP now: the ones still open lead the notes block.
+    const ctx = buildHelpContext({ memory: a.help.memory!, kb: null, atMs: 70_000 })
+    expect(ctx.text).toContain(`${PLAN_SECTION_LABEL}: Who signs off on new tools (partly answered); Deep-dive scope`)
+
+    // Mid-call: one removed, one added. The panel shows it straight away; the call's record keeps the latest.
+    a.help.setMustLearn(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
+    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'open']])
+    expect(row().must_learn).toEqual(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
+    // Every one removed: no plan on screen; put back, they read as they did.
+    a.help.setMustLearn([])
+    expect(a.panel.at(-1)?.notes).toBeTruthy()
+    expect(a.panel.at(-1)?.notes?.plan).toBeUndefined()
+    a.help.setMustLearn(['Who signs off on new tools', 'How they score answers today', 'Rollout timing'])
+    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'open']])
+
+    a.say('buyer', 'Rollout would be after our Q1 planning, so maybe March.', 6)
+    a.state('stopping')
+    a.state('stopped')
+    // Stop clears them with the rest of the per-call setup.
+    expect(a.help.info().setup.must_learn).toBeUndefined()
+    // The closing pass: the model leaves the plan out; the last statuses stand.
+    const closing = a.model.of('notes')[1]
+    expect(closing.req.user).toContain('must learn: Who signs off on new tools; How they score answers today; Rollout timing')
+    closing.release(notesAnswer({ topic: { text: 'Rollout timing', lines: ['L5'] } }))
+    await flush()
+    expect(plan()).toEqual([['Who signs off on new tools', 'partial'], ['How they score answers today', 'done'], ['Rollout timing', 'open']])
+
+    // The wrap-up request carries them; "Still to learn" is what the call ended without.
+    const wr = a.model.of('wrapup')[0]
+    expect(wr.req.user).toContain('must learn: Who signs off on new tools; How they score answers today; Rollout timing')
+    wr.release(JSON.stringify({ we_owe: [], they_owe: [], agreed: [], proposed: [], open_questions: [] }))
+    await flush()
+    expect(a.wraps.at(-1)).toMatchObject({ status: 'ready', plan_open: ['Who signs off on new tools', 'Rollout timing'] })
+
+    // Logs carry counts only, never what Keith wanted to learn.
+    expect(a.logs.find((l) => l.e === 'call_notes_done' && (l.d as { plan?: unknown }).plan)?.d).toMatchObject({ plan: { open: 1, partial: 1, done: 1 } })
+    expect(a.logs.find((l) => l.e === 'wrapup_done')?.d).toMatchObject({ plan_open: 2 })
+    expect(JSON.stringify(a.logs)).not.toMatch(/signs off|score answers|Rollout|Deep-dive|Larkspur|budget|fourth/i)
+
+    // Next time with this account: "Still to learn", and "Reuse last setup" brings them over.
+    const mem = accountMemory(a.help.db, 'larkspur health (INVENTED)')!
+    expect(mem.items.filter((i) => i.kind === 'to_learn').map((i) => i.text)).toEqual(['Who signs off on new tools', 'Rollout timing'])
+    expect(mem.last_setup?.must_learn).toEqual(['Who signs off on new tools', 'Rollout timing'])
+    expect(earlierCallsBlock(mem.items.map(({ kind, text, date }) => ({ kind, text, date })))?.text).toMatch(/· Keith still wanted to learn: Who signs off on new tools\n/)
+    a.help.shutdown()
+  })
+
+  it('a call with no must-learns works as before: no plan in the notes, no "Still to learn"', async () => {
+    const a = app(new MockHelpModel(0))
+    a.help.setSetup({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown' })
+    a.state('checking')
+    a.state('live')
+    a.say('buyer', 'We review answers by hand.', 70)
+    await flush()
+    expect(a.model.mock).toBe(true)
+    a.state('stopping')
+    a.state('stopped')
+    await flush()
+    expect(a.help.callNotes()?.notes?.plan).toBeUndefined()
+    expect(a.wraps.at(-1)?.status).toBe('ready')
+    expect(a.wraps.at(-1)?.plan_open).toBeUndefined()
+    a.help.shutdown()
+  })
+})
+
+describe('after Stop', () => {
+  it('the wrap-up keeps open and partial ones; with no plan in the notes, every must-learn; none when Keith set none', () => {
+    const make = (mustLearn: string[] | undefined, notes: CallNotes | null) => {
+      const m = new CallMemory(CALL_ID)
+      m.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', ...(mustLearn ? { must_learn: mustLearn } : {}) }
+      if (notes) m.callNotes = { notes, as_of_ms: 0 }
+      const w = new WrapupKeeper({ memory: m, model: new MockHelpModel(0), config: { provider: 'mock', model: 'mock', effort: 'low', thinking: 'off', timeout_ms: 1, max_tokens: 1 }, db: null, kb: null, emit: () => {}, log: () => {} })
+      w.begin()
+      return w.state()
+    }
+    const notes: CallNotes = { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done', turn_ids: ['t1'] }, { item: PLAN[1], status: 'partial', turn_ids: ['t2'] }] }
+    expect(make(PLAN, notes).plan_open).toEqual([PLAN[1], PLAN[2]])
+    expect(make(PLAN, EMPTY_NOTES).plan_open).toEqual(PLAN)
+    expect(make(PLAN, null).plan_open).toEqual(PLAN)
+    expect(make(undefined, notes).plan_open).toBeUndefined()
+  })
+
+  it('the wrap-up request may cite the lines the plan rests on', () => {
+    const m = new CallMemory(CALL_ID)
+    m.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', must_learn: [PLAN[0]] }
+    m.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 1000, text: 'Our VP signs off.', available_ms: 1000 }, true)
+    const input = wrapupUserMessage(m, { ...EMPTY_NOTES, plan: [{ item: PLAN[0], status: 'done', turn_ids: ['t1'] }] })
+    expect(input.user).toContain('must learn: Who signs off on new tools')
+    expect(input.user).toContain('"plan":[{"item":"Who signs off on new tools","status":"done","lines":["L1"]}]')
+    expect(input.lineIds.get('L1')).toBe('t1')
+  })
+
+  describe('account memory', () => {
+    const call = (db: Db, id: string, at: string, o: { planOpen?: unknown; mock?: boolean; mustLearn?: string[] } = {}) => {
+      db.sql.prepare('INSERT INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run(id, at, JSON.stringify({ call_type: 'discovery', call_goal: `Goal of ${id}`, desired_outcomes: [], account: ACCOUNT, deployment: 'self_hosted', ...(o.mustLearn ? { must_learn: o.mustLearn } : {}) }))
+      db.sql.prepare("INSERT INTO turns (session_id, turn_id, stream, start_ms, end_ms, available_ms, text) VALUES (?, 't1', 'system_remote', 0, 1, 1, 'BUYER WORDS')").run(id)
+      const w = { session_id: id, status: 'ready', account: ACCOUNT, started_at: at, items: [], email: null, error: null, mock: o.mock ?? false, ...(o.planOpen !== undefined ? { plan_open: o.planOpen } : {}) }
+      db.sql.prepare('INSERT INTO call_wrapups (session_id, wrapup_json, updated_at) VALUES (?, ?, ?)').run(id, JSON.stringify(w), at)
+    }
+
+    it('"Still to learn" from earlier calls; a Practice-mode (MOCK) wrap-up never counts; a newer call that set out to learn it again decides', () => {
+      const db = new Db(':memory:')
+      call(db, 's-1', '2026-09-01T15:00:00.000Z', { planOpen: ['Who signs off on new tools', 'Rollout timing'], mustLearn: ['Who signs off on new tools', 'Rollout timing'] })
+      call(db, 's-2', '2026-09-10T15:00:00.000Z', { planOpen: ['[MOCK] something'], mock: true })
+      // The newest call asked about who signs off again and got it: only what it still had open counts.
+      call(db, 's-3', '2026-09-20T15:00:00.000Z', { planOpen: ['Eval dataset owner'], mustLearn: ['Who signs off on new tools', 'Eval dataset owner'] })
+      const mem = accountMemory(db, ACCOUNT)!
+      expect(mem.items.filter((i) => i.kind === 'to_learn').map((i) => [i.text, i.session_id])).toEqual([['Eval dataset owner', 's-3'], ['Rollout timing', 's-1']])
+      expect(mem.last_setup?.must_learn).toEqual(['Eval dataset owner'])
+      // A saved practice moment keeps them.
+      expect(cleanEarlierItems([{ kind: 'to_learn', text: 'Rollout timing', date: '2026-09-01' }])).toEqual([{ kind: 'to_learn', text: 'Rollout timing', date: '2026-09-01' }])
+    })
+
+    it('older wrap-ups (no plan_open) and broken ones add nothing, and Reuse brings no must-learns', () => {
+      const db = new Db(':memory:')
+      call(db, 's-1', '2026-09-01T15:00:00.000Z', { planOpen: 'not a list' })
+      call(db, 's-2', '2026-09-02T15:00:00.000Z')
+      const mem = accountMemory(db, ACCOUNT)!
+      expect(mem.items.filter((i) => i.kind === 'to_learn')).toEqual([])
+      expect(mem.last_setup?.must_learn).toBeUndefined()
+    })
+
+    it('the last call held in Practice mode: Reuse brings no must-learns over', () => {
+      const db = new Db(':memory:')
+      call(db, 's-1', '2026-09-01T15:00:00.000Z', { planOpen: ['Rollout timing'], mock: true })
+      expect(accountMemory(db, ACCOUNT)?.last_setup?.must_learn).toBeUndefined()
+    })
+  })
+})

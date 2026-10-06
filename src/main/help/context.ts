@@ -179,7 +179,7 @@ export function buildHelpContext(opts: {
   parts.push(`<participants>\n${roster.join('\n')}\n</participants>`)
   // Running call notes (live calls only): early facts and open questions, compact. Never in the cached system prompt.
   const turnById = new Map(all.map((t) => [t.id, t]))
-  const notes = callNotesBlock(memory.callNotes, atMs, { ref: (id) => { const t = turnById.get(id); return t ? ref(t) : null }, clock: fmtClock })
+  const notes = callNotesBlock(memory.callNotes, atMs, { ref: (id) => { const t = turnById.get(id); return t ? ref(t) : null }, clock: fmtClock, mustLearn: memory.setup.must_learn })
   if (notes) parts.push(notes)
   // Earlier calls with this account (account memory): dated past statements, never current fact.
   const earlierCalls = earlierCallsBlock(memory.earlierCalls)

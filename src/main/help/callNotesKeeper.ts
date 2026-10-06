@@ -26,6 +26,7 @@ import type { CallMemory } from './callMemory'
 import { NOTES_SCHEMA, NOTES_SYSTEM_PROMPT, notesForModel, validateNotes, type CallNotesSnapshot } from './callNotes'
 import { fmtClock, speakerName } from './context'
 import { describeError, type HelpError, type HelpModel } from './models'
+import { mustLearnLine, mustLearnOf, planCounts, planNow } from './callPlan'
 
 /** About a minute of new talk from the other side, by time or by words (either is enough). */
 export const NOTES_MIN_REMOTE_SPEECH_MS = 60_000
@@ -137,8 +138,17 @@ export class CallNotesKeeper {
       : this.phase === 'paused' ? 'paused'
       : this.run ? 'updating'
       : 'waiting'
+    // Keith's must-learns as they are now (one added since the last update shows as open; one removed is gone).
+    const ml = mustLearnOf(this.d.memory.setup)
+    let notes = this.snap?.notes ?? null
+    if (notes && ml.length) notes = { ...notes, plan: planNow(ml, notes.plan) }
+    else if (notes?.plan) {
+      // Keith removed every must-learn since the last update: no plan to show.
+      const { plan: _gone, ...rest } = notes
+      notes = rest
+    }
     return {
-      status, notes: this.snap?.notes ?? null, updated_at: this.updatedAt, as_of_ms: this.snap?.as_of_ms ?? null,
+      status, notes, updated_at: this.updatedAt, as_of_ms: this.snap?.as_of_ms ?? null,
       updates: this.stats.updated, mock: this.d.model.mock, problem: this.blocked?.message ?? null,
     }
   }
@@ -335,7 +345,9 @@ export class CallNotesKeeper {
       usage = res.usage
       this.setBlocked(null)
       this.d.onResult?.(null)
-      const v = res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens' ? { ok: false as const, code: res.stop_reason } : validateNotes(res.text, this.turnOf)
+      // Checked against Keith's must-learns as they are now (he can change them mid-call).
+      const plan = { mustLearn: mustLearnOf(this.d.memory.setup), previous: this.snap?.notes.plan }
+      const v = res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens' ? { ok: false as const, code: res.stop_reason } : validateNotes(res.text, this.turnOf, plan)
       if (v.ok) {
         status = 'updated'
         this.snap = { notes: v.notes, as_of_ms: asOf }
@@ -376,6 +388,8 @@ export class CallNotesKeeper {
       seq, status, error: code, ms: Math.round(this.now() - t0), model: this.d.config.model,
       input_tokens: usage?.input_tokens, output_tokens: usage?.output_tokens, cache_read: usage?.cache_read_input_tokens, cost_usd: usage?.cost_usd,
       items: n ? { topic: n.topic ? 1 : 0, wants: n.buyer_wants.length, open_questions: n.open_questions.length, concerns: n.concerns.length, facts: n.facts.length, next_steps: n.next_steps.length, not_covered: n.not_covered.length } : null,
+      // Keith's call plan: counts per status only, never the items.
+      ...(n?.plan?.length ? { plan: planCounts(n.plan) } : {}),
     })
     this.emit()
     // A backlog (or talk that arrived meanwhile) may already be enough for the next one.
@@ -405,7 +419,7 @@ export class CallNotesKeeper {
       .filter((g) => g.cause !== 'pause' && g.start_ms <= to && (g.end_ms ?? to) >= from)
       .map((g) => `Gap ${fmtClock(g.start_ms)}–${g.end_ms === null ? 'now' : fmtClock(g.end_ms)} on ${g.stream === 'local_mic' ? "Keith's mic" : 'meeting audio'}: nothing was heard then.`)
     const parts = [
-      `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${dep}\n</call_setup>`,
+      `<call_setup>\ntype: ${s.call_type}\ngoal: ${s.call_goal || '(not set)'}\ndesired outcomes: ${s.desired_outcomes.join('; ') || '(not set)'}\naccount: ${s.account || '(not set)'}\ndeployment: ${dep}${mustLearnLine(s)}\n</call_setup>`,
       `<previous_notes>\n${this.snap ? JSON.stringify(notesForModel(this.snap.notes, (id) => this.lineOf.get(id))) : '(none yet)'}\n</previous_notes>`,
       `<new_lines note="finished lines said since the previous notes, oldest first">\n${lines.join('\n')}\n</new_lines>`,
     ]

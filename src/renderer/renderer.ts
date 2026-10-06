@@ -11,6 +11,7 @@ import { passageLabel } from '../shared/passageLabel'
 import { HEALTH_LABEL } from '../shared/captureHealth'
 import { initCompact } from './compact'
 import { initAccountMemory } from './accountMemory'
+import { initCallPlan } from './callPlan'
 import { initWrapup } from './wrapup'
 
 declare global {
@@ -897,6 +898,7 @@ function saveSetup(): void {
 }
 for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount', 'csDeploy']) $(id).addEventListener('change', saveSetup)
 initAccountMemory(api)
+initCallPlan(api)
 
 // ---- tap-to-name speaker labels (per call; never required for HELP) ----
 let labelCluster: string | null = null

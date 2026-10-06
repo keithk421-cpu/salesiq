@@ -130,6 +130,15 @@ export function initWrapup(api: CopilotApi): void {
       </section>`
     }).join('')
     if (building) $('wuList').insertAdjacentHTML('afterbegin', '<div class="wu-building">Finishing notes and wrap-up… (you can add items meanwhile)</div>')
+    if (w.plan_open?.length) $('wuList').insertAdjacentHTML('beforeend', stillToLearn(w.plan_open))
+  }
+
+  /** Keith's must-learns the call ended without (M3 call plan): read only; the next call with them shows them too. */
+  function stillToLearn(xs: string[]): string {
+    return `<section class="wu-sec wu-learn">
+      <div class="wu-sec-head"><span class="nt-h">Still to learn</span><span class="muted small">from your must-learns</span></div>
+      <ul class="wu-learn-list">${xs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+    </section>`
   }
 
   function render(): void {

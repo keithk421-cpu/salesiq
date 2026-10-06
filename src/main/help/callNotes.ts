@@ -13,6 +13,8 @@
  * The keeper that runs updates during a live call is in callNotesKeeper.ts.
  */
 import { NOTE_FACT_KINDS, NOT_COVERED_TOPICS, type CallNoteItem, type CallNotes, type NotCoveredTopic, type NoteFactKind } from '../../shared/help'
+import type { PlanItemStatus } from '../../shared/help'
+import { PLAN_SECTION_LABEL, mergePlan, planNow, sanitizeMustLearn } from './callPlan'
 
 /** The HELP block, tags included. */
 export const CALL_NOTES_BLOCK_MAX_CHARS = 800
@@ -43,7 +45,7 @@ const ITEM_SCHEMA = {
 export const NOTES_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  required: ['topic', ...LIST_KEYS],
+  required: ['topic', ...LIST_KEYS, 'plan'],
   properties: {
     topic: { anyOf: [ITEM_SCHEMA, { type: 'null' }] },
     buyer_wants: { type: 'array', items: ITEM_SCHEMA },
@@ -58,6 +60,14 @@ export const NOTES_SCHEMA: Record<string, unknown> = {
       items: { ...ITEM_SCHEMA, required: ['status', 'text', 'lines'], properties: { status: { type: 'string', enum: ['proposed', 'agreed'] }, ...ITEM_SCHEMA.properties } },
     },
     not_covered: { type: 'array', items: { type: 'string', enum: [...NOT_COVERED_TOPICS] } },
+    // Keith's must-learns (M3 call plan): empty when call_setup lists none.
+    plan: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false, required: ['item', 'status', 'lines'],
+        properties: { item: { type: 'string' }, status: { type: 'string', enum: ['open', 'partial', 'done'] }, lines: { type: 'array', items: { type: 'string' } } },
+      },
+    },
   },
 }
 
@@ -68,7 +78,7 @@ export const NOTES_SCHEMA: Record<string, unknown> = {
 export const NOTES_SYSTEM_PROMPT = `You keep the running notes of a live sales call for Keith, an enterprise account executive at Arize (AI observability and LLM evaluation). Another assistant, HELP, reads your notes whenever Keith asks it for his next line, so that nothing important said early in a long call is lost. Keith also glances at them on screen for a second or two, so they must be short, plain English and trustworthy.
 
 What you receive each time:
-- call_setup: what Keith typed about the call (type, goal, outcomes, account, deployment). It is context, not something anyone said.
+- call_setup: what Keith typed about the call (type, goal, outcomes, account, deployment, and "must learn": up to 3 things he wants to learn on this call). It is context, not something anyone said.
 - previous_notes: your notes so far, as JSON, or "(none yet)".
 - new_lines: ONLY the finished transcript lines said since those notes, oldest first. Each line has an id like [L12], a time, and who spoke: Keith (Arize), an Arize teammate, the buyer, or an unlabeled remote speaker (usually the buyer's side, but it could be an Arize teammate).
 - transcript_status (sometimes): parts of the call that were not heard. Never guess what was said in a gap.
@@ -83,6 +93,7 @@ The notes:
 - facts: what their side stated about themselves, each with a kind: current_tooling (tools, stack, vendors, how it works today), team (people, roles, size), timeline (dates, deadlines, timing), budget, decision_process (who decides, steps, approvals), success_criteria (what good looks like, how they will judge it), or other. A claim about Arize or a competitor is their statement, not a fact about the product: write it as "they said ...".
 - next_steps: steps someone proposed, each with a status. Proposed is not agreed: use "agreed" only when the other side clearly accepted (said yes, picked a time, confirmed who). Otherwise "proposed".
 - not_covered: from this fixed list only - timeline, decision_process, current_tooling, success_criteria - the ones nobody on the call has discussed yet. Remove one as soon as it comes up, even if the answer was "we don't know yet". Never add anything else.
+- plan: one entry for each "must learn" item in call_setup, and nothing else (an empty list when there are none). Copy "item" exactly as Keith typed it. "status" says how far the other side's answers on this call got: "open" (not answered yet), "partial" (some of it, an unclear answer, or "we'll get back to you"), "done" (their answer settles it). Asked is not answered: Keith or a teammate asking about it is not the other side answering, and neither is Keith saying what he thinks. Use "done" only when lines where the other side answered settle it, and cite those lines; when in doubt, "partial". "lines" cites the lines the status rests on (none for "open"). Never invent an answer. Keep the status from previous_notes unless the new lines change it.
 
 Rules:
 - Only what was actually said on this call. Never invent pain, problems, urgency, dissatisfaction, budget, deadlines, ownership or intent. A neutral description of how things work today is a fact, not a problem, and never a concern.
@@ -109,7 +120,12 @@ export type NotesCheck = { ok: true; notes: CallNotes } | { ok: false; code: str
  * whole answer (the caller keeps the previous notes); a single bad item (no text, citing no line that
  * was sent) is dropped. Codes only, never quoted output, so logs can carry them.
  */
-export function validateNotes(text: string, lineIds: ReadonlyMap<string, string>): NotesCheck {
+export function validateNotes(
+  text: string,
+  lineIds: ReadonlyMap<string, string>,
+  /** Keith's must-learns now and the plan the previous notes had (M3); without must-learns the notes carry no plan. */
+  plan?: { mustLearn: readonly string[]; previous?: readonly PlanItemStatus[] | null },
+): NotesCheck {
   let raw: unknown
   try {
     raw = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
@@ -164,6 +180,8 @@ export function validateNotes(text: string, lineIds: ReadonlyMap<string, string>
     not_covered: [...new Set((r.not_covered as unknown[]).filter((x): x is NotCoveredTopic => (NOT_COVERED_TOPICS as readonly unknown[]).includes(x)))]
       .filter((k) => !facts.some((f) => f.kind === k)),
   }
+  // Only Keith's items; "done" needs a cited line; an item left out keeps its last status (callPlan.ts).
+  if (plan?.mustLearn.length) notes.plan = mergePlan(plan.mustLearn, r.plan, plan.previous, lineIds)
   return { ok: true, notes }
 }
 
@@ -178,6 +196,7 @@ export function notesForModel(n: CallNotes, lineOf: (turnId: string) => string |
     facts: n.facts.map((f) => ({ kind: f.kind, ...w(f) })),
     next_steps: n.next_steps.map((s) => ({ status: s.status, ...w(s) })),
     not_covered: [...n.not_covered],
+    plan: (n.plan ?? []).map((p) => ({ item: p.item, status: p.status, lines: p.turn_ids.map(lineOf).filter((x): x is string => !!x) })),
   }
 }
 
@@ -196,17 +215,30 @@ export const NOT_COVERED_LABEL: Record<NotCoveredTopic, string> = {
  * questions can't push out the facts; items that don't fit are left out. `ref` names an item's first
  * turn in the context ([T#], so the card's sources can show the real line); it's called only for
  * items that make it into the block.
+ *
+ * Keith's must-learns still open or partial (M3 call plan, `mustLearn`: his setup now) lead the block,
+ * with their status from these notes; before the first notes (or with notes off) the block carries
+ * just them, all open, so HELP knows his plan from the start.
  */
 export function callNotesBlock(
   snap: CallNotesSnapshot | null | undefined,
   atMs: number,
-  o: { ref: (turnId: string) => string | null; clock: (ms: number) => string },
+  o: { ref: (turnId: string) => string | null; clock: (ms: number) => string; mustLearn?: readonly string[] },
 ): string | null {
-  if (!snap || snap.as_of_ms > atMs) return null
-  const n = snap.notes
+  const usable = !!snap && snap.as_of_ms <= atMs
+  const mustLearn = sanitizeMustLearn(o.mustLearn)
+  if (!usable && !mustLearn.length) return null
+  const n = usable ? snap!.notes : EMPTY_NOTES
   type Piece = { text: string; turnId: string | null }
   const p = (it: CallNoteItem, prefix = ''): Piece => ({ text: `${prefix}${clip(it.text, BLOCK_ITEM_MAX_CHARS)}`, turnId: it.turn_ids[0] ?? null })
+  const plan = planNow(mustLearn, n.plan).filter((x) => x.status !== 'done')
   const sections: Array<{ label: string; pieces: Piece[] }> = [
+    {
+      label: PLAN_SECTION_LABEL,
+      pieces: plan.map((x) => x.status === 'partial'
+        ? { text: `${clip(x.item, BLOCK_ITEM_MAX_CHARS)} (partly answered)`, turnId: x.turn_ids[0] ?? null }
+        : { text: clip(x.item, BLOCK_ITEM_MAX_CHARS), turnId: null }),
+    },
     { label: 'Open questions (not answered yet)', pieces: n.open_questions.map((x) => p(x)) },
     { label: 'Facts they stated', pieces: n.facts.map((f) => p(f, FACT_LABEL[f.kind] ? `${FACT_LABEL[f.kind]}: ` : '')) },
     { label: 'Concerns they raised', pieces: n.concerns.map((x) => p(x)) },
@@ -215,7 +247,9 @@ export function callNotesBlock(
     { label: 'Not covered yet', pieces: n.not_covered.map((k) => ({ text: NOT_COVERED_LABEL[k], turnId: null })) },
     { label: 'Topic now', pieces: n.topic ? [p(n.topic)] : [] },
   ]
-  const head = `<call_notes note="running summary of the call up to ${o.clock(snap.as_of_ms)}; may lag; the transcript wins if they disagree">`
+  const head = usable
+    ? `<call_notes note="running summary of the call up to ${o.clock(snap!.as_of_ms)}; may lag; the transcript wins if they disagree">`
+    : '<call_notes note="no notes yet: only what Keith wants to learn on this call">'
   const tail = '</call_notes>'
   // Room for a citation like " [T123]" is kept for every cited item, so the real one always fits.
   const CITE = 7
