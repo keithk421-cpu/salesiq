@@ -8,7 +8,7 @@ import type { SessionEvent } from '../src/main/session'
 import { CallMemory } from '../src/main/help/callMemory'
 import { buildHelpContext } from '../src/main/help/context'
 import { collectFeedbackCalls, feedbackMarkdown } from '../src/main/help/feedbackExport'
-import { BLIND_WARN_MS, FILLER_MAX_WORDS, blindNote, blindWords, heardLine, heardSummary, isFiller, keithFiller, savedHeard, tailAtWord } from '../src/main/help/heard'
+import { BLIND_WARN_MS, FILLER_MAX_WORDS, blindNote, blindWords, heardLine, heardSummary, isFiller, keithFiller, savedHeard, tailAtWord, theyAsked, withoutTrailingFiller } from '../src/main/help/heard'
 import { buildPracticeMoment } from '../src/main/help/practice'
 import { loadPlaybook } from '../src/main/help/prompt'
 import { HelpService } from '../src/main/helpService'
@@ -46,6 +46,19 @@ describe("Keith's filler", () => {
     expect(keithFiller({ stream: 'system_remote', text: 'Okay.' })).toBe(false)
     expect(keithFiller({ stream: 'local_mic', text: 'No, not yet.' })).toBe(false)
   })
+
+  it("only Keith's trailing filler turns are left out of the moment; anything after them keeps them", () => {
+    const t = (stream: 'local_mic' | 'system_remote', text: string) => ({ stream, text })
+    const q = t('system_remote', 'Do you integrate with tracing?')
+    expect(withoutTrailingFiller([q, t('local_mic', 'Great question.'), t('local_mic', 'So,')])).toEqual([q])
+    const answered = [q, t('local_mic', 'Yes, we do.')]
+    expect(withoutTrailingFiller(answered)).toEqual(answered)
+    const theirs = [q, t('system_remote', 'Okay.')]
+    expect(withoutTrailingFiller(theirs)).toEqual(theirs)
+    const middle = [t('local_mic', 'Great question.'), q]
+    expect(withoutTrailingFiller(middle)).toEqual(middle)
+    expect(withoutTrailingFiller([])).toEqual([])
+  })
 })
 
 describe('heard line', () => {
@@ -70,9 +83,9 @@ describe('heard line', () => {
     // "So, yeah." has no real words: the question before it is what the card answers.
     m.upsertTurn({ id: 'c', stream: 'system_remote', cluster: 'e1:s1', start_ms: 5300, end_ms: 6000, text: 'So, yeah.', available_ms: 6400 }, true)
     expect(heardLine(m, 8000)).toMatchObject({ text: 'Do you integrate with Lang Smith?', ago_ms: 4000 })
-    // Still being transcribed: no speaker yet, said now.
+    // Still being transcribed: no speaker yet, said now. "Them" on the card, as the compact dot says (never "Remote").
     m.setInterim('system_remote', 'And what about pricing for the', 7500)
-    expect(heardLine(m, 8000)).toEqual({ text: 'And what about pricing for the', speaker: 'Remote', ago_ms: 0 })
+    expect(heardLine(m, 8000)).toEqual({ text: 'And what about pricing for the', speaker: 'Them', ago_ms: 0 })
   })
 
   it("none when they said nothing in the last 30 s, and never Keith's own words", () => {
@@ -89,7 +102,7 @@ describe('heard line', () => {
     expect(savedHeard({ text: '', speaker: 'x', ago_ms: 1 })).toBeNull()
     expect(savedHeard({ text: 'Hi?', speaker: 'Dana (buyer)' })).toEqual({ text: 'Hi?', speaker: 'Dana (buyer)', ago_ms: 0 })
     expect(heardSummary({ text: 'Hi?', speaker: 'Dana (buyer)', ago_ms: 4200 })).toBe('"Hi?" (Dana (buyer) · 4 s before the press)')
-    expect(heardSummary({ text: 'Hi', speaker: 'Remote', ago_ms: 0 })).toBe('"Hi" (Remote · still talking at the press)')
+    expect(heardSummary({ text: 'Hi', speaker: 'Them', ago_ms: 0 })).toBe('"Hi" (Them · still talking at the press)')
   })
 })
 
@@ -153,6 +166,28 @@ describe('HELP engine: the ready card survives a filler', () => {
     expect(JSON.stringify(s.logs)).not.toContain('great question')
   })
 
+  it("Keith's filler that already came back as a final turn keeps the prepared card too", async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { prefetch: true })
+    await readyCard(s, m)
+    s.say('Great question.', 'keith')
+    s.advance(300)
+    s.engine.press()
+    expect(m.calls).toHaveLength(1)
+    expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(true)
+  })
+
+  it('a final answer from Keith ("No, not yet.") makes a fresh card', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { prefetch: true })
+    await readyCard(s, m)
+    s.say('No, not yet.', 'keith')
+    s.advance(300)
+    s.engine.press()
+    expect(m.calls).toHaveLength(2)
+    expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(false)
+  })
+
   it('anything else Keith says makes a fresh card', async () => {
     const m = new StagedModel()
     const s = engineFixture(m, playbook, { prefetch: true })
@@ -175,9 +210,10 @@ describe('HELP engine: the ready card survives a filler', () => {
 })
 
 describe('HELP engine: background card on end of speech', () => {
-  it("their speech_final starts the waiting background card at once (the debounce stays the fallback)", async () => {
+  it("their speech_final after a question starts the waiting background card at once (the debounce stays the fallback)", async () => {
     const m = new StagedModel()
     const s = engineFixture(m, playbook, { prefetch: true })
+    s.say('Do you integrate with our tracing setup?')
     s.engine.onFinalWords('system_remote')
     expect(m.calls).toHaveLength(0)
     s.engine.onSpeechEnd('system_remote', 'speech_final')
@@ -202,12 +238,47 @@ describe('HELP engine: background card on end of speech', () => {
     expect(m.calls).toHaveLength(1)
   })
 
+  it("a pause mid-explanation (speech_final, no question) waits for the debounce, so it doesn't use up the cap", async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { prefetch: true })
+    // A buyer explaining their setup with short pauses: each pause is a speech_final, more words follow within the debounce.
+    for (const part of ['So we run evals nightly on a sample,', 'then the platform team reviews the misses,', 'and we track drift in a dashboard.']) {
+      s.advance(400)
+      s.say(part)
+      s.engine.onFinalWords('system_remote')
+      s.engine.onSpeechEnd('system_remote', 'speech_final')
+      await vi.advanceTimersByTimeAsync(400)
+    }
+    expect(m.calls).toHaveLength(0)
+    expect(s.logs.some((l) => l.e === 'help_prefetch_early')).toBe(false)
+    // Then the real question: speech_final starts it at once, with the cap untouched.
+    s.advance(400)
+    s.say('How would you handle that for us?')
+    s.engine.onFinalWords('system_remote')
+    s.engine.onSpeechEnd('system_remote', 'speech_final')
+    expect(m.calls).toHaveLength(1)
+    expect(s.logs.some((l) => l.e === 'help_prefetch_capped')).toBe(false)
+  })
+
+  it('their question is the last thing they said, after any of Keith\'s words', () => {
+    const m = new CallMemory('s')
+    expect(theyAsked(m, 1000)).toBe(false)
+    m.upsertTurn({ id: 'a', stream: 'system_remote', cluster: 'e1:s0', start_ms: 0, end_ms: 900, text: 'Do you integrate with tracing?', available_ms: 950 }, true)
+    expect(theyAsked(m, 1000)).toBe(true)
+    m.upsertTurn({ id: 'k', stream: 'local_mic', cluster: null, start_ms: 950, end_ms: 1200, text: 'Mm-hmm.', available_ms: 1300 }, true)
+    expect(theyAsked(m, 1400)).toBe(true)
+    m.upsertTurn({ id: 'b', stream: 'system_remote', cluster: 'e1:s0', start_ms: 1300, end_ms: 2000, text: 'We use a custom collector today.', available_ms: 2100 }, true)
+    expect(theyAsked(m, 2200)).toBe(false)
+    m.upsertTurn({ id: 'c', stream: 'system_remote', cluster: 'e1:s0', start_ms: 2200, end_ms: 3000, text: 'Is that "supported?"', available_ms: 3100 }, true)
+    expect(theyAsked(m, 3200)).toBe(true)
+  })
+
   it('the 4-a-minute cap still holds', async () => {
     const m = new StagedModel()
     const s = engineFixture(m, playbook, { prefetch: true })
     for (let i = 0; i < 6; i++) {
       s.advance(2000)
-      s.say(`Point number ${i} about the weekly review.`)
+      s.say(`Point number ${i} about the weekly review?`)
       s.engine.onFinalWords('system_remote')
       s.engine.onSpeechEnd('system_remote')
     }
@@ -274,7 +345,7 @@ describe('HELP engine: heard line and listening blind at the press', () => {
     expect(s.logs.some((l) => l.e === 'help_listening_blind')).toBe(false)
   })
 
-  it('the practice moment and the feedback export keep what the card heard', async () => {
+  it('the practice moment keeps what the card heard; the feedback export does not carry their words', async () => {
     const m = new StagedModel()
     const s = engineFixture(m, playbook)
     s.db.sql.prepare('INSERT INTO sessions (id, started_at, setup_json) VALUES (?, ?, ?)').run('sess-m2', new Date().toISOString(), JSON.stringify(s.memory.setup))
@@ -286,7 +357,8 @@ describe('HELP engine: heard line and listening blind at the press', () => {
     if (!b.ok) throw new Error(b.reason)
     expect(b.moment.keith_notes).toContain(`The card answered: "${DANA}" (Dana (buyer) · 6 s before the press).`)
     const md = feedbackMarkdown(collectFeedbackCalls(s.db, null), { period: 'all', now: new Date() })
-    expect(md).toContain(`- Heard: "${DANA}" (Dana (buyer) · 6 s before the press)`)
+    expect(md).not.toContain('Heard:')
+    expect(md).not.toContain(DANA)
   })
 })
 

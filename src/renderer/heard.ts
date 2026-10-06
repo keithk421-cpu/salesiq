@@ -3,7 +3,7 @@
  *
  * - One muted line at the top of the card: Heard: "…their words" (Speaker · 4 s ago). The words are
  *   the other side's at the press, so Keith can tell at a glance whether the card is about the moment
- *   he's in. In the compact strip it is one line, cut with "…".
+ *   he's in. In the compact strip it is one line: their latest words, cut with "…", and how long ago.
  * - The compact strip's single status dot becomes two: Them (meeting audio) and You (mic), from the
  *   same capture health the source tiles show: green listening, grey quiet, amber not transcribing
  *   (red when no audio is arriving at all).
@@ -29,7 +29,10 @@ export function initHeard(api: CopilotApi): void {
   short.className = 'hh-words hh-short'
   const who = document.createElement('span')
   who.className = 'hh-who'
-  line.append(label, words, short, who)
+  // Compact only: just how long ago, always in view (the Them dot already says who; styles.css).
+  const ago = document.createElement('span')
+  ago.className = 'hh-ago'
+  line.append(label, words, short, who, ago)
   document.getElementById('helpCard')?.prepend(line)
 
   let seq = -1
@@ -44,6 +47,7 @@ export function initHeard(api: CopilotApi): void {
     words.textContent = `"${h.text}"`
     short.textContent = `"${tail(h.text, COMPACT_CHARS)}"`
     who.textContent = ` (${h.speaker} · ${agoText(h.ago_ms)})`
+    ago.textContent = ` · ${agoText(h.ago_ms)}`
     line.title = "What this card answers: the other side's latest words when you pressed."
   })
 

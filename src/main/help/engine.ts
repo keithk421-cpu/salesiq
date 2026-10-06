@@ -27,7 +27,7 @@ import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, buildUserMessage, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
 import { wrapReason, wrapUserMessage, type WrapWhy } from './wrap'
-import { blindNote, heardLine, keithFiller } from './heard'
+import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -200,9 +200,12 @@ export class HelpEngine {
    * The speech service says the other side finished speaking (Deepgram speech_final or UtteranceEnd on
    * the meeting audio): the background card waiting for its debounce starts now. Nothing waiting (Keith
    * spoke since, or it already started) means nothing to do; the debounce stays the fallback.
+   * speech_final comes after any 300 ms pause, often mid-explanation, and each early start counts toward
+   * the per-minute cap: so it starts early only when their last words were a question (heard.ts).
    */
   onSpeechEnd(stream: Stream, signal: 'speech_final' | 'utterance_end' = 'speech_final'): void {
     if (stream !== 'system_remote' || !this.prefetchTimer) return
+    if (signal === 'speech_final' && !theyAsked(this.d.memory, this.d.sessionNowMs())) return
     clearTimeout(this.prefetchTimer)
     this.d.log('help_prefetch_early', { signal })
     this.prefetchNow()
@@ -288,9 +291,9 @@ export class HelpEngine {
 
   // ------------------------------------------------------------------ internals
 
-  /** Signature of the final transcript as of now (what the context would be built from). */
+  /** Signature of the final transcript as of now (what the context would be built from); Keith's trailing filler isn't new (heard.ts). */
   private snapshotKey(): string {
-    const turns = this.d.memory.turnsAsOf(this.d.sessionNowMs()).slice(-6)
+    const turns = withoutTrailingFiller(this.d.memory.turnsAsOf(this.d.sessionNowMs())).slice(-6)
     const gaps = this.d.memory.gapsAsOf(this.d.sessionNowMs()).map((g) => `${g.id}:${g.end_ms ?? 'open'}`).join(',')
     const labels = [...this.d.memory.labels.values()].map((l) => `${l.cluster}=${l.role}/${l.name ?? ''}`).join(',')
     return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`

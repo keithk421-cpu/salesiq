@@ -5,8 +5,8 @@
  *   last, else what they asked; retrieval.ts questionParts), who said them as HELP names them, and how
  *   long before the press they ended. Shown at the top of the card so Keith can tell at a glance
  *   whether the card is about the moment he's in.
- * - Keith's filler: a press while Keith's own "Great question, so…" is still being transcribed keeps
- *   the card prepared in the background. Only a short filler from a fixed list, only from his mic:
+ * - Keith's filler: a press while Keith's own "Great question, so…" is still being transcribed (or
+ *   just came back as his last turn) keeps the card prepared in the background. Only a short filler from a fixed list, only from his mic:
  *   anything else he says (or anything the other side says) means the moment moved on.
  * - Listening blind: the meeting audio has had sound for a while and no words came back from the
  *   speech service. The card says so and HELP is told to ask rather than answer an older moment.
@@ -58,6 +58,17 @@ export function keithFiller(i: { stream: Stream; text: string }): boolean {
   return i.stream === 'local_mic' && isFiller(i.text)
 }
 
+/**
+ * The turns without Keith's trailing filler: his "Great question." that already came back as a final
+ * turn is no more new than one still being transcribed, so the prepared card stays the one for this
+ * moment (engine.ts snapshotKey). Only at the end: a filler with words after it is just part of the call.
+ */
+export function withoutTrailingFiller<T extends { stream: Stream; text: string }>(turns: T[]): T[] {
+  let n = turns.length
+  while (n > 0 && keithFiller(turns[n - 1])) n--
+  return n === turns.length ? turns : turns.slice(0, n)
+}
+
 /** The end of the text, cut at a word to about `max` characters, with a leading "…" when cut. */
 export function tailAtWord(text: string, max = HEARD_MAX_CHARS): string {
   const t = text.replace(/\s+/g, ' ').trim()
@@ -71,7 +82,8 @@ export function tailAtWord(text: string, max = HEARD_MAX_CHARS): string {
 /**
  * What the card answers: the other side's words at the press (what they said last, else what they
  * asked), who said them and how long before `atMs` they ended. Null when they said nothing in the last
- * 30 s. Words still being transcribed have no speaker yet: named as HELP names them ("Remote"), 0 s ago.
+ * 30 s. Words still being transcribed have no speaker yet: "Them" (the name the compact strip's dot
+ * uses; HELP's prompt says "Remote"), 0 s ago.
  */
 export function heardLine(memory: CallMemory, atMs: number): HeardLine | null {
   const q = questionParts(memory, atMs)
@@ -83,7 +95,19 @@ export function heardLine(memory: CallMemory, atMs: number): HeardLine | null {
     if (t.stream !== 'system_remote' || t.end_ms < atMs - QUESTION_WINDOW_MS) continue
     if (t.text.trim() === part) return { text: tailAtWord(part), speaker: speakerName(memory, t), ago_ms: Math.max(0, Math.round(atMs - t.end_ms)) }
   }
-  return { text: tailAtWord(part), speaker: 'Remote', ago_ms: 0 }
+  return { text: tailAtWord(part), speaker: 'Them', ago_ms: 0 }
+}
+
+/**
+ * Their newest finished turn ends in a question mark: they handed the floor over, so a pause now is the
+ * end of their turn rather than a breath mid-explanation (engine.ts onSpeechEnd).
+ */
+export function theyAsked(memory: CallMemory, atMs: number): boolean {
+  const turns = memory.turnsAsOf(atMs)
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (turns[i].stream === 'system_remote') return /\?["'”’)\s]*$/.test(turns[i].text)
+  }
+  return false
 }
 
 /** At a press, this much sound on the meeting audio with no words back means HELP may be behind. */
@@ -119,7 +143,7 @@ export function savedHeard(x: unknown): HeardLine | null {
   return { text: h.text, speaker: h.speaker, ago_ms: typeof h.ago_ms === 'number' && Number.isFinite(h.ago_ms) ? Math.max(0, h.ago_ms) : 0 }
 }
 
-/** "…words" (Dana (buyer) · 4 s before the press), for the practice moment's notes and the feedback export. */
+/** "…words" (Dana (buyer) · 4 s before the press), for the practice moment's notes. */
 export function heardSummary(h: HeardLine): string {
   const ago = h.ago_ms < 1000 ? 'still talking at the press' : `${Math.round(h.ago_ms / 1000)} s before the press`
   return `"${h.text}" (${h.speaker} · ${ago})`

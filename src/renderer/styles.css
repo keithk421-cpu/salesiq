@@ -427,3 +427,10 @@ body.compact .m2-controls:has(.health-dots:not([hidden])) #compactDot { display:
 .hc-heard .hh-short { display: none; }
 body.compact .help-card .hc-heard .hh-short { display: inline; }
 body.compact .help-card .hc-heard .hh-words:not(.hh-short) { display: none; }
+/* Compact: the words are the only part that shrinks, so how long ago always shows; the speaker gives way to the Them dot. */
+.hc-heard .hh-ago { display: none; }
+body.compact .help-card .hc-heard { display: flex; align-items: baseline; }
+body.compact .help-card .hc-heard > span { flex: none; white-space: pre; }
+body.compact .help-card .hc-heard .hh-short { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.compact .help-card .hc-heard .hh-who { display: none; }
+body.compact .help-card .hc-heard .hh-ago { display: inline; }

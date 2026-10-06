@@ -82,6 +82,20 @@ describe('end of speech', () => {
     mic(ctx).message({ type: 'UtteranceEnd', channel: [0, 1], last_word_end: 0.6 })
     expect(ctx.events.filter((e) => e.type === 'speech_end')).toHaveLength(1)
   })
+
+  it('nothing goes out while paused, from either signal', async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    await feed(ctx, 1000)
+    // The socket from before the pause: its last results can still arrive while it closes.
+    const before = sys(ctx)
+    ctx.session.pause()
+    ctx.events.length = 0
+    before.message(dgResults([['Does', 0.8, 0.9, 0], ['that', 0.9, 1.0, 0], ['work?', 1.0, 1.2, 0]], true))
+    before.message({ type: 'UtteranceEnd', channel: [0, 1], last_word_end: 1.2 })
+    expect(ctx.events.some((e) => e.type === 'speech_end')).toBe(false)
+    await ctx.session.stop()
+  })
 })
 
 describe('listening blind', () => {
@@ -97,6 +111,28 @@ describe('listening blind', () => {
     // An interim covering the audio up to ~6.9 s in: only the last bit is still untranscribed.
     sys(ctx).message(dgResults([['We', 6.5, 6.7, 0], ['sample', 6.7, 6.95, 0]], false))
     expect(ctx.session.untranscribedMs('system_remote')).toBeLessThan(500)
+  })
+
+  it("a dropped speech-service connection is the gap note's job: 0 while it's open, and its audio isn't counted after", async () => {
+    const ctx = setup()
+    await startLive(ctx)
+    sys(ctx).message(dgResults([['Hi', 0.0, 0.1, 0]], true))
+    sys(ctx).serverClose(1006, '')
+    await feed(ctx, 300) // loud, before the first retry (~500 ms)
+    expect(ctx.events.some((e) => e.type === 'gap_open' && e.gap.cause === 'provider_disconnect')).toBe(true)
+    expect(ctx.session.untranscribedMs('system_remote')).toBe(0)
+    // Keep it down for ~8 s of loud meeting audio: every reconnect is dropped again.
+    for (let t = 0; t < 8000; t += 100) {
+      for (const w of ctx.ws.sockets) if (w.url.includes('diarize=true') && w.readyState === 1) w.serverClose(1006, '')
+      await feed(ctx, 100)
+    }
+    expect(ctx.session.untranscribedMs('system_remote')).toBe(0)
+    // Let it reconnect: the gap closes, and its ~8 s (never replayed) don't read as "not transcribed yet".
+    const closed = () => ctx.events.some((e) => e.type === 'gap_close' && e.gap.cause === 'provider_disconnect' && e.gap.recovery === 'recovered')
+    for (let t = 0; t < 20_000 && !closed(); t += 100) await feed(ctx, 100)
+    expect(closed()).toBe(true)
+    expect(ctx.session.untranscribedMs('system_remote')).toBeLessThan(1000)
+    await ctx.session.stop()
   })
 
   it('silence is not blind, and nothing counts once the call is stopped', async () => {

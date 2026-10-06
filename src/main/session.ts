@@ -744,9 +744,10 @@ export class SessionController {
 
   /**
    * Listening blind: how long (ms) this stream carried sound, in the last ~30 s, after the end of the
-   * newest word the speech service sent back. Both are on the session clock, so words that are simply
-   * on their way count only for the second or so they take. 0 when not live, and while the stream has
-   * an open gap (the gap note already says that part wasn't heard).
+   * newest word the speech service sent back (or the end of the stream's last gap: closeGap). Both are
+   * on the session clock, so words that are simply on their way count only for the second or so they
+   * take. 0 when not live, and while the stream has an open gap (the gap note already says that part
+   * wasn't heard).
    */
   untranscribedMs(stream: Stream = 'system_remote'): number {
     const rt = this.rt[stream]
@@ -832,6 +833,9 @@ export class SessionController {
     const gap = rt.openGap
     if (!gap) return
     rt.openGap = null
+    // The gap's audio is never replayed, so no words will come back for it: the gap note covers it, not
+    // a "weren't transcribed yet" warning (untranscribedMs counts from here).
+    rt.lastWordEndMs = Math.max(rt.lastWordEndMs, endMs)
     gap.end_ms = endMs
     gap.duration_ms = Math.max(0, endMs - gap.start_ms)
     gap.recovery = recovery
