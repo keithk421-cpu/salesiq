@@ -189,6 +189,8 @@ export class HelpEngine {
   private angleOn(pressedWall: number, key: string, liveSpeech: boolean): { run: Run; prior: PriorCard } | null {
     const r = this.current
     if (!r || r.status !== 'complete' || !r.card || r.completeWall === null) return null
+    // Never on a wrap card: HELP again as the call ends goes back through WRAP or closing words for a next step.
+    if (r.wrap !== null) return null
     // On screen from when it finished, or from the press that showed an already finished candidate.
     const shownWall = Math.max(r.completeWall, r.pressedWall ?? r.completeWall)
     if (!anotherAngleOk(shownWall, pressedWall, !liveSpeech && r.snapshotKey === key)) return null

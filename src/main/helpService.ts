@@ -18,7 +18,7 @@ import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
 import { WrapupKeeper } from './help/wrapup'
-import { signalIn, type SignalSeen } from './help/pressModes'
+import { latestSignal, signalIn, type SignalSeen } from './help/pressModes'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
@@ -412,6 +412,7 @@ export class HelpService {
     const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 60) : null
     const label: SpeakerLabel = { cluster: r.cluster, role, name }
     this.memory.setLabel(label)
+    this.relabelSignal()
     return { ok: true }
   }
 
@@ -533,6 +534,18 @@ export class HelpService {
     this.onSignal?.(s)
   }
 
+  /**
+   * A speaker tagged (or untagged) as a teammate: the tag is what the next WRAP builds on, so it is
+   * worked out again the way the press will (latestSignal), from the other side only.
+   */
+  private relabelSignal(): void {
+    if (!this.memory) return
+    const s = latestSignal(this.memory, this.sessionNow())
+    if (s?.kind === this.signal?.kind && s?.at_ms === this.signal?.at_ms) return
+    this.signal = s
+    this.onSignal?.(s)
+  }
+
   /** A new call starts without one. */
   private clearSignal(): void {
     if (!this.signal) return
@@ -580,6 +593,8 @@ export class HelpService {
     this.notes = null
     // Its notes went with it: the panel empties.
     this.onNotes?.(null)
+    // ...and so does the WRAP tag about it.
+    this.clearSignal()
     this.memory = null
   }
 

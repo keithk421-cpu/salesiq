@@ -346,7 +346,8 @@ function mockPress(user: string): { move: string; line: string; follow: string }
   }
 }
 
+// Still on the same topic: another way in, never a change of subject.
 const MOCK_ANGLES = [
-  { move: 'identify_owner', line: 'ASK: [MOCK] Another angle: who else weighs in on this?' },
-  { move: 'explore_process', line: 'ASK: [MOCK] Another angle: how does that work step by step?' },
+  { move: 'identify_owner', line: 'ASK: [MOCK] Another angle on that: who on your side feels it most?' },
+  { move: 'explore_process', line: 'ASK: [MOCK] Another angle on that: can you walk me through it step by step?' },
 ]

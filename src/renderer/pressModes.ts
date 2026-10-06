@@ -11,7 +11,9 @@
 import type { CopilotApi } from '../preload/preload'
 import type { CallCard, HelpCardEvent } from '../shared/help'
 
-const SIGNAL_TAG: Record<string, string> = { pilot: 'pilot asked', rollout: 'rollout asked', pricing: 'pricing asked', send_to_boss: 'recap asked' }
+const SIGNAL_TAG: Record<string, string> = { pilot: 'pilot', rollout: 'rollout', pricing: 'pricing', send_to_boss: 'recap' }
+/** The tag's tooltip, which keeps the whole thing when the compact strip shortens it. */
+const SIGNAL_TIP: Record<string, string> = { pilot: 'a pilot', rollout: 'rollout time', pricing: 'pricing', send_to_boss: 'a recap for their boss' }
 
 /** Call time as m:ss (h:mm:ss past an hour), like the transcript. */
 function clock(ms: number): string {
@@ -45,8 +47,18 @@ export function initPressModes(api: CopilotApi): void {
   $('wrapBtn').after(tag)
   const showSignal = (s: { kind: string; at_ms: number } | null) => {
     tag.hidden = !s
-    tag.textContent = s ? `${SIGNAL_TAG[s.kind] ?? 'next step asked'} · ${clock(s.at_ms)}` : ''
-    tag.title = s ? 'They asked about a next step: WRAP builds on it' : ''
+    if (!s) {
+      tag.replaceChildren()
+      tag.title = ''
+      return
+    }
+    // "pilot asked · 14:22"; the compact strip drops " asked" (styles.css) so HELP always fits.
+    const what = SIGNAL_TAG[s.kind] ?? 'next step'
+    const asked = document.createElement('span')
+    asked.className = 'ws-asked'
+    asked.textContent = ' asked'
+    tag.replaceChildren(what, asked, ` · ${clock(s.at_ms)}`)
+    tag.title = `They asked about ${SIGNAL_TIP[s.kind] ?? 'a next step'} at ${clock(s.at_ms)}: WRAP builds on it`
   }
   api.onBuyingSignal(showSignal)
   void api.helpSignal().then(showSignal).catch(() => showSignal(null))

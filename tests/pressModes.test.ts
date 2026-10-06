@@ -45,6 +45,12 @@ describe('buying signals', () => {
       ['A summary we could share with leadership would be great.', 'send_to_boss'], ['My boss will want to see a business case.', 'send_to_boss'],
       ['Can you put together something to share with our head of engineering?', 'send_to_boss'],
       ['Can we do a pilot? And how much does it cost?', 'pilot'], ['Can we do a PILOT first?', 'pilot'],
+      ['How much does it cost for a team our size?', 'pricing'], ['How much does it cost, roughly?', 'pricing'], ['How much would that cost us per year?', 'pricing'],
+      ['Could we run a POC with one team?', 'pilot'], ['Can we get a trial of Arize for the platform team?', 'pilot'],
+      ['How long would it take to deploy it?', 'rollout'], ['Could you share the deck with my director?', 'send_to_boss'],
+      ['Can you send a short summary to my manager after this?', 'send_to_boss'], ['My manager is going to ask for a summary of this.', 'send_to_boss'],
+      ['How long would it take to roll out the platform to the other teams?', 'rollout'], ['How long does it take to implement the SDK?', 'rollout'],
+      ['How much would it cost to run Phoenix self-hosted?', 'pricing'],
     ]
     for (const [t, kind] of cases) expect(buyingSignal(t), t).toBe(kind)
   })
@@ -58,6 +64,18 @@ describe('buying signals', () => {
       'We need to price our own API for customers.', 'How long does the eval job take to run?', 'How much does the retriever slow things down?',
       'I need to write a summary for my boss about the outage.', 'My manager owns the rollout plan for the new model.',
       'What does the trial data look like in your schema?', 'We have a trial account with the cloud provider.', '',
+      // Their own costs, in time or money.
+      'Does the tracing add overhead? How much would that cost us in latency?', 'What would that cost us in engineering time?',
+      'How much does that cost in terms of performance overhead?', 'What does this cost in terms of latency on the hot path?',
+      'How much does it cost us to run all those evals on GPT-4 every night?', 'What does it cost us when a bad answer gets through? A lot.',
+      // What their users or their bot get asked.
+      "Most of what our bot gets is stuff like what's your pricing or how much does it cost.", 'Customers ask the chatbot is there a free trial all the time.',
+      // Their own people, prompts, past rollouts and other vendors.
+      'How long does onboarding take for a new support agent? About six weeks today.', 'Honestly, how long does it take to deploy a new prompt for us? Two weeks.',
+      'How long did the rollout take last time?', 'What did the pilot look like last year?', "I'd need a trial of the new model from OpenAI before we switch.",
+      "We're comparing your pricing to another vendor's.",
+      // Their boss, but not for something from Arize.
+      'My manager is going to ask for a summary of the incident.', 'Can you send the invite to my manager too?', 'Could you share the recording with my director?',
     ]) expect(buyingSignal(t), t).toBeNull()
   })
 })
@@ -115,6 +133,21 @@ describe('which press is this', () => {
     expect(recentSignal(m, 45_000)).toBe('rollout')
   })
 
+  it('a newer question of theirs comes before an earlier buying signal', () => {
+    const m = memoryWith([
+      { who: 'buyer', text: 'How do you price it?', at: 60_000 },
+      { who: 'keith', text: "Depends on volume, I'll get you numbers.", at: 66_000 },
+      { who: 'buyer', text: 'Got it. And do you integrate with our tracing stack?', at: 75_000 },
+    ])
+    expect(recentSignal(m, 76_000)).toBeNull()
+    expect(decidePress('help_requested', m, 76_000).mode).not.toBe('signal')
+    // ...but WRAP still remembers it.
+    expect(latestSignal(m, 76_000)?.kind).toBe('pricing')
+    // Their answer that isn't a question doesn't hide it.
+    const n = memoryWith([{ who: 'buyer', text: 'How do you price it?', at: 60_000 }, { who: 'buyer', text: 'Asking for our planning.', at: 66_000 }])
+    expect(recentSignal(n, 67_000)).toBe('pricing')
+  })
+
   it('another angle needs the card on screen 2 to 20 seconds and nothing new said', () => {
     expect(anotherAngleOk(1000, 4000, true)).toBe(true)
     expect(anotherAngleOk(1000, 2500, true)).toBe(false)
@@ -133,15 +166,30 @@ describe('the instruction blocks', () => {
     expect(first).toMatch(/<opening_press>[\s\S]*This is the first call with them[\s\S]*set a short agenda from the call goal and Keith's must-learns/)
     expect(first).toContain(`Keith's must-learns for this call: "who signs off"; "eval process".`)
     expect(first).toMatch(/If they just asked a question or raised something, answer or handle that first/)
+    expect(first).toMatch(/If Keith already set the agenda or did the check-in on this call[\s\S]*don't repeat it/)
+    expect(first).not.toMatch(/how you review answers today/)
     expect(first).toMatch(/no outside research/)
     expect(first.trimEnd().endsWith('Give Keith his next line.')).toBe(true)
     const again = pressUserMessage(`${ctx}\n\n<earlier_calls note="x">\n2026-09-29 · They owe: an eval sample\n</earlier_calls>`, null, 'opening', {})
     expect(again).toMatch(/This is not the first call with them[\s\S]*pick up where they left off[\s\S]*as a question/)
     expect(again).toMatch(/never say it happened, or that it is still true/)
     expect(again).not.toMatch(/must-learns for this call/)
+    expect(again).toMatch(/Did you get a chance to, or should we start elsewhere\?/)
+    expect(again).not.toMatch(/How did that go/)
+    // No goal and no must-learns: nothing to build an agenda from, so ask what they'd like from today.
+    const blank = pressUserMessage('<call_setup>\ntype: discovery\ngoal: (not set)\n</call_setup>', null, 'opening', {})
+    expect(blank).toMatch(/no call goal is set\. ASK what they'd like to get out of today, and check the time they have/)
+    expect(blank).not.toMatch(/set a short agenda/)
+    expect(pressUserMessage('<call_setup>\ntype: discovery\ngoal: (not set)\n</call_setup>', null, 'opening', { must_learn: ['who signs off'] })).toMatch(/set a short agenda from the call goal and Keith's must-learns/)
 
     const signal = pressUserMessage(ctx, null, 'signal', { signal: 'pricing' })
-    expect(signal).toMatch(/they asked about pricing or cost: a buying signal/)
+    expect(signal).toMatch(/they may have asked about pricing or cost: a possible buying signal\. If those words were about their own product, costs, rollout or what their users ask, ignore this block/)
+    expect(signal).toMatch(/If they just asked something else, or raised a concern, answer that first[\s\S]*If Keith already answered or deferred it, don't repeat it/)
+    expect(signal).toMatch(/If it's early and little is known about their needs, FOLLOW may instead ask what they'd need to see first/)
+    expect(signal).toContain('"Who on your side should join a short call to scope that, and what day works?"')
+    expect(signal).not.toMatch(/platform lead/)
+    // A hand-edited scenario without the kind says nothing more specific than the words could hold.
+    expect(pressUserMessage(ctx, null, 'signal', {})).toMatch(/they may have asked about a next step/)
     expect(signal).toMatch(/never a price, discount, contract term or delivery date/)
     expect(signal).toMatch(/FOLLOW: one concrete next step[\s\S]*what it is, who should be there and when, asked, not picked/)
     expect(signal).toMatch(/Never pick a date, a name or a commitment nobody said/)
@@ -149,6 +197,7 @@ describe('the instruction blocks', () => {
     const angle = pressUserMessage(ctx, null, 'another_angle', { prior: { move: 'clarify_current_state', primary_kind: 'ask', primary: 'How do you <review> answers\ntoday?' } })
     expect(angle).toContain('He already has: MOVE clarify_current_state; ASK "How do you review answers today?"')
     expect(angle).toMatch(/genuinely different move or question, not a rewording/)
+    expect(angle).toMatch(/If they just asked a question or raised a concern, the new line still answers or handles it[\s\S]*never a change of subject/)
     expect(angle.trimEnd().endsWith('Give Keith a different line.')).toBe(true)
     expect(pressModeOf(first)).toBe('opening')
     expect(pressModeOf(signal)).toBe('signal')
@@ -159,7 +208,8 @@ describe('the instruction blocks', () => {
   it("WRAP builds on the call's latest buying signal, in its own block, and stays a wrap card", () => {
     const u = pressUserMessage(ctx, 'button', null, { wrap_signal: { kind: 'pilot', at_ms: 862_000 } })
     expect(isWrapRequest(u)).toBe(true)
-    expect(u).toMatch(/<\/wrap_card>\n\n<buying_signal>\nAt 14:22 they asked about a pilot, POC or trial\./)
+    expect(u).toMatch(/<\/wrap_card>\n\n<buying_signal>\nAt 14:22 they may have asked about a pilot, POC or trial\./)
+    expect(u).toMatch(/If those words were about their own product, costs or rollout, ignore this\./)
     expect(u.trimEnd().endsWith('Give Keith his line to lock the next step.')).toBe(true)
     expect(pressUserMessage(ctx, 'closing', null, {}).includes('<buying_signal>')).toBe(false)
   })
@@ -262,6 +312,43 @@ describe('another angle', () => {
     expect(s.events.at(-1)).toMatchObject({ request_id: second, press_mode: 'another_angle', timing: { served_from_prefetch: false } })
     expect(s.db.sql.prepare("SELECT card_id FROM feedback WHERE type = 'passed'").all()).toEqual([{ card_id: first }])
   })
+
+  it('a background card counts as on screen from the press that showed it, not from when it was built', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening(), prefetch: true })
+    s.engine.onFinalWords('system_remote')
+    await vi.advanceTimersByTimeAsync(800)
+    await answer(s, m, 0)
+    s.advance(10_000) // built 10 s before Keith pressed for it
+    s.engine.press()
+    expect(s.events.at(-1)).toMatchObject({ timing: { served_from_prefetch: true } })
+    s.advance(1000) // seen for 1 s: not a pass
+    s.engine.press()
+    expect(m.calls).toHaveLength(2)
+    expect(pressModeOf(m.calls[1].user)).toBeNull()
+    expect(s.db.sql.prepare("SELECT COUNT(*) AS n FROM feedback WHERE type = 'passed'").get()).toEqual({ n: 0 })
+  })
+
+  it('never on a wrap card: HELP again as the call ends gets a next-step card, not a different move', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    s.say('This was great. I have a hard stop in two minutes though.')
+    s.engine.press()
+    expect(isWrapRequest(m.calls[0].user)).toBe(true)
+    await answer(s, m, 0)
+    s.advance(3000)
+    s.engine.press()
+    expect(isWrapRequest(m.calls[1].user)).toBe(true)
+    expect(m.calls[1].user).not.toContain('<another_angle>')
+    // A WRAP-button card, then HELP a few seconds later: a normal press.
+    const t = engineFixture(m, playbook, { call: pastOpening() })
+    t.engine.press('wrap_requested')
+    await answer(t, m, 2)
+    t.advance(3000)
+    t.engine.press()
+    expect(m.calls[3].user).not.toContain('<another_angle>')
+    for (const db of [s.db, t.db]) expect(db.sql.prepare("SELECT COUNT(*) AS n FROM feedback WHERE type = 'passed'").get()).toEqual({ n: 0 })
+  })
 })
 
 describe('buying-signal and opening presses', () => {
@@ -271,7 +358,7 @@ describe('buying-signal and opening presses', () => {
     s.say('This is useful. How much does it cost for a team our size?')
     const id = s.engine.press()
     expect(pressModeOf(m.calls[0].user)).toBe('signal')
-    expect(m.calls[0].user).toMatch(/they asked about pricing or cost/)
+    expect(m.calls[0].user).toMatch(/they may have asked about pricing or cost/)
     await answer(s, m, 0)
     expect(s.events.at(-1)).toMatchObject({ press_mode: 'signal', status: 'complete' })
     const timing = JSON.parse((s.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(id) as { timing_json: string }).timing_json)
@@ -459,8 +546,23 @@ describe('in the app', () => {
     state('checking', 'c-2')
     expect(help.signal).toBeNull()
     expect(seen.at(-1)).toBeNull()
+    // The speaker who asked is tagged as a teammate: the tag follows what WRAP will use (none left).
+    state('live', 'c-2')
+    say('buyer', 'Can we run a pilot with one team?', 'c-2')
+    expect(help.signal?.kind).toBe('pilot')
+    expect(help.setLabel({ cluster: 'e1:s0', role: 'teammate', name: null })).toEqual({ ok: true })
+    expect(help.signal).toBeNull()
+    expect(seen.at(-1)).toBeNull()
+    expect(help.setLabel({ cluster: 'e1:s0', role: 'buyer', name: null })).toEqual({ ok: true })
+    expect(seen.at(-1)).toMatchObject({ kind: 'pilot' })
+    // A deleted call takes its tag with it.
+    state('stopping', 'c-2')
+    state('stopped', 'c-2')
+    help.forgetCall('c-2')
+    expect(help.signal).toBeNull()
+    expect(seen.at(-1)).toBeNull()
     // Logs carry the kind and call time only.
-    expect(logs.filter(([e]) => e === 'buying_signal').map(([, d]) => d)).toEqual([{ kind: 'pricing', at_ms: 5000 }, { kind: 'pilot', at_ms: 10_000 }])
+    expect(logs.filter(([e]) => e === 'buying_signal').map(([, d]) => d)).toEqual([{ kind: 'pricing', at_ms: 5000 }, { kind: 'pilot', at_ms: 10_000 }, { kind: 'pilot', at_ms: 20_000 }])
     expect(JSON.stringify(logs)).not.toMatch(/cost, roughly|one team|chatbot/)
     help.shutdown()
   })

@@ -412,8 +412,12 @@ body.compact .banner { padding: 6px 10px; font-size: 12px; }
 body.compact .help-card[data-press="opening"] .hc-primary .kind::before { content: "Opening · "; }
 body.compact .help-card[data-press="signal"] .hc-primary .kind::before { content: "Next step · "; color: var(--ok); }
 body.compact .help-card[data-press="another_angle"] .hc-primary .kind::before { content: "Another angle · "; }
-/* After a buying signal the next step is in FOLLOW: compact keeps it, one line. */
-body.compact .help-card[data-press="signal"] #hcFollow:not([hidden]) { display: block !important; }
+/* After a buying signal the next step is in FOLLOW, and so is the opening when they had just asked something: compact keeps it, one line. */
+body.compact .help-card[data-press="signal"] #hcFollow:not([hidden]), body.compact .help-card[data-press="opening"] #hcFollow:not([hidden]) { display: block !important; }
 .wrap-signal { align-self: center; font-size: 11px; font-weight: 600; color: var(--ok); background: var(--ok-soft); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 body.compact .wrap-signal { font-size: 10.5px; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rv-passed { margin-top: 2px; font-style: italic; }
+/* The tag gives way before HELP does: the WRAP group may shrink, and the strip drops " asked". Between calls it's hidden. */
+body.compact .m2-controls { min-width: 0; }
+body.compact .wrap-signal .ws-asked { display: none; }
+body.compact:not(.in-call) .wrap-signal { display: none; }

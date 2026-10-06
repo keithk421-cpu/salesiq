@@ -75,6 +75,10 @@ export interface PressDecision {
 const BOSS = String.raw`(?:(?:my|our) (?:vp|v\.p\.|svp|evp|boss|manager|director|cto|cio|ciso|ceo|cfo|head of [a-z]+|leadership(?: team)?|execs?|executives?|exec team|chief [a-z]+ officer)|leadership(?: team)?|(?:the )?exec(?:utive)?s?(?: team)?)\b`
 const TRIAL = String.raw`(?:pilot|poc|proof of concept|proof-of-concept|trial|free trial)`
 const ROLL = String.raw`(?:implementation|rollout|roll-out|onboarding|deployment|setup|set-up)`
+/** ...but not a trial of something else ("a trial of the new model from OpenAI", "a pilot with another vendor"). */
+const NOT_OTHERS = String.raw`(?! (?:of|from) (?!(?:arize|phoenix|your|you|it|this)\b)| with (?:another|a different|other|the other)\b)`
+/** ...nor the cost of their own work ("cost us in latency", "cost us to run the evals", "cost us when a bad answer gets through"). */
+const NOT_THEIR_COST = String.raw`(?!,? (?:(?:us |you |me )?(?:in (?:terms of )?(?:latency|performance|throughput|overhead|speed|engineering|dev(?:eloper)? time|time|effort|headcount|compute|tokens|gpus?)\b|when\b|per (?:run|query|request|call|token)\b|each (?:time|night|day|run)\b)|(?:us|you|me) to run\b))`
 
 /**
  * Asking or wanting it, from Arize: each phrase is tied to the words around it, so their own work
@@ -87,25 +91,26 @@ const SIGNALS: Array<{ kind: SignalKind; res: RegExp[] }> = [
     kind: 'pilot',
     res: [
       // "can we do a pilot?", "could we run a quick POC", "can we get a trial"
-      new RegExp(String.raw`\b(?:can|could|would) (?:we|i|you) (?:do|run|set up|start|get|try|have) (?:a |an |some )?(?:quick |short |small |free |paid |two-week |limited )?${TRIAL}\b`),
+      new RegExp(String.raw`\b(?:can|could|would) (?:we|i|you) (?:do|run|set up|start|get|try|have) (?:a |an |some )?(?:quick |short |small |free |paid |two-week |limited )?${TRIAL}\b${NOT_OTHERS}`),
       // "do you offer a free trial?", "do you guys do POCs"
-      new RegExp(String.raw`\bdo you(?: guys)? (?:offer|do|have|run|support|allow) (?:a |an |any )?(?:free )?${TRIAL}s?\b`),
-      new RegExp(String.raw`\bis there (?:a |an |any )?(?:free )?${TRIAL}\b`),
-      // "what would a pilot look like?", "how long does a POC take", "how much is a trial"
-      new RegExp(String.raw`\b(?:what (?:would|does|do|did)|how long (?:would|does|is)|how much (?:would|does|is)|how (?:would|does|do)) (?:a |an |the |your )?${TRIAL}s? (?:look like|involve|take|cost|need|work|run|be)\b`),
+      new RegExp(String.raw`\bdo you(?: guys)? (?:offer|do|have|run|support|allow) (?:a |an |any )?(?:free )?${TRIAL}s?\b${NOT_OTHERS}`),
+      new RegExp(String.raw`\bis there (?:a |an |any )?(?:free )?${TRIAL}\b${NOT_OTHERS}`),
+      // "what would a pilot look like?", "how long does a POC take", "how much is a trial" (not "what did the pilot look like": theirs, done)
+      new RegExp(String.raw`\b(?:what (?:would|does|do)|how long (?:would|does|is)|how much (?:would|does|is)|how (?:would|does|do)) (?:a |an |the |your )?${TRIAL}s? (?:look like|involve|take|cost|need|work|run|be)\b`),
       // "we'd want to run a pilot first", "I'd love a trial"
-      new RegExp(String.raw`\b(?:we'd|we would|i'd|i would) (?:want|like|need|love|prefer)(?: to (?:do|run|start|try|set up))? (?:a |an )?(?:quick |short |small |free )?${TRIAL}\b`),
+      new RegExp(String.raw`\b(?:we'd|we would|i'd|i would) (?:want|like|need|love|prefer)(?: to (?:do|run|start|try|set up))? (?:a |an )?(?:quick |short |small |free )?${TRIAL}\b${NOT_OTHERS}`),
       // "how do we start a pilot?", "how would we kick off a POC"
-      new RegExp(String.raw`\bhow (?:do|would|could|can) (?:we|i) (?:start|set up|get|run|kick off|begin) (?:a |an |the )?${TRIAL}\b`),
+      new RegExp(String.raw`\bhow (?:do|would|could|can) (?:we|i) (?:start|set up|get|run|kick off|begin) (?:a |an |the )?${TRIAL}\b${NOT_OTHERS}`),
     ],
   },
   {
     kind: 'rollout',
     res: [
-      // "how long does implementation take?", "how long is onboarding"
-      new RegExp(String.raw`\bhow long (?:does|would|will|is|did) (?:the |an |a |your )?(?:typical )?${ROLL}\b`),
+      // "how long does implementation take?", "how long is onboarding" (not "how long did the rollout take": theirs, done;
+      // nor "onboarding take for a new support agent": their own people or product)
+      new RegExp(String.raw`\bhow long (?:does|would|will|is) (?:the |an |a |your )?(?:typical )?${ROLL}\b(?!(?: take)? (?:for|of) (?:a |an |the |our |their |each |every )?(?:new )?(?:support|hires?|employees?|agents?|customers?|users?|reps?|staff|models?|prompts?|features?|releases?)\b)`),
       // "how long does it take to roll out?", "how long would it take to get us up and running"
-      /\bhow long (?:does|would|will|might) it (?:usually |typically |normally )?take to (?:implement|roll (?:it |this )?out|deploy|set (?:it |this )?up|onboard|get (?:it |this |us |everyone )?(?:up and running|running|live|set up|going|onboarded))\b/,
+      /\bhow long (?:does|would|will|might) it (?:usually |typically |normally )?take to (?:implement|roll (?:it |this )?out|deploy|set (?:it |this )?up|onboard|get (?:it |this |us |everyone )?(?:up and running|running|live|set up|going|onboarded))\b(?! (?:a|an|our|any|new|that|those|these|each|every)\b| the (?!(?:platform|product|tool|sdk|integration|tracing|arize|phoenix)\b))/,
       // "what does the rollout look like?", "what would onboarding involve"
       new RegExp(String.raw`\bwhat (?:does|would|will) (?:the |an |a |your )?(?:typical )?${ROLL} (?:look like|involve|take|need)\b`),
       // "what's the implementation timeline?", "what is a typical rollout time"
@@ -119,12 +124,12 @@ const SIGNALS: Array<{ kind: SignalKind; res: RegExp[] }> = [
   {
     kind: 'pricing',
     res: [
-      // "how much does it cost?", "how much would that run us", "how much do you charge"
-      /\bhow much (?:does|would|will|do|might|is) (?:it|this|that|arize|phoenix|the (?:platform|product|tool|license|licence|enterprise (?:plan|tier))|you(?: guys)?) (?:cost|charge|run (?:us|me))\b/,
+      // "how much does it cost?", "how much would that run us", "how much do you charge" (not their own costs: NOT_THEIR_COST)
+      new RegExp(String.raw`\bhow much (?:does|would|will|do|might|is) (?:it|this|that|arize|phoenix|the (?:platform|product|tool|license|licence|enterprise (?:plan|tier))|you(?: guys)?) (?:cost|charge|run (?:us|me))\b${NOT_THEIR_COST}`),
       // "what does it cost?", "what would this cost us"
-      /\bwhat (?:does|would|will|might) (?:it|this|that|arize) (?:cost|run (?:us|me))\b/,
-      // "what's your pricing?", "can you share Arize's pricing", "your price per seat"
-      /\b(?:your|arize's|arize) (?:pricing|prices?|price point|licensing|license cost|cost per (?:seat|user|trace|span))\b/,
+      new RegExp(String.raw`\bwhat (?:does|would|will|might) (?:it|this|that|arize) (?:cost|run (?:us|me))\b${NOT_THEIR_COST}`),
+      // "what's your pricing?", "can you share Arize's pricing", "your price per seat" (not "comparing your pricing to ...": their process)
+      /(?<!\bcompar(?:e|ed|ing) )\b(?:your|arize's|arize) (?:pricing|prices?|price point|licensing|license cost|cost per (?:seat|user|trace|span))\b/,
       // "how is it priced?", "how do you price it", "how does pricing work"
       /\bhow (?:is|are) (?:it|this|that|arize|you) priced\b|\bhow do you(?: guys)? (?:price|charge)\b|\bhow does (?:the |your )?pricing work\b/,
       // "is it priced per seat?"
@@ -139,11 +144,12 @@ const SIGNALS: Array<{ kind: SignalKind; res: RegExp[] }> = [
     kind: 'send_to_boss',
     res: [
       // "could you send me a one-pager for my VP?", "can you put together something to share with our CTO"
-      new RegExp(String.raw`\b(?:can|could|would) you (?:send|share|put together|give|pull together|write up|email|forward)(?: (?:me|us|over))*[^.?!\n]{0,50}?\b(?:to|for|with) ${BOSS}`),
+      // Only something summary-like: "send the invite to my manager" or "share the recording with my director" is not one.
+      new RegExp(String.raw`\b(?:can|could|would) you (?:send|share|put together|give|pull together|write up|email|forward)(?: (?:me|us|over))*[^.?!\n]{0,20}?\b(?:one-pager|one pager|summary|deck|doc|document|overview|recap|write-?up|business case|pricing|slides?|something|anything|materials?|info|information)\b[^.?!\n]{0,30}?\b(?:to|for|with) ${BOSS}`),
       // "something short I can forward to my VP", "a summary we could share with leadership"
       new RegExp(String.raw`\b(?:something|anything|a (?:short |quick |one-page |simple )?(?:one-pager|one pager|summary|deck|doc|document|write-?up|recap|overview|slide|business case))(?: (?:short|quick|simple|written))?(?: that)? (?:i|we) (?:can|could) (?:send|share|forward|show|pass along|take|bring)(?: (?:it|this))?(?: (?:to|with|up to))? ${BOSS}`),
-      // "my boss will want to see something", "our CTO is going to ask for a business case"
-      new RegExp(String.raw`\b${BOSS} (?:will|would|is going to|'ll|is gonna) (?:want|need|ask for|ask to see)(?: to see)? (?:something|a (?:summary|one-pager|one pager|deck|business case|write-?up|recap)|the business case)`),
+      // "my boss will want to see something", "our CTO is going to ask for a business case" (not "a summary of the incident")
+      new RegExp(String.raw`\b${BOSS} (?:will|would|is going to|'ll|is gonna) (?:want|need|ask for|ask to see)(?: to see)? (?:something|a (?:summary|one-pager|one pager|deck|business case|write-?up|recap)|the business case)(?! (?:of|on|about) (?:the|our|that|this|a|an) (?:incident|outage|bug|issue|problem|failure|postmortem|post-mortem|hallucination|escalation)s?\b)`),
     ],
   },
 ]
@@ -152,10 +158,16 @@ function norm(text: string): string {
   return text.toLowerCase().replace(/[’‘]/g, "'").replace(/[^\S\n]+/g, ' ')
 }
 
+/**
+ * Words they're repeating, not asking: what their users or their bot get asked ("customers ask the
+ * chatbot is there a free trial", "stuff like what's your pricing"). A sentence like that never counts.
+ */
+const REPORTED = /\b(?:customers|users|people|clients|callers|agents) (?:ask|asking|always ask|keep asking)\b|\b(?:our|the) (?:bot|chatbot|assistant|agent|copilot|support bot)s? (?:gets?|hears?|is asked|answers)\b|\b(?:stuff|things|questions|queries) like\b/
+
 /** What the words ask about, if they're a buying signal ("can we run a pilot?" -> 'pilot'), else null. */
 export function buyingSignal(text: string): SignalKind | null {
-  const t = norm(text)
-  for (const s of SIGNALS) if (s.res.some((r) => r.test(t))) return s.kind
+  const sentences = norm(text).split(/(?<=[.?!\n])\s*/).filter((x) => x && !REPORTED.test(x))
+  for (const s of SIGNALS) if (s.res.some((r) => sentences.some((t) => r.test(t)))) return s.kind
   return null
 }
 
@@ -186,10 +198,12 @@ export function latestSignal(memory: CallMemory, atMs: number): SignalSeen | nul
 export function recentSignal(memory: CallMemory, atMs: number): SignalKind | null {
   const live = memory.interimsAsOf(atMs).filter((i) => i.stream === 'system_remote').map((i) => i.text)
   const turns = memory.turnsAsOf(atMs).filter((t) => t.end_ms >= atMs - HOT_WINDOW_MS && theirs(memory, t)).map((t) => t.text)
-  // Newest first: what they asked last is what the next step builds on.
+  // Newest first: what they asked last is what the next step builds on. A newer question of theirs
+  // that is not a signal comes first ("Got it. And do you integrate with LangSmith?"): a normal press.
   for (const text of [...live, ...turns.reverse()]) {
     const kind = buyingSignal(text)
     if (kind) return kind
+    if (text.includes('?')) return null
   }
   return null
 }
@@ -266,26 +280,33 @@ function openingBlock(contextText: string, detail: PressDetail): string {
   // The <earlier_calls> block is in the context exactly when there were earlier calls to pick up from.
   const earlier = contextText.includes('<earlier_calls')
   const ml = detail.must_learn ?? []
+  // No goal and no must-learns: nothing to build an agenda from, so ask what they'd like from today.
+  const noGoal = /\ngoal: \(not set\)\n/.test(contextText) && !ml.length
   const lines = [
     'Keith pressed HELP at the start of the call: the other side has said little so far.',
     '- If they just asked a question or raised something, answer or handle that first (the normal rules) and put the opening in FOLLOW.',
     earlier
-      ? '- This is not the first call with them (earlier_calls). ASK: pick up where they left off: check, as a question, what they said they would do or the next step agreed last time ("Last time you were going to pull a sample of answers together. How did that go?"). Only what earlier_calls says, as a past statement: never say it happened, or that it is still true.'
-      : `- This is the first call with them. ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them ("I'd love to hear how you review answers today and who weighs in. Does that work?"). Never state a must-learn as something they said.`,
+      ? '- This is not the first call with them (earlier_calls). ASK: pick up where they left off: check, as a question, what they said they would do or the next step agreed last time ("Last time you mentioned pulling a sample of answers together. Did you get a chance to, or should we start elsewhere?"). Only what earlier_calls says, as a past statement: never say it happened, or that it is still true.'
+      : noGoal
+        ? "- This is the first call with them, and no call goal is set. ASK what they'd like to get out of today, and check the time they have."
+        : `- This is the first call with them. ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
+    "- If Keith already set the agenda or did the check-in on this call (his lines in the transcript), don't repeat it: give the next natural question toward the goal or a must-learn.",
     ...(ml.length ? [`- Keith's must-learns for this call: ${ml.map((m) => `"${oneLine(m, MUST_LEARN_MAX_CHARS)}"`).join('; ')}.`] : []),
     '- Use only the call setup, earlier_calls and what was said on this call: no outside research or guesses about their company, and no pain, problem or need they have not voiced.',
-    `- MOVE: ${earlier ? 'clarify_current_state for the check-in' : 'call_control for the agenda'}; when the line answers what they just asked, the move that fits that.`,
+    `- MOVE: ${earlier ? 'clarify_current_state for the check-in' : noGoal ? 'call_control' : 'call_control for the agenda'}; when the line answers what they just asked, the move that fits that.`,
     '- FOLLOW: the opening, when the line answered their question; otherwise "-".',
   ]
   return `<opening_press>\n${lines.join('\n')}\n</opening_press>`
 }
 
 function signalBlock(detail: PressDetail): string {
-  const what = SIGNAL_TEXT[detail.signal ?? 'pilot']
+  // A hand-edited scenario may lack the kind: say nothing more specific than the words could hold.
+  const what = detail.signal ? SIGNAL_TEXT[detail.signal] : 'a next step'
   return `<next_step_press>
-Keith pressed HELP and in the last 30 seconds they asked about ${what}: a buying signal.
+Keith pressed HELP and in the last 30 seconds they may have asked about ${what}: a possible buying signal. If those words were about their own product, costs, rollout or what their users ask, ignore this block.
+- If they just asked something else, or raised a concern, answer that first (the normal rules). If Keith already answered or deferred it, don't repeat it: only FOLLOW carries the next step.
 - ASK or SAY: answer or defer as usual: only approved knowledge is Arize fact; never a price, discount, contract term or delivery date. If approved knowledge doesn't answer it, offer to follow up.
-- FOLLOW: one concrete next step that moves it forward, as a question: what it is, who should be there and when, asked, not picked ("Would a short call with your platform lead to scope that help? What day works?"). Never pick a date, a name or a commitment nobody said. A next step already agreed (call_notes "agreed") is built on, not replaced.
+- FOLLOW: one concrete next step that moves it forward, as a question: what it is, who should be there and when, asked, not picked ("Who on your side should join a short call to scope that, and what day works?"). Never pick a date, a name or a commitment nobody said. A next step already agreed (call_notes "agreed") is built on, not replaced. If it's early and little is known about their needs, FOLLOW may instead ask what they'd need to see first, or "-".
 - MOVE: the move that fits the line (technical_answer only with approved knowledge).
 </next_step_press>`
 }
@@ -296,7 +317,8 @@ function angleBlock(detail: PressDetail): string {
   return `<another_angle>
 Keith pressed HELP again for the same moment: nothing new was said since his last card, and he wants another angle on it.
 ${had}
-- Give a genuinely different move or question, not a rewording of that line. Keep the same move only if no other move fits, and then ask a clearly different question.
+- Give a genuinely different move or question, not a rewording of that line. Keep the same move only if no other move fits, and then a clearly different line.
+- If they just asked a question or raised a concern, the new line still answers or handles it: a different way in (a shorter or plainer answer, a defer with a check, or one clarifying question about it), never a change of subject.
 - The normal rules still hold: only approved knowledge is Arize fact; nothing they haven't said.
 </another_angle>`
 }
@@ -304,7 +326,7 @@ ${had}
 /** The latest buying signal, for a WRAP card to build on (a separate block, so wrap.ts stays as it is). */
 function wrapSignalBlock(s: SignalSeen): string {
   return `<buying_signal>
-At ${fmtClock(s.at_ms)} they asked about ${SIGNAL_TEXT[s.kind]}. If it fits, the next step can build on it (for example, scoping it together), still asked, not picked.
+At ${fmtClock(s.at_ms)} they may have asked about ${SIGNAL_TEXT[s.kind]}. If it fits, the next step can build on it (for example, scoping it together), still asked, not picked. If those words were about their own product, costs or rollout, ignore this.
 </buying_signal>`
 }
 
