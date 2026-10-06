@@ -5,6 +5,7 @@
  *
  * Which one applies, in order (decidePress):
  *   1. the WRAP button (wrap.ts), building on the latest buying signal if there was one;
+ *   (M4) a click on one of Keith's open must-learns on the plan line: the line that gets there;
  *   2. another angle: Keith presses again for the same moment (nothing new said) soon after a card;
  *   3. closing words just before a HELP press (wrap.ts, M2);
  *   4. a buying signal: in the last 30 s they asked about a pilot, rollout time, pricing, or
@@ -58,7 +59,7 @@ export interface PriorCard {
 export interface PressDetail {
   /** signal: what they asked about. */
   signal?: SignalKind
-  /** another_angle: the line and move Keith already got. */
+  /** another_angle (or plan_item, clicking the same must-learn again for the same moment): the line and move Keith already got. */
   prior?: PriorCard
   /** another_angle on an another-angle card: the cards before it he passed on too, oldest first (at most ANGLE_EARLIER_MAX). */
   earlier?: PriorCard[]
@@ -76,6 +77,11 @@ export interface PressDetail {
    * request because a replay has no call notes to read it from (wrap.ts planStillOpen).
    */
   wrap_plan?: boolean
+  /**
+   * plan_item (M4): the must-learn Keith clicked on the plan line, in his words as set for this call.
+   * another_angle on a must-learn card: that must-learn, so the new line stays on it.
+   */
+  plan_item?: string
 }
 
 export interface PressDecision {
@@ -246,15 +252,23 @@ export function mustLearn(setup: { must_learn?: unknown }): string[] {
 /**
  * Which instruction a press gets, in the plan's order. `prior` is the card Keith would be asking
  * another angle on (the engine decides that: see anotherAngleOk), null otherwise; `earlier` the cards
- * he passed on before it in the same run of re-presses, oldest first.
+ * he passed on before it in the same run of re-presses, oldest first. `planItem` is the must-learn
+ * Keith clicked (M4): he asked for that line, so it comes before everything but the WRAP button. With
+ * `prior` too, he clicked the same must-learn again for the same moment (the engine checks that): the
+ * block names the line he already has, so he gets a different way in.
  */
-export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null = null, earlier: readonly PriorCard[] = []): PressDecision {
+export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null = null, earlier: readonly PriorCard[] = [], planItem: string | null = null): PressDecision {
   const withSignal = (wrap: WrapWhy): PressDecision => {
     const s = latestSignal(memory, atMs)
     return { wrap, mode: null, detail: s ? { wrap_signal: s } : {} }
   }
   if (origin === 'wrap_requested') return withSignal('button')
   if (origin !== 'help_requested') return { wrap: null, mode: null, detail: {} }
+  const item = planItem === null ? '' : cleanPlanItem(planItem)
+  if (item) {
+    const before = prior ? earlier.slice(-ANGLE_EARLIER_MAX) : []
+    return { wrap: null, mode: 'plan_item', detail: { plan_item: item, ...(prior ? { prior } : {}), ...(before.length ? { earlier: before } : {}) } }
+  }
   if (prior) {
     const before = earlier.slice(-ANGLE_EARLIER_MAX)
     return { wrap: null, mode: 'another_angle', detail: { prior, ...(before.length ? { earlier: before } : {}) } }
@@ -350,13 +364,43 @@ function angleBlock(detail: PressDetail): string {
   const had = p ? `He already has: ${cardText(p)}` : 'He already has a card for this moment.'
   const passed = (detail.earlier ?? []).map((e) => `He already passed on: ${cardText(e)}`)
   const those = passed.length ? 'any of these lines' : 'that line'
+  // Another angle on a must-learn card: still a way to that must-learn, not a change of topic.
+  const stay = detail.plan_item ? [`- That card was his way to get to one of his must-learns: "${quotedItem(detail.plan_item)}". Stay on that must-learn: a different way to get there.`] : []
   return `<another_angle>
 Keith pressed HELP again for the same moment: nothing new was said since his last card, and he wants another angle on it.
-${[had, ...passed].join('\n')}
+${[had, ...passed, ...stay].join('\n')}
 - Give a genuinely different move or question, not a rewording of ${those}. Keep the same move only if no other move fits, and then a clearly different line.
 - If they just asked a question or raised a concern, the new line still answers or handles it: a different way in (a shorter or plainer answer, a defer with a check, or one clarifying question about it), never a change of subject.
 - The normal rules still hold: only approved knowledge is Arize fact; nothing they haven't said.
 </another_angle>`
+}
+
+/** The must-learn as the block quotes it: one line, no tags, and its own double quotes made single so the quote can't end early. */
+const quotedItem = (s: string) => oneLine(s, MUST_LEARN_MAX_CHARS).replace(/"/g, "'")
+
+function planBlock(detail: PressDetail): string {
+  // A hand-edited scenario may lack the item: then it's one of the must-learns the call setup lists.
+  const item = detail.plan_item ? `"${quotedItem(detail.plan_item)}"` : 'one of the "must learn" items in call_setup'
+  // Clicked again for the same moment: the line(s) he already has, so the new one is a different way in.
+  const p = detail.prior
+  const again = p
+    ? [
+        `He clicked it again for the same moment: nothing new was said since. He already has: ${cardText(p)}`,
+        ...(detail.earlier ?? []).map((e) => `He already passed on: ${cardText(e)}`),
+        '- Give a different way in to the same must-learn (another angle or a narrower part of it), not a rewording of that line.',
+      ]
+    : []
+  return `<plan_press>
+Keith clicked one of his must-learns for this call: ${item}. He wants one natural way to get there from where the talk is now.
+${again.length ? `${again.join('\n')}\n` : ''}- If they just asked something or raised a concern, answer or handle that first (the normal rules) and put the bridge to it in FOLLOW.
+- If they are mid-answer (their words are still being transcribed in the last 30 seconds), still ASK the question he clicked for, ready for when they finish, and say in HAPPENING: "They're still talking - let them finish first."
+- Otherwise ASK: one natural question in Keith's voice that gets there from the current topic, with a short bridge from what was just said when there is one.
+- It is Keith's own question, never something they said: never imply they mentioned it, raised it or need it, and assume no pain, problem, urgency or deadline.
+- If the transcript shows they already answered it (the notes may lag), don't ask it again: ASK one question that confirms it and goes one step deeper on their own words (for example who else weighs in), and say in HAPPENING that they answered it.
+- Asked is not answered: if Keith already asked it on this call and they didn't answer, ask it a different way or a narrower part of it. If they answered part of it, ask about the part still open, building on their words.
+- MOVE: the move that fits the question (for example identify_owner for who decides, explore_process for how something works).
+- FOLLOW: the bridge when the line answered them first; otherwise "-".
+</plan_press>`
 }
 
 /** The latest buying signal, for a WRAP card to build on (a separate block, so wrap.ts stays as it is). */
@@ -381,6 +425,7 @@ export function pressUserMessage(contextText: string, wrap: WrapWhy | null, mode
   if (mode === 'opening') return `${contextText}\n\n${openingBlock(contextText, detail)}\n\nGive Keith his next line.`
   if (mode === 'signal') return `${contextText}\n\n${signalBlock(detail)}\n\nGive Keith his next line.`
   if (mode === 'another_angle') return `${contextText}\n\n${angleBlock(detail)}\n\nGive Keith a different line.`
+  if (mode === 'plan_item') return `${contextText}\n\n${planBlock(detail)}\n\nGive Keith his next line.`
   return buildUserMessage(contextText)
 }
 
@@ -389,7 +434,13 @@ export function pressModeOf(user: string): PressMode | null {
   if (user.includes('<another_angle>')) return 'another_angle'
   if (user.includes('<next_step_press>')) return 'signal'
   if (user.includes('<opening_press>')) return 'opening'
+  if (user.includes('<plan_press>')) return 'plan_item'
   return null
+}
+
+/** The must-learn a plan_item request quotes (MOCK only), or null when the block names none. */
+export function planItemOf(user: string): string | null {
+  return /<plan_press>\nKeith clicked one of his must-learns for this call: "([^"\n]*)"\./.exec(user)?.[1] ?? null
 }
 
 /** The move of the card Keith already had, from an another-angle request (MOCK only). */
@@ -399,11 +450,16 @@ export function priorMoveOf(user: string): string | null {
 
 // ------------------------------------------------------------------ stored and replayed
 
-const PRESS_MODES: readonly PressMode[] = ['opening', 'signal', 'another_angle']
+const PRESS_MODES: readonly PressMode[] = ['opening', 'signal', 'another_angle', 'plan_item']
 
 /** A press mode read from a file or a database row (anything else: a normal press). */
 export function cleanPressMode(x: unknown): PressMode | null {
   return (PRESS_MODES as readonly unknown[]).includes(x) ? (x as PressMode) : null
+}
+
+/** A must-learn as a press carries it (the same length and spacing rules as Keith's must-learns); '' when there is none. */
+function cleanPlanItem(x: unknown): string {
+  return mustLearn({ must_learn: [x] })[0] ?? ''
 }
 
 function cleanSignal(x: unknown): SignalSeen | null {
@@ -435,6 +491,8 @@ export function cleanPressDetail(x: unknown): PressDetail {
   const ws = cleanSignal(d.wrap_signal)
   if (ws) out.wrap_signal = ws
   if (d.wrap_plan === true) out.wrap_plan = true
+  const item = cleanPlanItem(d.plan_item)
+  if (item) out.plan_item = item
   return out
 }
 
@@ -442,10 +500,12 @@ export function cleanPressDetail(x: unknown): PressDetail {
  * A saved press (help_requests.timing_json keeps codes, ids and call times for the press; a shown row
  * also keeps the heard line) as a practice moment carries it: the mode, plus what its block showed.
  * The must-learns come from the setup the request was built with; another angle's lines from the card
- * it was asked on and, when that was itself another angle, the ones before it (followed by angle_of).
+ * it was asked on and, when that was itself another angle, the ones before it (followed by angle_of);
+ * a must-learn press's item from the request itself (press_plan_item: he may have changed the list since),
+ * and, when he clicked it again for the same moment, the card it was clicked on (angle_of, like another angle).
  */
 export function savedPress(
-  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown },
+  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown; press_plan_item?: unknown },
   setupAtPress: { must_learn?: unknown } | null | undefined,
   cardOf: (requestId: string) => { card_json: string | null; timing_json?: string | null } | undefined,
 ): { press_mode?: PressMode; press_detail?: PressDetail } {
@@ -460,7 +520,13 @@ export function savedPress(
     if (ml.length) detail.must_learn = ml
     if (timing.press_earlier === true) detail.earlier_calls = true
   }
-  if (mode === 'another_angle' && typeof timing.angle_of === 'string') {
+  // Another angle on a must-learn card keeps that must-learn too, so it replays on the same topic.
+  if (mode === 'plan_item' || mode === 'another_angle') {
+    const item = cleanPlanItem(timing.press_plan_item)
+    if (item) detail.plan_item = item
+  }
+  // A must-learn clicked again for the same moment has the card it was clicked on, like another angle.
+  if ((mode === 'another_angle' || mode === 'plan_item') && typeof timing.angle_of === 'string') {
     // Newest first: the card it was asked on, then (while each was itself another angle) the one before.
     const cards: PriorCard[] = []
     let id: unknown = timing.angle_of
@@ -477,7 +543,8 @@ export function savedPress(
       const prior = cleanPrior(card)
       if (!prior) break
       cards.push(prior)
-      id = cleanPressMode(t.press_mode) === 'another_angle' ? t.angle_of : null
+      const was = cleanPressMode(t.press_mode)
+      id = was === 'another_angle' || was === 'plan_item' ? t.angle_of : null
     }
     if (cards.length) detail.prior = cards[0]
     if (cards.length > 1) detail.earlier = cards.slice(1).reverse()

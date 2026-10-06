@@ -2,7 +2,8 @@
  * Smarter presses on the call screen (M3):
  * - the card says what kind of press it answered: "Opening", "Next step" (they asked about a pilot,
  *   rollout, pricing or something for their boss) or "Another angle" (Keith pressed again), next to
- *   the line like "Wrapping up" (styles.css, .help-card[data-press]);
+ *   the line like "Wrapping up" (styles.css, .help-card[data-press]); M4 adds "Must learn" (Keith clicked
+ *   one of his must-learns on the plan line, planPress.ts);
  * - the WRAP button carries a small quiet tag with the call's latest buying signal ("pilot asked ·
  *   14:22"), so Keith knows the next WRAP builds on it. Shown only during a call (styles.css), cleared
  *   when a new call starts;

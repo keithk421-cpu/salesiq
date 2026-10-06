@@ -53,6 +53,7 @@ const PRESS_TEXT: Record<string, string> = {
   opening: 'Keith pressed HELP at the start of the call',
   signal: 'Keith pressed HELP after they asked about a next step (pilot, rollout, pricing or something for their boss)',
   another_angle: 'Keith pressed HELP again for another angle',
+  plan_item: 'Keith clicked one of his must-learns for the line that gets there',
 }
 
 const RATING_TEXT: Record<string, string> = { useful: 'Useful', should_have_stayed_quiet: "Should've stayed quiet", bad: 'Bad' }

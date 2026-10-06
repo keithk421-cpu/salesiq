@@ -20,6 +20,7 @@ import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
 import { WrapupKeeper } from './help/wrapup'
 import { latestSignal, signalIn, type SignalSeen } from './help/pressModes'
+import { planKey } from './help/callPlan'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
@@ -776,6 +777,23 @@ export class HelpService {
       return { ok: false, reason: this.sessionState === 'paused' ? `Paused - resume to use ${origin === 'wrap_requested' ? 'WRAP' : 'HELP'}.` : 'Start a call first.' }
     }
     return { ok: true, request_id: this.engine.press(origin) }
+  }
+
+  // ---------------------------------------------------------------- M4: click a must-learn mid-call
+
+  /**
+   * Keith clicked one of his must-learns on the plan line: a HELP press for the line that gets there.
+   * Only one of this call's must-learns as they are now (matched like the plan line matches them), and
+   * only while live. The press carries the stored wording, not what the screen sent.
+   */
+  pressPlanItem(raw: unknown): { ok: boolean; reason?: string; request_id?: string } {
+    if (!this.engine || !this.memory || this.sessionState !== 'live') {
+      return { ok: false, reason: this.sessionState === 'paused' ? 'Paused - resume to use HELP.' : 'Start a call first.' }
+    }
+    const key = typeof raw === 'string' ? planKey(raw.slice(0, 2000)) : ''
+    const item = key ? mustLearnOf(this.memory.setup).find((m) => planKey(m) === key) : undefined
+    if (!item) return { ok: false, reason: "That one isn't on this call's must-learn list any more." }
+    return { ok: true, request_id: this.engine.press('help_requested', { planItem: item }) }
   }
 
   feedback(raw: unknown): { ok: boolean } {

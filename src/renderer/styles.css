@@ -479,3 +479,11 @@ body.compact .wrap-signal .ws-asked, body.compact .wrap-signal .ws-at { display:
 body.compact .m2-controls:has(.health-dots[hidden]) .wrap-signal { display: none; }
 /* Between calls it's hidden in both windows: the last call's signal mustn't sit next to the next call's setup. */
 body:not(.in-call) .wrap-signal { display: none; }
+/* ---- M4 click a must-learn (planPress.ts): open and partial plan items are clickable while live; the card's "Must learn" label ---- */
+body.pp-live .pl-item[data-status="open"], body.pp-live .pl-item[data-status="partial"] { cursor: pointer; }
+body.pp-live .pl-item[data-status="open"]:hover, body.pp-live .pl-item[data-status="partial"]:hover { text-decoration: underline; text-decoration-color: var(--muted); text-underline-offset: 3px; }
+body.pp-live.pp-busy .pl-item[data-status="open"], body.pp-live.pp-busy .pl-item[data-status="partial"] { cursor: progress; }
+.help-card[data-press="plan_item"] .hc-top::before { content: "Must learn"; }
+body.compact .help-card[data-press="plan_item"] .hc-primary .kind::before { content: "Must learn · "; }
+/* When they had just asked something (or are mid-answer), the way to the must-learn is in FOLLOW: compact keeps it, one line. */
+body.compact .help-card[data-press="plan_item"] #hcFollow:not([hidden]) { display: block !important; }

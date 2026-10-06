@@ -28,8 +28,8 @@ export interface HelpScorecard {
   tokens: { input: number; output: number; cache_read: number }
   feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
-  /** Smarter presses (M3) among the requests Keith saw, and the cards he pressed again on for another angle ("passed": not a rating). */
-  presses: { opening: number; signal: number; another_angle: number; passed: number }
+  /** Smarter presses (M3) among the requests Keith saw, and the cards he pressed again on for another angle or clicked the same must-learn again on ("passed": not a rating); plan_item: must-learn clicks (M4). */
+  presses: { opening: number; signal: number; another_angle: number; passed: number; plan_item: number }
   /** Background call notes (counts and codes only). cost_usd above is HELP's; total_cost_usd adds the notes. */
   call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; closing: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }
   /** The wrap-up after Stop and the follow-up draft (counts, cost and codes only; null when none was made). total_cost_usd adds both. */
@@ -70,7 +70,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     first_usable_ms: { median: null, p95: null }, cards_with_checks: 0,
     prefetch: { started: 0, used: 0, unused: 0, unused_cost_usd: 0 }, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 },
     feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {}, used: 0, notes: 0 }, errors: {},
-    presses: { opening: 0, signal: 0, another_angle: 0, passed: 0 },
+    presses: { opening: 0, signal: 0, another_angle: 0, passed: 0, plan_item: 0 },
     call_notes: { started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, closing: 0, capped: 0, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 }, errors: {} },
     wrapup: null,
     total_cost_usd: 0,
@@ -100,6 +100,8 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     if (typeof t.first_usable_ms === 'number') firstUsable.push(t.first_usable_ms)
     if ((t.checks ?? 0) > 0) card.cards_with_checks++
     if (t.press_mode === 'opening' || t.press_mode === 'signal' || t.press_mode === 'another_angle') card.presses[t.press_mode]++
+    // M4: Keith clicked a must-learn on the plan line for the line that gets there.
+    if (t.press_mode === 'plan_item') card.presses.plan_item++
   }
   card.prefetch.unused = card.prefetch.started - card.prefetch.used
   firstUsable.sort((a, b) => a - b)
