@@ -18,6 +18,7 @@
 import type { HelpOrigin, MemoryTurn, PressMode, SalesMove } from '../../shared/help'
 import { SALES_MOVES } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
+import { TO_LEARN_LABEL } from './accountMemory'
 import type { CallMemory } from './callMemory'
 import { HOT_WINDOW_MS, fmtClock } from './context'
 import { buildUserMessage } from './prompt'
@@ -34,6 +35,8 @@ export const OPENING_MAX_WORDS = 40
 const MUST_LEARN_MAX = 3
 const MUST_LEARN_MAX_CHARS = 80
 const PRIOR_MAX_CHARS = 240
+/** Another angle on another angle: HELP is also told up to this many cards before the one on screen (Keith passed on them too). */
+export const ANGLE_EARLIER_MAX = 2
 
 export type SignalKind = 'pilot' | 'rollout' | 'pricing' | 'send_to_boss'
 export const SIGNAL_KINDS: readonly SignalKind[] = ['pilot', 'rollout', 'pricing', 'send_to_boss']
@@ -57,10 +60,22 @@ export interface PressDetail {
   signal?: SignalKind
   /** another_angle: the line and move Keith already got. */
   prior?: PriorCard
+  /** another_angle on an another-angle card: the cards before it he passed on too, oldest first (at most ANGLE_EARLIER_MAX). */
+  earlier?: PriorCard[]
   /** opening: Keith's must-learns for this call, as they were at the press. */
   must_learn?: string[]
+  /**
+   * opening: there were earlier calls with this account, even if nothing from them reached the context
+   * (the only items were must-learns he set out to learn again, or none at all): a follow-up, never a first call.
+   */
+  earlier_calls?: boolean
   /** WRAP (or closing words): the latest buying signal of the call, for the next step to build on. */
   wrap_signal?: SignalSeen
+  /**
+   * WRAP: the call notes still had a must-learn open at the press, so FOLLOW asked it. Kept with the
+   * request because a replay has no call notes to read it from (wrap.ts planStillOpen).
+   */
+  wrap_plan?: boolean
 }
 
 export interface PressDecision {
@@ -173,8 +188,7 @@ export function buyingSignal(text: string): SignalKind | null {
 
 /** The other side: meeting audio, except someone Keith tagged as an Arize teammate. */
 function theirs(memory: CallMemory, t: { stream: Stream; cluster: string | null }): boolean {
-  if (t.stream !== 'system_remote') return false
-  return !(t.cluster && memory.labels.get(t.cluster)?.role === 'teammate')
+  return memory.fromTheirSide(t)
 }
 
 /** A buying signal in one finished turn of the other side (HelpService keeps the latest for the WRAP tag). */
@@ -231,22 +245,29 @@ export function mustLearn(setup: { must_learn?: unknown }): string[] {
 
 /**
  * Which instruction a press gets, in the plan's order. `prior` is the card Keith would be asking
- * another angle on (the engine decides that: see anotherAngleOk), null otherwise.
+ * another angle on (the engine decides that: see anotherAngleOk), null otherwise; `earlier` the cards
+ * he passed on before it in the same run of re-presses, oldest first.
  */
-export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null = null): PressDecision {
+export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null = null, earlier: readonly PriorCard[] = []): PressDecision {
   const withSignal = (wrap: WrapWhy): PressDecision => {
     const s = latestSignal(memory, atMs)
     return { wrap, mode: null, detail: s ? { wrap_signal: s } : {} }
   }
   if (origin === 'wrap_requested') return withSignal('button')
   if (origin !== 'help_requested') return { wrap: null, mode: null, detail: {} }
-  if (prior) return { wrap: null, mode: 'another_angle', detail: { prior } }
+  if (prior) {
+    const before = earlier.slice(-ANGLE_EARLIER_MAX)
+    return { wrap: null, mode: 'another_angle', detail: { prior, ...(before.length ? { earlier: before } : {}) } }
+  }
   if (wrapReason(origin, memory, atMs) === 'closing') return withSignal('closing')
   const signal = recentSignal(memory, atMs)
   if (signal) return { wrap: null, mode: 'signal', detail: { signal } }
   if (isOpening(memory, atMs)) {
     const ml = mustLearn(memory.setup)
-    return { wrap: null, mode: 'opening', detail: ml.length ? { must_learn: ml } : {} }
+    // From the account memory itself, not the <earlier_calls> block: that leaves out the must-learns
+    // Keith set out to learn again, so a return call could otherwise read as a first one.
+    const before = memory.hadEarlierCalls || memory.earlierCalls.length > 0
+    return { wrap: null, mode: 'opening', detail: { ...(ml.length ? { must_learn: ml } : {}), ...(before ? { earlier_calls: true } : {}) } }
   }
   return { wrap: null, mode: null, detail: {} }
 }
@@ -277,23 +298,32 @@ function oneLine(s: string, max: number): string {
 }
 
 function openingBlock(contextText: string, detail: PressDetail): string {
-  // The <earlier_calls> block is in the context exactly when there were earlier calls to pick up from.
-  const earlier = contextText.includes('<earlier_calls')
+  const block = /<earlier_calls\b[^\n]*>\n([\s\S]*?)\n<\/earlier_calls>/.exec(contextText)?.[1] ?? null
+  // Something they said, owed or agreed on earlier calls to pick up from: not just what Keith still
+  // wanted to learn (his own plan, never something they said).
+  const pickUp = block !== null && block.split('\n').some((l) => !l.includes(` · ${TO_LEARN_LABEL}: `))
+  // A return call with nothing of theirs on file: earlier calls left only Keith's must-learns (or
+  // nothing), or Keith typed it as a follow-up. Never "the first call with them".
+  const followUp = !pickUp && (block !== null || detail.earlier_calls === true || /\ntype: follow_up\n/.test(contextText))
   const ml = detail.must_learn ?? []
   // No goal and no must-learns: nothing to build an agenda from, so ask what they'd like from today.
   const noGoal = /\ngoal: \(not set\)\n/.test(contextText) && !ml.length
   const lines = [
     'Keith pressed HELP at the start of the call: the other side has said little so far.',
     '- If they just asked a question or raised something, answer or handle that first (the normal rules) and put the opening in FOLLOW.',
-    earlier
-      ? '- This is not the first call with them (earlier_calls). ASK: pick up where they left off: check, as a question, what they said they would do or the next step agreed last time ("Last time you mentioned pulling a sample of answers together. Did you get a chance to, or should we start elsewhere?"). Only what earlier_calls says, as a past statement: never say it happened, or that it is still true.'
-      : noGoal
-        ? "- This is the first call with them, and no call goal is set. ASK what they'd like to get out of today, and check the time they have."
-        : `- This is the first call with them. ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
+    pickUp
+      ? `- This is not the first call with them (earlier_calls). ASK: pick up where they left off: check, as a question, what they said they would do or the next step agreed last time ("Last time you mentioned pulling a sample of answers together. Did you get a chance to, or should we start elsewhere?"). Only what earlier_calls says, as a past statement: never say it happened, or that it is still true. A "${TO_LEARN_LABEL}" line is his plan, not something they said.`
+      : followUp
+        ? noGoal
+          ? `- This is a follow-up call, with nothing they said on earlier calls on file. ASK: reconnect briefly, then what they'd like to get out of today, and check the time they have. Never say what happened or was said last time.`
+          : `- This is a follow-up call, with nothing they said on earlier calls on file. ASK or SAY: reconnect briefly, then set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never say what happened or was said last time. Never state a must-learn${block !== null ? ` or a "${TO_LEARN_LABEL}" line` : ''} as something they said: it is Keith's own question.`
+        : noGoal
+          ? "- This is the first call with them, and no call goal is set. ASK what they'd like to get out of today, and check the time they have."
+          : `- This is the first call with them. ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
     "- If Keith already set the agenda or did the check-in on this call (his lines in the transcript), don't repeat it: give the next natural question toward the goal or a must-learn.",
     ...(ml.length ? [`- Keith's must-learns for this call: ${ml.map((m) => `"${oneLine(m, MUST_LEARN_MAX_CHARS)}"`).join('; ')}.`] : []),
     '- Use only the call setup, earlier_calls and what was said on this call: no outside research or guesses about their company, and no pain, problem or need they have not voiced.',
-    `- MOVE: ${earlier ? 'clarify_current_state for the check-in' : noGoal ? 'call_control' : 'call_control for the agenda'}; when the line answers what they just asked, the move that fits that.`,
+    `- MOVE: ${pickUp ? 'clarify_current_state for the check-in' : noGoal ? 'call_control' : 'call_control for the agenda'}; when the line answers what they just asked, the move that fits that.`,
     '- FOLLOW: the opening, when the line answered their question; otherwise "-".',
   ]
   return `<opening_press>\n${lines.join('\n')}\n</opening_press>`
@@ -311,13 +341,19 @@ Keith pressed HELP and in the last 30 seconds they may have asked about ${what}:
 </next_step_press>`
 }
 
+const cardText = (p: PriorCard) => `MOVE ${oneLine(p.move, 40)}; ${p.primary_kind === 'say' ? 'SAY' : 'ASK'} "${oneLine(p.primary, PRIOR_MAX_CHARS)}"`
+
 function angleBlock(detail: PressDetail): string {
   const p = detail.prior
-  const had = p ? `He already has: MOVE ${oneLine(p.move, 40)}; ${p.primary_kind === 'say' ? 'SAY' : 'ASK'} "${oneLine(p.primary, PRIOR_MAX_CHARS)}"` : 'He already has a card for this moment.'
+  // The card on screen first (priorMoveOf reads its move), then the ones he passed on before it, so a
+  // third press can't bounce back to the first card's line.
+  const had = p ? `He already has: ${cardText(p)}` : 'He already has a card for this moment.'
+  const passed = (detail.earlier ?? []).map((e) => `He already passed on: ${cardText(e)}`)
+  const those = passed.length ? 'any of these lines' : 'that line'
   return `<another_angle>
 Keith pressed HELP again for the same moment: nothing new was said since his last card, and he wants another angle on it.
-${had}
-- Give a genuinely different move or question, not a rewording of that line. Keep the same move only if no other move fits, and then a clearly different line.
+${[had, ...passed].join('\n')}
+- Give a genuinely different move or question, not a rewording of ${those}. Keep the same move only if no other move fits, and then a clearly different line.
 - If they just asked a question or raised a concern, the new line still answers or handles it: a different way in (a shorter or plainer answer, a defer with a check, or one clarifying question about it), never a change of subject.
 - The normal rules still hold: only approved knowledge is Arize fact; nothing they haven't said.
 </another_angle>`
@@ -336,7 +372,7 @@ At ${fmtClock(s.at_ms)} they may have asked about ${SIGNAL_TEXT[s.kind]}. If it 
  */
 export function pressUserMessage(contextText: string, wrap: WrapWhy | null, mode: PressMode | null, detail: PressDetail = {}): string {
   if (wrap) {
-    const msg = wrapUserMessage(contextText, wrap)
+    const msg = wrapUserMessage(contextText, wrap, detail.wrap_plan)
     if (!detail.wrap_signal) return msg
     // Right before the last line ("Give Keith his line to lock the next step."), after </wrap_card>.
     const i = msg.lastIndexOf('\n\n')
@@ -391,41 +427,60 @@ export function cleanPressDetail(x: unknown): PressDetail {
   if ((SIGNAL_KINDS as readonly unknown[]).includes(d.signal)) out.signal = d.signal as SignalKind
   const prior = cleanPrior(d.prior)
   if (prior) out.prior = prior
+  const earlier = Array.isArray(d.earlier) ? d.earlier.map(cleanPrior).filter((x): x is PriorCard => !!x).slice(-ANGLE_EARLIER_MAX) : []
+  if (prior && earlier.length) out.earlier = earlier
   const ml = mustLearn({ must_learn: d.must_learn })
   if (ml.length) out.must_learn = ml
+  if (d.earlier_calls === true) out.earlier_calls = true
   const ws = cleanSignal(d.wrap_signal)
   if (ws) out.wrap_signal = ws
+  if (d.wrap_plan === true) out.wrap_plan = true
   return out
 }
 
 /**
- * A saved press (help_requests.timing_json keeps only codes, ids and call times) as a practice
- * moment carries it: the mode, plus what its block showed. The must-learns come from the setup the
- * request was built with; another angle's line from the card it was asked on.
+ * A saved press (help_requests.timing_json keeps codes, ids and call times for the press; a shown row
+ * also keeps the heard line) as a practice moment carries it: the mode, plus what its block showed.
+ * The must-learns come from the setup the request was built with; another angle's lines from the card
+ * it was asked on and, when that was itself another angle, the ones before it (followed by angle_of).
  */
 export function savedPress(
-  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown },
+  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown },
   setupAtPress: { must_learn?: unknown } | null | undefined,
-  cardOf: (requestId: string) => { card_json: string | null } | undefined,
+  cardOf: (requestId: string) => { card_json: string | null; timing_json?: string | null } | undefined,
 ): { press_mode?: PressMode; press_detail?: PressDetail } {
   const mode = cleanPressMode(timing.press_mode)
   const detail: PressDetail = {}
   const ws = cleanSignal(timing.wrap_signal)
   if (ws) detail.wrap_signal = ws
+  if (timing.wrap_plan === true) detail.wrap_plan = true
   if (mode === 'signal' && (SIGNAL_KINDS as readonly unknown[]).includes(timing.press_signal)) detail.signal = timing.press_signal as SignalKind
   if (mode === 'opening') {
     const ml = mustLearn(setupAtPress ?? {})
     if (ml.length) detail.must_learn = ml
+    if (timing.press_earlier === true) detail.earlier_calls = true
   }
   if (mode === 'another_angle' && typeof timing.angle_of === 'string') {
-    let card: unknown = null
-    try {
-      card = JSON.parse(cardOf(timing.angle_of)?.card_json ?? 'null')
-    } catch {
-      /* unreadable: replayed without the line */
+    // Newest first: the card it was asked on, then (while each was itself another angle) the one before.
+    const cards: PriorCard[] = []
+    let id: unknown = timing.angle_of
+    for (let hop = 0; hop <= ANGLE_EARLIER_MAX && typeof id === 'string'; hop++) {
+      const row = cardOf(id)
+      let card: unknown = null
+      let t: { press_mode?: unknown; angle_of?: unknown } = {}
+      try {
+        card = JSON.parse(row?.card_json ?? 'null')
+        t = JSON.parse(row?.timing_json ?? '{}') ?? {}
+      } catch {
+        /* unreadable: replayed without it (and anything before it) */
+      }
+      const prior = cleanPrior(card)
+      if (!prior) break
+      cards.push(prior)
+      id = cleanPressMode(t.press_mode) === 'another_angle' ? t.angle_of : null
     }
-    const prior = cleanPrior(card)
-    if (prior) detail.prior = prior
+    if (cards.length) detail.prior = cards[0]
+    if (cards.length > 1) detail.earlier = cards.slice(1).reverse()
   }
   return { ...(mode ? { press_mode: mode } : {}), ...(Object.keys(detail).length ? { press_detail: detail } : {}) }
 }

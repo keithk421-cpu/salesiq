@@ -4,7 +4,8 @@
  *   rollout, pricing or something for their boss) or "Another angle" (Keith pressed again), next to
  *   the line like "Wrapping up" (styles.css, .help-card[data-press]);
  * - the WRAP button carries a small quiet tag with the call's latest buying signal ("pilot asked ·
- *   14:22"), so Keith knows the next WRAP builds on it. Cleared when a new call starts;
+ *   14:22"), so Keith knows the next WRAP builds on it. Shown only during a call (styles.css), cleared
+ *   when a new call starts;
  * - the after-call review marks a card Keith pressed again on: "You pressed for another angle".
  * Nothing pops up: the labels ride on cards Keith pressed for, the tag is quiet state.
  */
@@ -52,12 +53,16 @@ export function initPressModes(api: CopilotApi): void {
       tag.title = ''
       return
     }
-    // "pilot asked · 14:22"; the compact strip drops " asked" (styles.css) so HELP always fits.
+    // "pilot asked · 14:22"; the compact strip shows just the kind ("pilot"), so HELP and the Them/You
+    // dots always fit: " asked" and the time are spans it hides (styles.css). The tooltip keeps the time.
     const what = SIGNAL_TAG[s.kind] ?? 'next step'
     const asked = document.createElement('span')
     asked.className = 'ws-asked'
     asked.textContent = ' asked'
-    tag.replaceChildren(what, asked, ` · ${clock(s.at_ms)}`)
+    const at = document.createElement('span')
+    at.className = 'ws-at'
+    at.textContent = ` · ${clock(s.at_ms)}`
+    tag.replaceChildren(what, asked, at)
     tag.title = `They asked about ${SIGNAL_TIP[s.kind] ?? 'a next step'} at ${clock(s.at_ms)}: WRAP builds on it`
   }
   api.onBuyingSignal(showSignal)

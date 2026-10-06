@@ -31,12 +31,15 @@ export const MEMORY_KINDS: readonly AccountMemoryKind[] = ['promised', 'they_owe
 const FACT_KINDS = new Set(['current_tooling', 'team', 'timeline', 'decision_process'])
 const SECTION_KIND: Record<string, AccountMemoryKind> = { we_owe: 'promised', they_owe: 'they_owe', agreed: 'agreed', open_questions: 'open', proposed: 'open' }
 
+/** How a "to_learn" item reads to the model: Keith's own unmet plan, never something they said (pressModes.ts looks for it). */
+export const TO_LEARN_LABEL = 'Keith still wanted to learn'
+
 /** How each kind reads to the model: who said it, in the past tense. */
 const BLOCK_LABEL: Record<AccountMemoryKind, string> = {
   promised: 'Arize promised', they_owe: 'They said they would', agreed: 'Agreed next step',
   open: 'Still open', wants: 'They wanted', fact: 'They told us',
   // M3 call plan: filled from CallWrapup.plan_open by the call-plan builder.
-  to_learn: 'Keith still wanted to learn',
+  to_learn: TO_LEARN_LABEL,
 }
 
 export interface AccountSummary {

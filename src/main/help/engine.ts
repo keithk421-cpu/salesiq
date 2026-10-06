@@ -26,9 +26,9 @@ import { describeError, type HelpError, type HelpModel } from './models'
 import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
-import { type WrapWhy } from './wrap'
+import { planStillOpen, type WrapWhy } from './wrap'
 import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
-import { anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
+import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -160,7 +160,7 @@ export class HelpEngine {
     const angle = origin === 'help_requested' ? this.angleOn(pressedWall, key, liveSpeech) : null
     // Which press this is (pressModes.ts): WRAP, or HELP while the call sounds like it's ending, is always
     // a fresh request for a next-step card; an opening or buying-signal press can use a candidate built for it.
-    const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null)
+    const decision = decidePress(origin, this.d.memory, this.d.sessionNowMs(), angle?.prior ?? null, angle?.earlier)
     const wrap = decision.wrap
     if (angle) this.recordFeedback({ card_id: angle.run.id, origin: angle.run.origin, type: 'passed', bad_reason: null, optional_note: null })
 
@@ -192,8 +192,9 @@ export class HelpEngine {
   /**
    * The card Keith would get another angle on: the one on screen, finished, shown for ~2-20 s, and
    * built from the same transcript as now with no words still being transcribed (nothing new said).
+   * When that card was itself another angle, the ones he passed on before it come too (the last 2).
    */
-  private angleOn(pressedWall: number, key: string, liveSpeech: boolean): { run: Run; prior: PriorCard } | null {
+  private angleOn(pressedWall: number, key: string, liveSpeech: boolean): { run: Run; prior: PriorCard; earlier: PriorCard[] } | null {
     const r = this.current
     if (!r || r.status !== 'complete' || !r.card || r.completeWall === null) return null
     // Never on a wrap card: HELP again as the call ends goes back through WRAP or closing words for a next step.
@@ -201,7 +202,8 @@ export class HelpEngine {
     // On screen from when it finished, or from the press that showed an already finished candidate.
     const shownWall = Math.max(r.completeWall, r.pressedWall ?? r.completeWall)
     if (!anotherAngleOk(shownWall, pressedWall, !liveSpeech && r.snapshotKey === key)) return null
-    return { run: r, prior: { move: r.card.move, primary_kind: r.card.primary_kind, primary: r.card.primary } }
+    const earlier = r.mode === 'another_angle' ? [...(r.detail.earlier ?? []), ...(r.detail.prior ? [r.detail.prior] : [])].slice(-ANGLE_EARLIER_MAX) : []
+    return { run: r, prior: { move: r.card.move, primary_kind: r.card.primary_kind, primary: r.card.primary }, earlier }
   }
 
   /** The approved passage for what the other side just said; a problem finding it never stops HELP. */
@@ -217,9 +219,13 @@ export class HelpEngine {
   /**
    * Call when new final transcript words arrive. After the other side speaks, schedules a background
    * candidate; Keith's own words only cancel a pending one (he's talking, so it would be stale).
+   * `text` is the turn's words: Keith's short filler ("Mm-hmm.") cancels nothing, as at a press (heard.ts).
    */
-  onFinalWords(stream: Stream = 'system_remote'): void {
+  onFinalWords(stream: Stream = 'system_remote', text?: string): void {
     if (!this.d.prefetch || this.d.model.mock || this.cancelled || this.blocked) return
+    // His "Mm-hmm" often comes back inside the 700 ms debounce: the card waiting for it must still start,
+    // or there's no ready card for the filler rule to keep.
+    if (text !== undefined && keithFiller({ stream, text })) return
     if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
     this.prefetchTimer = null
     if (stream !== 'system_remote') return
@@ -595,7 +601,10 @@ export class HelpEngine {
         ...(run.mode ? { press_mode: run.mode } : {}),
         ...(run.detail.signal ? { press_signal: run.detail.signal } : {}),
         ...(run.angleOf ? { angle_of: run.angleOf } : {}),
+        ...(run.detail.earlier_calls ? { press_earlier: true } : {}),
         ...(run.detail.wrap_signal ? { wrap_signal: run.detail.wrap_signal } : {}),
+        // WRAP asked a must-learn the notes still had open (a replay has no notes to tell).
+        ...(run.wrap === 'button' && planStillOpen(run.ctx.text) ? { wrap_plan: true } : {}),
       }),
       run.usage ? JSON.stringify(run.usage) : null, run.error, run.prefetch ? 1 : 0,
     )

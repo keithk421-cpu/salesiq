@@ -29,6 +29,11 @@ export class CallMemory {
   /** What earlier calls with this account left behind (account memory), set at call start; this call is never in it. */
   earlierCalls: EarlierCallItem[] = []
   /**
+   * There were earlier calls with this account, even if they left nothing for earlierCalls (no wrap-up
+   * items, or only must-learns Keith set out to learn again): an opening press is then never a first call.
+   */
+  hadEarlierCalls = false
+  /**
    * Live calls only: how long (ms) the meeting audio has had sound with no words back from the speech
    * service (session.ts untranscribedMs). Replay and tests leave it unset (heard.ts blindNote).
    */
@@ -70,6 +75,15 @@ export class CallMemory {
     this.db?.sql.prepare(
       'INSERT OR REPLACE INTO speaker_labels (session_id, cluster, role, name, updated_at) VALUES (?, ?, ?, ?, ?)',
     ).run(this.sessionId, label.cluster, label.role, label.name, new Date().toISOString())
+  }
+
+  /**
+   * The other side: meeting audio, except someone Keith tagged as an Arize teammate (an unlabeled
+   * speaker counts: usually theirs). Keith's mic never is.
+   */
+  fromTheirSide(t: { stream: Stream; cluster: string | null }): boolean {
+    if (t.stream !== 'system_remote') return false
+    return !(t.cluster && this.labels.get(t.cluster)?.role === 'teammate')
   }
 
   /** Turns whose text was available at `atMs`, ordered by start. */

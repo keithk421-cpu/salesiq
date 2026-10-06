@@ -12,6 +12,8 @@ import {
   ANOTHER_ANGLE_WINDOW_MS, anotherAngleOk, buyingSignal, cleanPressDetail, decidePress, isOpening, latestSignal, pressModeOf, pressUserMessage, recentSignal,
 } from '../src/main/help/pressModes'
 import { buildUserMessage, loadPlaybook } from '../src/main/help/prompt'
+import { EMPTY_NOTES } from '../src/main/help/callNotes'
+import { PLAN_SECTION_LABEL } from '../src/main/help/callPlan'
 import { buildScorecard, readFeedback } from '../src/main/help/scorecard'
 import { isWrapRequest } from '../src/main/help/wrap'
 import { HelpService } from '../src/main/helpService'
@@ -565,5 +567,235 @@ describe('in the app', () => {
     expect(logs.filter(([e]) => e === 'buying_signal').map(([, d]) => d)).toEqual([{ kind: 'pricing', at_ms: 5000 }, { kind: 'pilot', at_ms: 10_000 }, { kind: 'pilot', at_ms: 20_000 }])
     expect(JSON.stringify(logs)).not.toMatch(/cost, roughly|one team|chatbot/)
     help.shutdown()
+  })
+})
+
+// ---------------------------------------------------------------- M3 integration review fixes
+
+const CARD3 = 'MOVE: explore_process\nASK: What happens after the platform team marks an answer wrong?\nHAPPENING: -\nFOLLOW: -\nSOURCES: -\nNOTE: -\n'
+const CARD4 = 'MOVE: clarify_requirement\nASK: Which answers matter most to get right first?\nHAPPENING: -\nFOLLOW: -\nSOURCES: -\nNOTE: -\n'
+
+/** A model that records each request and answers with MOCK lines (for replays). */
+class Capturing extends MockHelpModel {
+  users: string[] = []
+  override run(req: Parameters<MockHelpModel['run']>[0]) {
+    this.users.push(req.user)
+    return super.run(req)
+  }
+}
+
+describe('the opening on a follow-up call', () => {
+  const TO_LEARN = 'Who signs off on new tools'
+
+  it('earlier calls that left only must-learns he set out to learn again: a follow-up, never "the first call"; replayed the same', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook)
+    // The last call ended with only "Still to learn", and Reuse last setup brought it back as a must-learn.
+    s.memory.earlierCalls = [{ kind: 'to_learn', text: TO_LEARN, date: '2026-09-30' }]
+    s.memory.setup = { ...s.memory.setup, call_type: 'discovery', must_learn: [TO_LEARN] }
+    const id = s.engine.press()
+    const user = m.calls[0].user
+    expect(pressModeOf(user)).toBe('opening')
+    // The block itself is left out (this call's plan tracks it now), but the press still knows it's a return call.
+    expect(user).not.toContain('<earlier_calls')
+    expect(user).not.toMatch(/first call with them/)
+    expect(user).toMatch(/This is a follow-up call, with nothing they said on earlier calls on file\. ASK or SAY: reconnect briefly, then set a short agenda from the call goal and Keith's must-learns/)
+    expect(user).toMatch(/Never say what happened or was said last time\. Never state a must-learn as something they said/)
+    expect(user).toMatch(/- MOVE: call_control for the agenda/)
+    await answer(s, m, 0)
+    const timing = JSON.parse((s.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(id) as { timing_json: string }).timing_json)
+    expect(timing).toMatchObject({ press_mode: 'opening', press_earlier: true })
+    // A practice moment saved from it replays the same block.
+    vi.useRealTimers()
+    const b = buildPracticeMoment(s.db, id)
+    if (!b.ok) throw new Error(b.reason)
+    expect(b.moment.press_detail).toEqual({ must_learn: [TO_LEARN], earlier_calls: true })
+    const model = new Capturing(0)
+    const res = await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
+    expect(model.users[0]).toMatch(/This is a follow-up call, with nothing they said on earlier calls on file/)
+    expect(model.users[0]).not.toMatch(/first call with them/)
+    // Practice mode's placeholder sets the agenda: nothing to pick up from last time.
+    expect(res.card?.move).toBe('call_control')
+  })
+
+  it('a call typed Follow-up with nothing on file, or earlier calls that left nothing at all: a follow-up too', () => {
+    const quiet = memoryWith([{ who: 'buyer', text: 'Hi Keith, good to see you again.', at: 12_000 }])
+    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: {} })
+    quiet.hadEarlierCalls = true
+    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: { earlier_calls: true } })
+    const ctx = '<call_setup>\ntype: discovery\ngoal: Agree a deep-dive\n</call_setup>'
+    expect(pressUserMessage(ctx, null, 'opening', { earlier_calls: true })).toMatch(/This is a follow-up call[\s\S]*set a short agenda from the call goal, and check it works/)
+    // Typed as Follow-up, no account memory at all (he met them before using the app): read from the call setup, so replays get it too.
+    const typed = pressUserMessage('<call_setup>\ntype: follow_up\ngoal: Agree a deep-dive\n</call_setup>', null, 'opening', {})
+    expect(typed).toMatch(/This is a follow-up call, with nothing they said on earlier calls on file/)
+    expect(typed).not.toMatch(/first call with them/)
+    // No goal and no must-learns: reconnect, then ask what they'd like from today.
+    const blank = pressUserMessage('<call_setup>\ntype: follow_up\ngoal: (not set)\n</call_setup>', null, 'opening', {})
+    expect(blank).toMatch(/This is a follow-up call[\s\S]*ASK: reconnect briefly, then what they'd like to get out of today/)
+    expect(blank).toMatch(/- MOVE: call_control;/)
+    // A first call is unchanged.
+    expect(pressUserMessage(ctx, null, 'opening', {})).toMatch(/- This is the first call with them\. ASK or SAY: set a short agenda/)
+  })
+
+  it('a block with only "Keith still wanted to learn" lines is never picked up as something they said', async () => {
+    const onlyMine = `<call_setup>\ntype: follow_up\ngoal: Agree a deep-dive\n</call_setup>\n\n<earlier_calls note="x">\n2026-09-30 · Keith still wanted to learn: ${TO_LEARN}\n</earlier_calls>`
+    const u = pressUserMessage(onlyMine, null, 'opening', { earlier_calls: true })
+    expect(u).not.toMatch(/This is not the first call|pick up where they left off|Last time you mentioned/)
+    expect(u).toMatch(/This is a follow-up call[\s\S]*Never state a must-learn or a "Keith still wanted to learn" line as something they said: it is Keith's own question/)
+    // With something they said or owed, the check-in stays, and says a "still wanted to learn" line is his plan.
+    const theirs = onlyMine.replace('\n</earlier_calls>', '\n2026-09-30 · They said they would: send an eval sample\n</earlier_calls>')
+    const again = pressUserMessage(theirs, null, 'opening', { earlier_calls: true })
+    expect(again).toMatch(/This is not the first call with them \(earlier_calls\)\. ASK: pick up where they left off/)
+    expect(again).toMatch(/A "Keith still wanted to learn" line is his plan, not something they said\./)
+    // Practice mode follows the block: the agenda for the first, the check-in for the second.
+    const mock = async (user: string) => {
+      const out: string[] = []
+      await new MockHelpModel(0).run({ system: '', user, config: DEFAULT_HELP_CONFIG, signal: new AbortController().signal, onText: (c) => out.push(c) })
+      return out.join('')
+    }
+    vi.useRealTimers()
+    expect(await mock(u)).toMatch(/MOVE: call_control/)
+    expect(await mock(again)).toMatch(/MOVE: clarify_current_state/)
+  })
+
+  it('the stored flag is kept only when it is true', () => {
+    expect(cleanPressDetail({ earlier_calls: true, wrap_plan: true })).toEqual({ earlier_calls: true, wrap_plan: true })
+    expect(cleanPressDetail({ earlier_calls: 'yes', wrap_plan: 1 })).toEqual({})
+  })
+
+  it('HelpService knows there were earlier calls with the account even when they left nothing behind', () => {
+    vi.useRealTimers()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'press-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    help.setSettings({ prefetch: false })
+    help.createModel = () => new MockHelpModel(0)
+    const state = (st: string, call: string) => help.onSessionEvent({ type: 'state', state: st, sessionId: call } as SessionEvent, call, () => 0)
+    help.setSetup({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: 'Larkspur Health (invented)', deployment: 'unknown' })
+    state('checking', 'c-1')
+    expect(help.memory!.hadEarlierCalls).toBe(false)
+    state('live', 'c-1')
+    // A short call: one line, no wrap-up items (Practice mode), nothing in the notes.
+    const turn: Turn = {
+      turn_id: 't1', session_id: 'c-1', stream: 'system_remote', speaker_cluster: 'e1:s0', speaker_identity_id: null, speaker_role: 'unknown',
+      start_ms: 0, end_ms: 3000, text: 'Hi, sorry, I have to reschedule.', final: true, source_word_ids: [], gap_before: null,
+    }
+    help.onSessionEvent({ type: 'turn', event: { type: 'turn_final', turn } } as SessionEvent, 'c-1', () => 3000)
+    state('stopping', 'c-1')
+    state('stopped', 'c-1')
+    help.setSetup({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: 'Larkspur Health (invented)', deployment: 'unknown' })
+    state('checking', 'c-2')
+    expect(help.memory!.earlierCalls).toEqual([])
+    expect(help.memory!.hadEarlierCalls).toBe(true)
+    help.shutdown()
+  })
+})
+
+describe('another angle on another angle', () => {
+  it('a third press tells HELP every line Keith passed on (the last 2 before the card on screen); replayed the same', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    s.engine.press()
+    await answer(s, m, 0) // card 1: clarify_current_state
+    s.advance(3000)
+    s.engine.press()
+    await answer(s, m, 1, CARD2) // card 2: identify_owner
+    s.advance(3000)
+    const third = s.engine.press()
+    const u3 = m.calls[2].user
+    expect(pressModeOf(u3)).toBe('another_angle')
+    expect(u3).toContain('He already has: MOVE identify_owner; ASK "Who would sign off on changing that review?"\nHe already passed on: MOVE clarify_current_state; ASK "Who looks at the weekly sample with the platform team?"')
+    expect(u3).toMatch(/not a rewording of any of these lines/)
+    await answer(s, m, 2, CARD3) // card 3: explore_process
+    s.advance(3000)
+    const fourth = s.engine.press()
+    const u4 = m.calls[3].user
+    // Oldest first, then the card on screen leads: card 3 on screen, cards 1 and 2 passed on.
+    expect(u4).toContain('He already has: MOVE explore_process;')
+    expect(u4).toContain('He already passed on: MOVE clarify_current_state; ASK "Who looks at the weekly sample with the platform team?"\nHe already passed on: MOVE identify_owner; ASK "Who would sign off on changing that review?"')
+    await answer(s, m, 3, CARD4)
+    s.advance(3000)
+    s.engine.press()
+    // Only the last 2 before the card on screen: card 1 drops out.
+    const u5 = m.calls[4].user
+    expect(u5).toContain('He already has: MOVE clarify_requirement;')
+    expect(u5).not.toContain('Who looks at the weekly sample')
+    expect(u5.match(/He already passed on:/g)).toHaveLength(2)
+    // Diagnostics never carry the lines.
+    expect(JSON.stringify(s.logs)).not.toMatch(/weekly sample|sign off|marks an answer/)
+
+    // Practice moments saved from the third and fourth presses replay every line Keith passed on.
+    vi.useRealTimers()
+    for (const [id, i] of [[third, 2], [fourth, 3]] as const) {
+      const b = buildPracticeMoment(s.db, id)
+      if (!b.ok) throw new Error(b.reason)
+      const model = new Capturing(0)
+      await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
+      const live = m.calls[i].user
+      const block = (u: string) => /<another_angle>[\s\S]*<\/another_angle>/.exec(u)?.[0]
+      expect(block(model.users[0])).toBe(block(live))
+    }
+    // A hand-edited file keeps at most 2, and only with the card on screen.
+    const p = { move: 'identify_owner', primary_kind: 'ask' as const, primary: 'One?' }
+    expect(cleanPressDetail({ prior: p, earlier: [p, { primary: '' }, { ...p, primary: 'Two?' }, { ...p, primary: 'Three?' }] }).earlier?.map((e) => e.primary)).toEqual(['Two?', 'Three?'])
+    expect(cleanPressDetail({ earlier: [p] })).toEqual({})
+  })
+})
+
+describe('practice moments keep Keith\'s must-learns', () => {
+  const ML = 'Who signs off on new tools'
+  const FOLLOW_PLAN = /- FOLLOW: instead of a recap, one thing Keith still wants to learn/
+
+  it('a WRAP press that asked a must-learn the notes still had open replays with the same instruction and plan', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    s.memory.setup = { ...s.memory.setup, must_learn: [ML] }
+    s.memory.callNotes = { notes: { ...EMPTY_NOTES, plan: [{ item: ML, status: 'open', turn_ids: [] }] }, as_of_ms: 15_000 }
+    const id = s.engine.press('wrap_requested')
+    expect(m.calls[0].user).toMatch(FOLLOW_PLAN)
+    await answer(s, m, 0)
+    const timing = JSON.parse((s.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(id) as { timing_json: string }).timing_json)
+    expect(timing).toMatchObject({ wrap: 'button', wrap_plan: true })
+    vi.useRealTimers()
+    const b = buildPracticeMoment(s.db, id)
+    if (!b.ok) throw new Error(b.reason)
+    expect(b.moment.must_learn).toEqual([ML])
+    expect(b.moment.press_detail).toEqual({ wrap_plan: true })
+    const model = new Capturing(0)
+    await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
+    expect(model.users[0]).toMatch(FOLLOW_PLAN)
+    expect(model.users[0]).toContain(`${PLAN_SECTION_LABEL}: ${ML}`)
+    // Re-saving keeps them.
+    expect(refreshFeedback({ ...b.moment, must_learn: undefined }, b.moment).must_learn).toEqual([ML])
+  })
+
+  it('a WRAP press with no must-learn open replays with the recap; a HELP press still sees the plan', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: pastOpening() })
+    s.memory.setup = { ...s.memory.setup, must_learn: [ML] }
+    s.memory.callNotes = { notes: { ...EMPTY_NOTES, plan: [{ item: ML, status: 'done', turn_ids: ['m2-unit-L1'] }] }, as_of_ms: 15_000 }
+    const wrap = s.engine.press('wrap_requested')
+    expect(m.calls[0].user).not.toMatch(FOLLOW_PLAN)
+    await answer(s, m, 0)
+    s.advance(30_000)
+    const help = s.engine.press()
+    await answer(s, m, 1)
+    vi.useRealTimers()
+    const w = buildPracticeMoment(s.db, wrap)
+    if (!w.ok) throw new Error(w.reason)
+    expect(w.moment.press_detail).toBeUndefined()
+    const model = new Capturing(0)
+    await runScenario(w.moment, model, DEFAULT_HELP_CONFIG, playbook)
+    expect(model.users[0]).toContain("- FOLLOW: what Keith still owes them from this call")
+    const h = buildPracticeMoment(s.db, help)
+    if (!h.ok) throw new Error(h.reason)
+    expect(h.moment.must_learn).toEqual([ML])
+    const model2 = new Capturing(0)
+    await runScenario(h.moment, model2, DEFAULT_HELP_CONFIG, playbook)
+    // Call notes aren't replayed, so the plan comes back all open, as before a live call's first notes.
+    expect(model2.users[0]).toContain(`${PLAN_SECTION_LABEL}: ${ML}`)
+    // An older moment without must-learns replays as before.
+    const model3 = new Capturing(0)
+    await runScenario({ ...h.moment, must_learn: undefined }, model3, DEFAULT_HELP_CONFIG, playbook)
+    expect(model3.users[0]).not.toContain('<call_notes')
   })
 })

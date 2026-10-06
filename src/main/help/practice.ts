@@ -26,6 +26,7 @@ import type { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
 import { cleanEarlierItems } from './accountMemory'
 import { DEFAULT_SETUP } from './callMemory'
+import { mustLearnOf } from './callPlan'
 import { fmtClock } from './context'
 import { localStamp } from './feedbackExport'
 import { savedPress } from './pressModes'
@@ -255,10 +256,10 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   const pressed = new Date(row.created_at)
   const title = `${setup.account.trim() || 'Call'} · ${Number.isNaN(pressed.getTime()) ? row.created_at : localStamp(pressed)}`
   // A card prepared in the background was built from the call a little before Keith pressed.
-  const timing = parse<HelpTiming & { wrap?: string; press_mode?: string; press_signal?: string; angle_of?: string; wrap_signal?: unknown }>(row.timing_json)
+  const timing = parse<HelpTiming & { wrap?: string; press_mode?: string; press_signal?: string; angle_of?: string; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown }>(row.timing_json)
   const wrap = timing.wrap === 'button' || timing.wrap === 'closing' ? timing.wrap : undefined
   // A smarter press replays with the block it had: its mode, and what the block showed.
-  const pressInfo = savedPress(timing, atPress, (id) => db.sql.prepare('SELECT card_json FROM help_requests WHERE id = ? AND session_id = ?').get(id, sid) as { card_json: string | null } | undefined)
+  const pressInfo = savedPress(timing, atPress, (id) => db.sql.prepare('SELECT card_json, timing_json FROM help_requests WHERE id = ? AND session_id = ?').get(id, sid) as { card_json: string | null; timing_json: string | null } | undefined)
   const press = wrap === 'button' ? 'Keith pressed WRAP' : wrap === 'closing' ? 'Keith pressed HELP as the call sounded like it was ending' : pressInfo.press_mode ? PRESS_TEXT[pressInfo.press_mode] : 'Keith pressed HELP'
   const built = timing.served_from_prefetch
     ? `HELP's card was prepared at ${fmtClock(atMs)} into the call and shown when Keith pressed HELP shortly after`
@@ -288,6 +289,9 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     desired_outcomes: setup.desired_outcomes,
     account: setup.account,
     deployment: setup.deployment,
+    // Keith's must-learns as the request had them (the setup at the press only, never the call's latest),
+    // so the replay's notes block and WRAP see his plan too.
+    ...((ml) => (ml.length ? { must_learn: ml } : {}))(mustLearnOf(atPress)),
     speakers,
     transcript,
     gaps,
@@ -344,6 +348,7 @@ export function refreshFeedback(saved: Scenario, fresh: Scenario): Scenario {
     ...(fresh.wrap ? { wrap: fresh.wrap } : {}),
     ...(fresh.press_mode ? { press_mode: fresh.press_mode } : {}),
     ...(fresh.press_detail ? { press_detail: fresh.press_detail } : {}),
+    ...(fresh.must_learn ? { must_learn: fresh.must_learn } : {}),
   }
   if (!unacceptable.length) delete out.unacceptable_moves
   return out

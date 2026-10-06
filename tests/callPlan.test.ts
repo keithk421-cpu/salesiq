@@ -86,6 +86,29 @@ describe('the plan from the notes', () => {
     ])
   })
 
+  it("asked is not answered: \"done\" resting only on Keith's or a teammate's lines is partial; their answer settles it", () => {
+    const m = new CallMemory('sess-plan')
+    m.setLabel({ cluster: 'e1:s1', role: 'teammate', name: 'Sam' })
+    m.setLabel({ cluster: 'e1:s0', role: 'buyer', name: 'Dana' })
+    const turn = (id: string, stream: 'local_mic' | 'system_remote', cluster: string | null) => ({ id, stream, cluster })
+    const turns = new Map([
+      ['t-keith', turn('t-keith', 'local_mic', null)], ['t-sam', turn('t-sam', 'system_remote', 'e1:s1')],
+      ['t-dana', turn('t-dana', 'system_remote', 'e1:s0')], ['t-who', turn('t-who', 'system_remote', 'e1:s9')],
+    ])
+    const theirs = (id: string) => { const t = turns.get(id); return !!t && m.fromTheirSide(t) }
+    const ids = new Map([['L1', 't-keith'], ['L2', 't-sam'], ['L3', 't-dana'], ['L4', 't-who']])
+    const done = (lines: string[]) => mergePlan(['Who signs off on new tools'], [{ item: 'Who signs off on new tools', status: 'done', lines }], null, ids, theirs)[0]
+    // Keith asked; nobody answered: partial at most, and the line stays for the hover.
+    expect(done(['L1'])).toEqual({ item: 'Who signs off on new tools', status: 'partial', turn_ids: ['t-keith'] })
+    expect(done(['L2'])).toMatchObject({ status: 'partial' })
+    expect(done(['L1', 'L3'])).toEqual({ item: 'Who signs off on new tools', status: 'done', turn_ids: ['t-keith', 't-dana'] })
+    // An unlabeled remote speaker is usually theirs.
+    expect(done(['L4'])).toMatchObject({ status: 'done' })
+    // Through validateNotes, as the keeper calls it.
+    const v = validateNotes(notesAnswer({ plan: [{ item: 'Who signs off on new tools', status: 'done', lines: ['L1'] }] }), ids, { mustLearn: ['Who signs off on new tools'], theirs })
+    expect(v.ok && v.notes.plan?.[0].status).toBe('partial')
+  })
+
   it('validateNotes carries the plan only when Keith set must-learns, and a broken plan never fails the notes', () => {
     const answer = notesAnswer({ topic: { text: 'Their review process', lines: ['L1'] }, plan: [{ item: 'Deep-dive scope', status: 'done', lines: ['L1'] }] })
     const without = validateNotes(answer, lineIds)
@@ -213,7 +236,9 @@ describe('HELP sees the must-learns still open', () => {
     expect(system).not.toContain('Who signs off')
     // The rule: steer toward one only in a lull or a long tangent, never over what they just raised.
     expect(system).toMatch(/what Keith still wants to learn on this call: his own plan, not something anyone said\. Steer toward one only in a lull or after a long tangent/)
-    expect(system).toMatch(/never over a question or concern the other side just raised, and never treat it as answered/)
+    expect(system).toMatch(/never over a question or concern the other side just raised, and never treat it as answered unless the transcript shows the other side answered it/)
+    // An earlier call's "Keith still wanted to learn" is his own plan, never "you mentioned".
+    expect(system).toMatch(/A "Keith still wanted to learn" line is his own unmet plan from that call, not anything they said: never say "you mentioned" it/)
   })
 
   it("an earlier call's \"still wanted to learn\" drops out of HELP's context once this call sets out to learn it again", () => {
@@ -263,6 +288,24 @@ describe('WRAP with a must-learn still open', () => {
     const notesOnly = `<call_notes note="running summary">\nTopic now: Pricing tiers\n</call_notes>`
     expect(wrapUserMessage(ctx(notesOnly), 'button')).toBe(wrapUserMessage(ctx(null), 'button').replace(ctx(null), ctx(notesOnly)))
     expect(wrapUserMessage(ctx(planBlock), 'closing')).toContain('- FOLLOW: the next-step question, when the line answers something else; otherwise what Keith still owes them')
+  })
+
+  it('with call notes off (or before the first notes) nothing tracked the plan: FOLLOW keeps the recap of what Keith owes', () => {
+    const m = new CallMemory('sess-wrap')
+    m.setup = { call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown', must_learn: [PLAN[0]] }
+    m.upsertTurn({ id: 't1', stream: 'system_remote', cluster: 'e1:s0', start_ms: 296_000, end_ms: 305_000, text: 'Our VP of engineering, Priya, signs off on anything over fifty thousand.', available_ms: 306_000 }, true)
+    m.upsertTurn({ id: 't2', stream: 'system_remote', cluster: 'e1:s0', start_ms: 2_390_000, end_ms: 2_398_000, text: 'This was great, we have a hard stop in a minute.', available_ms: 2_399_000 }, true)
+    const ctx = buildHelpContext({ memory: m, kb: null, atMs: 2_400_000 }).text
+    // HELP still sees the plan, all open...
+    expect(ctx).toContain(`${PLAN_SECTION_LABEL}: ${PLAN[0]}`)
+    // ...but WRAP can't tell it's still open (the answer from minute 5 may well be out of the window).
+    expect(planStillOpen(ctx)).toBe(false)
+    const msg = wrapUserMessage(ctx, 'button')
+    expect(msg).toContain("- FOLLOW: what Keith still owes them from this call, as a short line in Keith's voice")
+    expect(msg).not.toContain('instead of a recap')
+    // A saved WRAP press that did ask it replays asking it (replays have no notes to read it from).
+    expect(wrapUserMessage(ctx, 'button', true)).toContain('- FOLLOW: instead of a recap, one thing Keith still wants to learn')
+    expect(wrapUserMessage(ctx, 'closing', true)).not.toContain('instead of a recap')
   })
 
   it("planStillOpen reads only the notes block: the label said in the transcript doesn't count", () => {
@@ -421,6 +464,24 @@ describe('a call with a plan, start to finish', () => {
     expect(after.last_setup?.must_learn).toBeUndefined()
     expect(a.help.removeWrapupToLearn('Who signs off on new tools').ok).toBe(false)
     expect(JSON.stringify(a.logs)).not.toMatch(/signs off|score answers|Rollout|Deep-dive|Larkspur|budget|fourth/i)
+    a.help.shutdown()
+  })
+
+  it("the notes keeper never takes Keith's own question as their answer", async () => {
+    const a = app()
+    a.help.setSetup({ call_type: 'discovery', call_goal: '', desired_outcomes: [], account: ACCOUNT, deployment: 'unknown' })
+    a.help.setMustLearn([PLAN[0]])
+    a.state('checking')
+    a.state('live')
+    a.say('buyer', 'Today we score the answers with a rubric in a shared spreadsheet every week', 21)
+    a.say('keith', 'Who would sign off on bringing in a new tool like this?', 5)
+    a.say('buyer', 'Anyway, the bigger issue is the spreadsheet gets out of date fast', 21)
+    a.say('buyer', 'And the platform team keeps asking for a better way to track it', 21)
+    const first = a.model.of('notes')[0]
+    const keith = /\[(L\d+)\][^\n]*Who would sign off/.exec(first.req.user)![1]
+    first.release(notesAnswer({ plan: [{ item: PLAN[0], status: 'done', lines: [keith] }] }))
+    await flush()
+    expect(a.panel.at(-1)?.notes?.plan?.map((p) => p.status)).toEqual(['partial'])
     a.help.shutdown()
   })
 

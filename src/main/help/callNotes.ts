@@ -14,7 +14,7 @@
  */
 import { NOTE_FACT_KINDS, NOT_COVERED_TOPICS, type CallNoteItem, type CallNotes, type NotCoveredTopic, type NoteFactKind } from '../../shared/help'
 import type { PlanItemStatus } from '../../shared/help'
-import { MUST_LEARN_MAX, MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, mergePlan, planNow, sanitizeMustLearn } from './callPlan'
+import { MUST_LEARN_MAX, MUST_LEARN_MAX_CHARS, PLAN_SECTION_LABEL, PLAN_UNTRACKED_NOTE, mergePlan, planNow, sanitizeMustLearn } from './callPlan'
 
 /** The HELP block, tags included. */
 export const CALL_NOTES_BLOCK_MAX_CHARS = 800
@@ -126,7 +126,7 @@ export function validateNotes(
   text: string,
   lineIds: ReadonlyMap<string, string>,
   /** Keith's must-learns now and the plan the previous notes had (M3); without must-learns the notes carry no plan. */
-  plan?: { mustLearn: readonly string[]; previous?: readonly PlanItemStatus[] | null },
+  plan?: { mustLearn: readonly string[]; previous?: readonly PlanItemStatus[] | null; theirs?: (turnId: string) => boolean },
 ): NotesCheck {
   let raw: unknown
   try {
@@ -183,7 +183,7 @@ export function validateNotes(
       .filter((k) => !facts.some((f) => f.kind === k)),
   }
   // Only Keith's items; "done" needs a cited line; an item left out keeps its last status (callPlan.ts).
-  if (plan?.mustLearn.length) notes.plan = mergePlan(plan.mustLearn, r.plan, plan.previous, lineIds)
+  if (plan?.mustLearn.length) notes.plan = mergePlan(plan.mustLearn, r.plan, plan.previous, lineIds, plan.theirs)
   return { ok: true, notes }
 }
 
@@ -252,7 +252,7 @@ export function callNotesBlock(
   ]
   const head = usable
     ? `<call_notes note="running summary of the call up to ${o.clock(snap!.as_of_ms)}; may lag; the transcript wins if they disagree">`
-    : '<call_notes note="no notes yet: only what Keith wants to learn on this call">'
+    : `<call_notes note="${PLAN_UNTRACKED_NOTE}">`
   const tail = '</call_notes>'
   // Room for a citation like " [T123]" is kept for every cited item, so the real one always fits.
   const CITE = 7

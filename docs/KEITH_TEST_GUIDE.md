@@ -117,7 +117,7 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 # M2: nothing slips between calls
 
 ## Before the call: "Last time with…"
-- Start typing the **Account** in the strip: it suggests accounts you've had calls with. When it matches one, a box shows **Last time with <Account> · <date> (<n> calls)**: **You promised**, **They owe**, **Agreed next step**, **Still open**, **They want** and **What they told us**, each with the date of the call it came from. It comes from the wrap-ups of your last three calls with them (items you removed are left out, and your edits are kept) and their call notes.
+- Start typing the **Account** in the strip: it suggests accounts you've had calls with. When it matches one, a box shows **Last time with <Account> · <date> (<n> calls)**: **You promised**, **They owe**, **Agreed next step**, **Still open**, **They want** and **What they told us**, each with the date of the call it came from. It comes from the wrap-ups of your last three calls with them (items you removed are left out, and your edits are kept) and their call notes. Practice-mode (MOCK) wrap-ups are left out.
 - **Reuse last setup** fills the goal, outcomes and deployment from the last call, with call type **Follow-up**.
 - When you press **Start** the box folds to one line so it doesn't push HELP's card down; click it to open it again.
 - HELP knows these too: it may suggest a line like "Last time you mentioned X, is that still the case?". It treats them as what was true then, never as fact today, and won't promise again something you may already have done.
@@ -154,10 +154,10 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 - **Every card says what it's answering:** `Heard: "…do you integrate with Lang Smith?" (Speaker 1 · 4 s ago)`. If that's not what they just said, don't use the line.
 - **"Great question, so…"** as you press no longer throws away the ready card; it still shows instantly.
 - **If their audio isn't being transcribed**, the card says "Their last ~8 s weren't transcribed yet. HELP may be behind." In the compact strip, **Them ●** and **You ●** show whether each side is being heard: green yes, grey quiet, amber not transcribing, red no audio.
-- **Opening:** press HELP in the first minutes, before they've said much. On a follow-up call it picks up where you left off ("Last time you mentioned…"); on a first call it helps set the agenda from your goal and must-learns.
-- **Next step:** when they ask about a pilot, rollout, pricing or something to send their boss, the card answers (only from your approved files, never a price) and the line under it proposes a next step. The WRAP button shows a small tag like "pilot asked · 14:22", and WRAP builds on it.
-- **Another angle:** don't like the line? Press HELP again within about 20 seconds (with nothing new said) and you get a different one, labelled **Another angle**. The first card is marked "You pressed for another angle" in the review; no need to rate it.
-- **WRAP** with a must-learn still open: the line underneath asks it naturally before you hang up.
+- **Opening:** press HELP in the first minutes, before they've said much. On a follow-up call it picks up where you left off ("Last time you mentioned…"); on a first call it helps set the agenda from your goal and must-learns. On a follow-up with nothing they said on file (say, the last call only left your own must-learns), it reconnects and sets the agenda, without claiming anything about last time.
+- **Next step:** when they ask about a pilot, rollout, pricing or something to send their boss, the card answers (only from your approved files, never a price) and the line under it proposes a next step. The WRAP button shows a small tag like "pilot asked · 14:22" (just "pilot" in the compact strip, and only while live; hover it for the time), and WRAP builds on it. It's gone once the call ends.
+- **Another angle:** don't like the line? Press HELP again within about 20 seconds (with nothing new said) and you get a different one, labelled **Another angle**. Press again for a third, and it steers clear of both lines you passed on. The first card is marked "You pressed for another angle" in the review; no need to rate it.
+- **WRAP** with a must-learn the call notes still show as open: the line underneath asks it naturally before you hang up. With call notes off (or before the first notes), it can't tell what was answered, so the line underneath recaps what you promised instead.
 
 ## After Stop
-- The wrap-up shows **Still to learn**: the must-learns you didn't get. Remove any you don't care about; the rest show up next time under "Last time with…".
+- The wrap-up shows **Still to learn**: the must-learns you didn't get. Remove any you don't care about; the rest show up next time under "Last time with…". (Not in Practice mode: a MOCK wrap-up never feeds "Last time with…" or "Reuse last setup".)

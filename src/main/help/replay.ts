@@ -11,6 +11,7 @@ import type { CallSetup, CallType, Deployment, KnowledgeCategory, KnowledgeDocMe
 import { Db } from '../db'
 import { KnowledgeBase } from '../knowledge'
 import { cleanEarlierItems, type EarlierCallItem } from './accountMemory'
+import { sanitizeMustLearn } from './callPlan'
 import { CallMemory } from './callMemory'
 import type { WrapWhy } from './wrap'
 import type { PressDetail } from './pressModes'
@@ -36,6 +37,11 @@ export interface Scenario {
   desired_outcomes: string[]
   /** The buyer's deployment if Keith set it for the call (default unknown). */
   deployment?: Deployment
+  /**
+   * Keith's must-learns for the call, as set at the press (M3 call plan). Call notes aren't replayed,
+   * so HELP sees them all as still open, as before the first notes of a live call.
+   */
+  must_learn?: string[]
   speakers: Record<string, { role: 'buyer' | 'teammate' | 'unknown'; name: string | null }>
   transcript: ScenarioLine[]
   gaps?: Array<{ start: number; end: number; stream: Stream; cause: string }>
@@ -118,6 +124,8 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   }
   const memory = new CallMemory(`replay:${s.id}`, db)
   const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: s.account ?? '', deployment: s.deployment ?? 'unknown' }
+  const ml = sanitizeMustLearn(s.must_learn)
+  if (ml.length) setup.must_learn = ml
   memory.setup = setup
   memory.earlierCalls = cleanEarlierItems(s.earlier_calls)
   for (const [cluster, sp] of Object.entries(s.speakers)) {

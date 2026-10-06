@@ -210,6 +210,35 @@ describe('HELP engine: the ready card survives a filler', () => {
 })
 
 describe('HELP engine: background card on end of speech', () => {
+  it("Keith's filler landing inside the debounce doesn't cancel the waiting card: the press still gets it ready", async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { prefetch: true })
+    s.say('We run evals nightly on a sample.') // no question mark: no early start on speech_final
+    s.engine.onFinalWords('system_remote', 'We run evals nightly on a sample.')
+    s.advance(400)
+    await vi.advanceTimersByTimeAsync(400)
+    s.say('Mm-hmm.', 'keith')
+    s.engine.onFinalWords('local_mic', 'Mm-hmm.')
+    s.engine.onSpeechEnd('system_remote', 'utterance_end')
+    expect(m.calls).toHaveLength(1)
+    m.calls[0].send(CARD)
+    m.calls[0].finish()
+    await vi.advanceTimersByTimeAsync(1500)
+    s.advance(1500)
+    s.engine.press()
+    expect(m.calls).toHaveLength(1)
+    expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(true)
+    // Real words from Keith still cancel it, as before.
+    const t = engineFixture(m, playbook, { prefetch: true })
+    t.say('We run evals nightly on a sample.')
+    t.engine.onFinalWords('system_remote', 'We run evals nightly on a sample.')
+    t.say('Do you use an LLM judge for that?', 'keith')
+    t.engine.onFinalWords('local_mic', 'Do you use an LLM judge for that?')
+    t.engine.onSpeechEnd('system_remote', 'utterance_end')
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(m.calls).toHaveLength(1)
+  })
+
   it("their speech_final after a question starts the waiting background card at once (the debounce stays the fallback)", async () => {
     const m = new StagedModel()
     const s = engineFixture(m, playbook, { prefetch: true })
@@ -376,6 +405,22 @@ describe('HelpService wiring', () => {
     expect(seen).toEqual(['system_remote:utterance_end'])
     help.listeningBlindMs = () => 6500
     expect(blindNote(help.memory!)?.ms).toBe(6500)
+    help.shutdown()
+  })
+
+  it("a finished turn reaches the engine with its words, so Keith's filler can be told apart", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'heard-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    const clock = () => 3000
+    help.onSessionEvent({ type: 'state', state: 'checking', sessionId: 's-h' }, 's-h', clock)
+    help.onSessionEvent({ type: 'state', state: 'live', sessionId: 's-h' }, 's-h', clock)
+    const seen: Array<[string, string | undefined]> = []
+    help.engine!.onFinalWords = (stream, text) => { seen.push([stream ?? '', text]) }
+    help.onSessionEvent({ type: 'turn', event: { type: 'turn_final', turn: {
+      turn_id: 't1', session_id: 's-h', stream: 'local_mic', speaker_cluster: null, speaker_identity_id: null, speaker_role: 'unknown',
+      start_ms: 0, end_ms: 1000, text: 'Mm-hmm.', final: true, source_word_ids: [], gap_before: null,
+    } } } as SessionEvent, 's-h', clock)
+    expect(seen).toEqual([['local_mic', 'Mm-hmm.']])
     help.shutdown()
   })
 })

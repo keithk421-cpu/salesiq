@@ -471,7 +471,11 @@ body.compact .help-card[data-press="signal"] #hcFollow:not([hidden]), body.compa
 .wrap-signal { align-self: center; font-size: 11px; font-weight: 600; color: var(--ok); background: var(--ok-soft); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 body.compact .wrap-signal { font-size: 10.5px; padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .rv-passed { margin-top: 2px; font-style: italic; }
-/* The tag gives way before HELP does: the WRAP group may shrink, and the strip drops " asked". Between calls it's hidden. */
+/* The tag gives way before HELP does: the WRAP group may shrink, and the strip shows just the kind ("pilot",
+   "recap"; the tooltip keeps the time). The ellipsis above stays for a kind it doesn't know. */
 body.compact .m2-controls { min-width: 0; }
-body.compact .wrap-signal .ws-asked { display: none; }
-body.compact:not(.in-call) .wrap-signal { display: none; }
+body.compact .wrap-signal .ws-asked, body.compact .wrap-signal .ws-at { display: none; }
+/* Off live (paused: the Them/You dots give way to Start/Resume) there's no room, so it waits; the signal is kept for Resume. */
+body.compact .m2-controls:has(.health-dots[hidden]) .wrap-signal { display: none; }
+/* Between calls it's hidden in both windows: the last call's signal mustn't sit next to the next call's setup. */
+body:not(.in-call) .wrap-signal { display: none; }

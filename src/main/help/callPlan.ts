@@ -4,8 +4,9 @@
  *
  * - The must-learns are typed in the setup strip (sanitizeMustLearn) and travel with the call setup.
  * - Each notes update returns how far each one got; mergePlan keeps only Keith's items (matched by
- *   text), needs a cited line for "done" (else "partial"), and keeps an item's last status when the
- *   model leaves it out. Asked is not answered: Keith asking is not the other side answering.
+ *   text), needs a cited line of the other side's for "done" (else "partial"), and keeps an item's
+ *   last status when the model leaves it out. Asked is not answered: Keith asking is not the other
+ *   side answering.
  * - planNow lines the statuses up with the must-learns as they are now (one added mid-call starts
  *   open; one removed drops out); planOpen is what the call ended without (the wrap-up's "Still to learn").
  * - HELP sees the ones still open in its notes block (PLAN_SECTION_LABEL); WRAP asks one of them.
@@ -19,6 +20,11 @@ export const MUST_LEARN_MAX_CHARS = 80
 
 /** The notes block's plan section; wrap.ts looks for it to know a must-learn is still open. */
 export const PLAN_SECTION_LABEL = 'Keith still wants to learn (his plan for this call)'
+/**
+ * The notes block's note when no notes ran yet (or notes are off): the plan is listed, all open, but
+ * nothing tracked it, so wrap.ts doesn't take it as still open.
+ */
+export const PLAN_UNTRACKED_NOTE = 'no notes yet: only what Keith wants to learn on this call'
 
 const PLAN_STATUSES: readonly PlanStatus[] = ['open', 'partial', 'done']
 
@@ -72,7 +78,8 @@ export function mustLearnLine(setup: { must_learn?: unknown } | null | undefined
  * The model's plan answer checked against Keith's must-learns (`raw` is the answer's `plan`; anything
  * but a list counts as leaving every item out):
  * - only Keith's items, matched by text; anything else the model lists is dropped;
- * - "done" needs at least one cited line that was sent, else it is "partial" (unclear stays partial);
+ * - "done" needs at least one cited line that was sent and, given `theirs`, said by the other side,
+ *   else it is "partial" (unclear stays partial; Keith or a teammate asking is not their answer);
  * - "open" rests on nothing, so it cites nothing;
  * - an item the model leaves out keeps its previous status (or starts open).
  * Returned in Keith's order, with his own wording.
@@ -82,6 +89,8 @@ export function mergePlan(
   raw: unknown,
   previous: readonly PlanItemStatus[] | null | undefined,
   lineIds: ReadonlyMap<string, string>,
+  /** Whether a turn is the other side's (CallMemory.fromTheirSide); without it any cited line counts. */
+  theirs?: (turnId: string) => boolean,
 ): PlanItemStatus[] {
   const given = new Map<string, PlanItemStatus>()
   for (const x of Array.isArray(raw) ? raw : []) {
@@ -94,8 +103,9 @@ export function mergePlan(
       ? [...new Set(o.lines.map((l) => (typeof l === 'string' ? lineIds.get(l.replace(/[[\]\s]/g, '')) : undefined)).filter((v): v is string => !!v))]
       : []
     let status: PlanStatus = (PLAN_STATUSES as readonly unknown[]).includes(o.status) ? (o.status as PlanStatus) : 'partial'
-    // Done only when their answer settles it, and the lines say where.
-    if (status === 'done' && !ids.length) status = 'partial'
+    // Done only when their answer settles it, and the lines say where. Asked is not answered: lines
+    // that are only Keith's (or a teammate's) question make it partial at most; the lines stay for the hover.
+    if (status === 'done' && !(theirs ? ids.some(theirs) : ids.length)) status = 'partial'
     given.set(k, { item: o.item, status, turn_ids: status === 'open' ? [] : ids })
   }
   const before = new Map((previous ?? []).map((p) => [planKey(p.item), p]))

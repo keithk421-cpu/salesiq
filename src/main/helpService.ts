@@ -469,7 +469,7 @@ export class HelpService {
       case 'turn': {
         const t = ev.event.turn
         m.upsertTurn({ id: t.turn_id, stream: t.stream, cluster: t.speaker_cluster, start_ms: t.start_ms, end_ms: t.end_ms, text: t.text, available_ms: now }, ev.event.type === 'turn_final')
-        this.engine?.onFinalWords(t.stream)
+        this.engine?.onFinalWords(t.stream, t.text)
         if (ev.event.type === 'turn_final') this.notes?.onFinalTurn(t.turn_id)
         if (ev.event.type === 'turn_final') this.noteSignal(signalIn(m, { stream: t.stream, cluster: t.speaker_cluster, text: t.text, start_ms: t.start_ms }))
         break
@@ -531,10 +531,12 @@ export class HelpService {
     try {
       const mem = accountMemory(this.db, m.setup.account, m.sessionId)
       m.earlierCalls = (mem?.items ?? []).map(({ kind, text, date }) => ({ kind, text, date }))
+      m.hadEarlierCalls = (mem?.calls ?? 0) > 0
       this.log('account_memory', { calls: mem?.calls ?? 0, items: m.earlierCalls.length, ms: Date.now() - t0 })
     } catch (err) {
       // Never stops a call: HELP just goes without it.
       m.earlierCalls = []
+      m.hadEarlierCalls = false
       this.log('account_memory_failed', { code: (err as NodeJS.ErrnoException).code ?? 'unknown' })
     }
   }

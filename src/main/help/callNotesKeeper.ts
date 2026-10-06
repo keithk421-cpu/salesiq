@@ -346,7 +346,10 @@ export class CallNotesKeeper {
       this.setBlocked(null)
       this.d.onResult?.(null)
       // Checked against Keith's must-learns as they are now (he can change them mid-call).
-      const plan = { mustLearn: mustLearnOf(this.d.memory.setup), previous: this.snap?.notes.plan }
+      // "Done" must rest on a line of the other side's (callPlan.ts mergePlan): Keith asking isn't their answer.
+      const byId = new Map(this.d.memory.turnsAsOf(Number.POSITIVE_INFINITY).map((t) => [t.id, t]))
+      const theirs = (id: string) => { const t = byId.get(id); return !!t && this.d.memory.fromTheirSide(t) }
+      const plan = { mustLearn: mustLearnOf(this.d.memory.setup), previous: this.snap?.notes.plan, theirs }
       const v = res.stop_reason === 'refusal' || res.stop_reason === 'max_tokens' ? { ok: false as const, code: res.stop_reason } : validateNotes(res.text, this.turnOf, plan)
       if (v.ok) {
         status = 'updated'

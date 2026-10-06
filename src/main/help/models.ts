@@ -330,7 +330,9 @@ export class MockHelpModel implements HelpModel {
 function mockPress(user: string): { move: string; line: string; follow: string } | null {
   switch (pressModeOf(user)) {
     case 'opening':
-      return user.includes('<earlier_calls')
+      // Only when the block asked for a check-in on what they said last time (pressModes.ts openingBlock):
+      // earlier calls that left only Keith's own must-learns get the agenda line.
+      return /<opening_press>[\s\S]*This is not the first call with them/.test(user)
         ? { move: 'clarify_current_state', line: 'ASK: [MOCK] Picking up from last time: how did that go?', follow: '-' }
         : { move: 'call_control', line: "ASK: [MOCK] Here's what I'd love to cover today. Does that work?", follow: '-' }
     case 'signal':
