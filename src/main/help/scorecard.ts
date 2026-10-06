@@ -28,6 +28,8 @@ export interface HelpScorecard {
   tokens: { input: number; output: number; cache_read: number }
   feedback: { useful: number; should_have_stayed_quiet: number; bad: number; bad_reasons: Record<string, number>; used: number; notes: number }
   errors: Record<string, number>
+  /** Smarter presses (M3) among the requests Keith saw, and the cards he pressed again on for another angle ("passed": not a rating). */
+  presses: { opening: number; signal: number; another_angle: number; passed: number }
   /** Background call notes (counts and codes only). cost_usd above is HELP's; total_cost_usd adds the notes. */
   call_notes: { started: number; updated: number; invalid: number; failed: number; cancelled: number; closing: number; capped: number; cost_usd: number; tokens: { input: number; output: number; cache_read: number }; errors: Record<string, number> }
   /** The wrap-up after Stop and the follow-up draft (counts, cost and codes only; null when none was made). total_cost_usd adds both. */
@@ -60,7 +62,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
       return {}
     }
   }
-  type Timing = { served_from_prefetch: boolean; first_usable_ms: number | null; error_code: string | null; checks: number }
+  type Timing = { served_from_prefetch: boolean; first_usable_ms: number | null; error_code: string | null; checks: number; press_mode: string }
   type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tokens: number; cost_usd: number }
   const card: HelpScorecard = {
     kind: 'help_scorecard', session_id: sessionId, created_at: now.toISOString(), call_minutes: Math.round(callMs / 6000) / 10,
@@ -68,6 +70,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     first_usable_ms: { median: null, p95: null }, cards_with_checks: 0,
     prefetch: { started: 0, used: 0, unused: 0, unused_cost_usd: 0 }, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 },
     feedback: { useful: 0, should_have_stayed_quiet: 0, bad: 0, bad_reasons: {}, used: 0, notes: 0 }, errors: {},
+    presses: { opening: 0, signal: 0, another_angle: 0, passed: 0 },
     call_notes: { started: 0, updated: 0, invalid: 0, failed: 0, cancelled: 0, closing: 0, capped: 0, cost_usd: 0, tokens: { input: 0, output: 0, cache_read: 0 }, errors: {} },
     wrapup: null,
     total_cost_usd: 0,
@@ -96,6 +99,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
     if (r.status === 'complete' || r.status === 'failed' || r.status === 'timeout' || r.status === 'cancelled' || r.status === 'superseded') card[r.status]++
     if (typeof t.first_usable_ms === 'number') firstUsable.push(t.first_usable_ms)
     if ((t.checks ?? 0) > 0) card.cards_with_checks++
+    if (t.press_mode === 'opening' || t.press_mode === 'signal' || t.press_mode === 'another_angle') card.presses[t.press_mode]++
   }
   card.prefetch.unused = card.prefetch.started - card.prefetch.used
   firstUsable.sort((a, b) => a - b)
@@ -109,6 +113,7 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
       if (f.rating === 'bad') for (const r of f.reasons) card.feedback.bad_reasons[r] = (card.feedback.bad_reasons[r] ?? 0) + 1
       if (f.used) card.feedback.used++
       if (f.note) card.feedback.notes++
+      if (f.passed) card.presses.passed++
     }
   }
   // Call notes keep one row per call with running counts (never read the notes text here).
@@ -143,9 +148,9 @@ export function buildScorecard(db: Db, sessionId: string, callMs: number, now = 
  * Keith's feedback per card, folded: the last rating counts (Keith can change his mind; "Bad" then a
  * reason is one verdict), the last used/unused counts, the last note counts.
  */
-export function readFeedback(db: Db, cardIds: string[]): Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null }> {
+export function readFeedback(db: Db, cardIds: string[]): Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null; passed?: boolean }> {
   const rows = db.sql.prepare('SELECT card_id, type, bad_reason, note FROM feedback WHERE card_id IN (SELECT value FROM json_each(?)) ORDER BY id').all(JSON.stringify(cardIds)) as Array<{ card_id: string; type: string; bad_reason: string | null; note: string | null }>
-  const out = new Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null }>()
+  const out = new Map<string, { rating: (typeof RATINGS)[number] | null; reasons: Set<string>; used: boolean; note: string | null; passed?: boolean }>()
   for (const r of rows) {
     const f = out.get(r.card_id) ?? { rating: null, reasons: new Set<string>(), used: false, note: null }
     if ((RATINGS as readonly string[]).includes(r.type)) {
@@ -154,6 +159,8 @@ export function readFeedback(db: Db, cardIds: string[]): Map<string, { rating: (
       if (r.bad_reason) f.reasons.add(r.bad_reason)
     } else if (r.type === 'used' || r.type === 'unused') f.used = r.type === 'used'
     else if (r.type === 'note') f.note = r.note
+    // Keith pressed again for another angle: not a rating, and it never changes one.
+    else if (r.type === 'passed') f.passed = true
     out.set(r.card_id, f)
   }
   return out

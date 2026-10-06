@@ -525,6 +525,9 @@ function registerIpc(): void {
   ipcMain.handle('wrapup:addItem', (_e, raw: unknown) => help?.addWrapupItem(raw) ?? { ok: false, wrapup: null })
   ipcMain.handle('wrapup:draft', () => (help ? help.draftFollowup() : { ok: false, reason: 'HELP unavailable', wrapup: null }))
   ipcMain.handle('wrapup:retry', () => (help ? help.retryWrapup() : { ok: false, wrapup: null }))
+  // ---- M3 smarter presses: the latest buying signal of the call, a quiet tag on the WRAP button ----
+  if (help) help.onSignal = (s) => send('buying-signal', s)
+  ipcMain.handle('help:signal', () => help?.signal ?? null)
 }
 
 function createWindow(): void {

@@ -258,6 +258,8 @@ export interface CallCard {
   bad_reason: BadReason | null
   used: boolean
   note: string | null
+  /** Keith pressed again for another angle instead of using this card (M3). Absent when he didn't. */
+  passed?: boolean
 }
 export type BadReason = 'wrong_move' | 'assumed_too_much' | 'already_known' | 'too_generic' | 'too_late' | 'bad_wording' | 'unsupported' | 'other'
 

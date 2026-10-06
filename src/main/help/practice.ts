@@ -28,6 +28,7 @@ import { cleanEarlierItems } from './accountMemory'
 import { DEFAULT_SETUP } from './callMemory'
 import { fmtClock } from './context'
 import { localStamp } from './feedbackExport'
+import { savedPress } from './pressModes'
 import { FINAL_DELAY_MS, type ObservedCard, type Scenario } from './replay'
 import { readFeedback } from './scorecard'
 
@@ -45,6 +46,12 @@ export interface PracticeGap {
 }
 
 export type PracticeBuild = { ok: true; moment: Scenario } | { ok: false; reason: string }
+
+const PRESS_TEXT: Record<string, string> = {
+  opening: 'Keith pressed HELP at the start of the call',
+  signal: 'Keith pressed HELP after they asked about a next step (pilot, rollout, pricing or something for their boss)',
+  another_angle: 'Keith pressed HELP again for another angle',
+}
 
 const RATING_TEXT: Record<string, string> = { useful: 'Useful', should_have_stayed_quiet: "Should've stayed quiet", bad: 'Bad' }
 
@@ -247,9 +254,11 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
   const pressed = new Date(row.created_at)
   const title = `${setup.account.trim() || 'Call'} · ${Number.isNaN(pressed.getTime()) ? row.created_at : localStamp(pressed)}`
   // A card prepared in the background was built from the call a little before Keith pressed.
-  const timing = parse<HelpTiming & { wrap?: string }>(row.timing_json)
+  const timing = parse<HelpTiming & { wrap?: string; press_mode?: string; press_signal?: string; angle_of?: string; wrap_signal?: unknown }>(row.timing_json)
   const wrap = timing.wrap === 'button' || timing.wrap === 'closing' ? timing.wrap : undefined
-  const press = wrap === 'button' ? 'Keith pressed WRAP' : wrap === 'closing' ? 'Keith pressed HELP as the call sounded like it was ending' : 'Keith pressed HELP'
+  // A smarter press replays with the block it had: its mode, and what the block showed.
+  const pressInfo = savedPress(timing, atPress, (id) => db.sql.prepare('SELECT card_json FROM help_requests WHERE id = ? AND session_id = ?').get(id, sid) as { card_json: string | null } | undefined)
+  const press = wrap === 'button' ? 'Keith pressed WRAP' : wrap === 'closing' ? 'Keith pressed HELP as the call sounded like it was ending' : pressInfo.press_mode ? PRESS_TEXT[pressInfo.press_mode] : 'Keith pressed HELP'
   const built = timing.served_from_prefetch
     ? `HELP's card was prepared at ${fmtClock(atMs)} into the call and shown when Keith pressed HELP shortly after`
     : `HELP's context was built at ${fmtClock(atMs)} into the call, when ${press}`
@@ -283,6 +292,7 @@ export function buildPracticeMoment(db: Db, requestId: string, opts: { gaps?: (s
     knowledge,
     ...(earlierCalls.length ? { earlier_calls: earlierCalls } : {}),
     ...(wrap ? { wrap } : {}),
+    ...pressInfo,
     best_moves: [],
     acceptable_moves: expected.acceptable,
     ...(expected.unacceptable.length ? { unacceptable_moves: expected.unacceptable } : {}),
@@ -329,6 +339,8 @@ export function refreshFeedback(saved: Scenario, fresh: Scenario): Scenario {
     unacceptable_behaviors: [...list(saved.unacceptable_behaviors).filter((b) => !WRONG_MOVE_BEHAVIOR.test(b)), ...fresh.unacceptable_behaviors.filter((b) => WRONG_MOVE_BEHAVIOR.test(b))],
     keith_notes: notes.join('\n'),
     ...(fresh.wrap ? { wrap: fresh.wrap } : {}),
+    ...(fresh.press_mode ? { press_mode: fresh.press_mode } : {}),
+    ...(fresh.press_detail ? { press_detail: fresh.press_detail } : {}),
   }
   if (!unacceptable.length) delete out.unacceptable_moves
   return out

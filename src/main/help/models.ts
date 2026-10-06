@@ -7,6 +7,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { HelpModelConfig, HelpUsage } from '../../shared/help'
 import { isWrapRequest } from './wrap'
+import { pressModeOf, priorMoveOf } from './pressModes'
 
 export interface HelpModelRun {
   system: string
@@ -276,11 +277,13 @@ export class MockHelpModel implements HelpModel {
     const last = /\[(T\d+)\][^\n]*$/m.exec(req.user.split('<last_30_seconds>')[1] ?? '')?.[1]
     // A WRAP press gets a next-step placeholder, so Practice mode shows what that card looks like.
     const wrap = isWrapRequest(req.user)
+    // An opening, buying-signal or another-angle press (pressModes.ts) gets a placeholder of its kind too.
+    const press = wrap ? null : mockPress(req.user)
     const lines = [
-      wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
-      wrap ? 'ASK: [MOCK] What day works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
+      press ? `MOVE: ${press.move}` : wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
+      press ? press.line : wrap ? 'ASK: [MOCK] What day works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
       'HAPPENING: [MOCK] Placeholder read - no model was called.',
-      wrap ? "FOLLOW: [MOCK] I'll send over what I promised." : 'FOLLOW: -',
+      press ? `FOLLOW: ${press.follow}` : wrap ? "FOLLOW: [MOCK] I'll send over what I promised." : 'FOLLOW: -',
       `SOURCES: ${last ?? '-'}`,
       'NOTE: MOCK output for offline testing',
     ]
@@ -322,3 +325,28 @@ export class MockHelpModel implements HelpModel {
     }
   }
 }
+
+/** Placeholder lines for a smarter press, so Practice mode shows what each card looks like. */
+function mockPress(user: string): { move: string; line: string; follow: string } | null {
+  switch (pressModeOf(user)) {
+    case 'opening':
+      return user.includes('<earlier_calls')
+        ? { move: 'clarify_current_state', line: 'ASK: [MOCK] Picking up from last time: how did that go?', follow: '-' }
+        : { move: 'call_control', line: "ASK: [MOCK] Here's what I'd love to cover today. Does that work?", follow: '-' }
+    case 'signal':
+      return { move: 'clarify_requirement', line: "SAY: [MOCK] Good question. I'll check and come back to you.", follow: '[MOCK] Who should join a call to plan next steps, and when suits you?' }
+    case 'another_angle': {
+      // A different move from the card Keith already had.
+      const had = priorMoveOf(user)
+      const pick = MOCK_ANGLES.find((a) => a.move !== had) ?? MOCK_ANGLES[0]
+      return { ...pick, follow: '-' }
+    }
+    default:
+      return null
+  }
+}
+
+const MOCK_ANGLES = [
+  { move: 'identify_owner', line: 'ASK: [MOCK] Another angle: who else weighs in on this?' },
+  { move: 'explore_process', line: 'ASK: [MOCK] Another angle: how does that work step by step?' },
+]

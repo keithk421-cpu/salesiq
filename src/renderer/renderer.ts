@@ -12,6 +12,7 @@ import { HEALTH_LABEL } from '../shared/captureHealth'
 import { initCompact } from './compact'
 import { initAccountMemory } from './accountMemory'
 import { initWrapup } from './wrapup'
+import { initPressModes } from './pressModes'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -1154,6 +1155,7 @@ void (async () => {
 })()
 
 initWrapup(api)
+initPressModes(api)
 
 void (async () => {
   const info = await api.info()
