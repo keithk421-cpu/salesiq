@@ -48,10 +48,13 @@ export function initHeard(api: CopilotApi): void {
   })
 
   const dots = { system_remote: document.getElementById('hdThem'), local_mic: document.getElementById('hdYou') }
+  const pair = document.getElementById('healthDots')
   api.onSession((raw) => {
     const ev = raw as SessionEvent
     // A new call numbers its presses from 1 again.
     if (ev.type === 'state' && ev.state === 'checking') seq = -1
+    // Only while live: between calls and paused both would be grey, and Start or Resume needs the room on the strip.
+    if (ev.type === 'state' && pair) pair.hidden = ev.state !== 'live'
     if (ev.type !== 'stream_status') return
     const el = dots[ev.status.stream]
     if (!el) return
