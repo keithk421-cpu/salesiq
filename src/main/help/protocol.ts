@@ -460,8 +460,10 @@ const OUR_PRICE = /\b(?:our|my)\s+(?:price|pricing|quote|number|offer|rate|best)
  * A free period with no figure in it: "a free month", "the first month is on us", "free for a month".
  * A term Keith never promises, on any call.
  */
-const FREE_PERIOD = /\b(?:a|one|an\s+extra|an\s+additional|another|the\s+first|first)\s+(?:free\s+(?:month|quarter|year|week)\b|(?:month|quarter|year|week)(?:['’]s)?\s+(?:(?:is|are)\s+)?(?:free|on\s+us|at\s+no\s+(?:cost|charge)|for\s+free)\b)|\bfree\s+for\s+(?:a|one|the\s+first)\s+(?:month|quarter|year|week)\b/i
+const FREE_PERIOD = /(?<!\b(?:have|has|had|got|find|any)\s+)\b(?:a|one|an\s+extra|an\s+additional|another|the\s+first|first)\s+(?:free\s+(?:month|quarter|year|week)\b|(?:month|quarter|year|week)(?:['’]s)?\s+(?:(?:is|are)\s+)?(?:free|on\s+us|at\s+no\s+(?:cost|charge)|for\s+free)\b)|\bfree\s+for\s+(?:a|one|the\s+first)\s+(?:month|quarter|year|week)\b|(?<=\b(?:we|i|we['’](?:ll|d)|i['’](?:ll|d)|happy\s+to|glad\s+to)\s+(?:can\s+|could\s+|would\s+|will\s+)?)waive\s+(?:the\s+)?(?:first\s+)?(?:month|quarter|year|week|fee|fees|setup\s+fee|onboarding\s+fee)\b/i
 /** After "free", these keep it about a period ("free for 30 days", "a free 30-day pilot"); "free text" or "the free tier" is something else. */
+/** "Free" as someone's time, not a price: "your team is free", "are you free", "do you have a free week". */
+const FREE_AVAILABLE_BEFORE = /^(?:you|you['’]re|they|they['’]re|team|everyone|anyone|someone|people|have|has|had|got|find)$/
 const FREE_PERIOD_NEXT = /^(?:|for|of|during|through|until|to|on|and|trial|pilot|poc|period|months?|weeks?|days?|years?|quarters?|\d.*)$/
 
 interface PriceToken { w: string; start: number; end: number }
@@ -610,7 +612,11 @@ function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation:
   if (/^(?:months?|years?|weeks?|days?|quarters?)$/.test(at(f.j + 1))) {
     for (let k = f.i - 5; k <= f.j + 5; k++) {
       const w = at(k)
-      if ((w === 'free' && FREE_PERIOD_NEXT.test(at(k + 1))) || w.startsWith('waiv') || (w === 'on' && at(k + 1) === 'us') || ((w === 'no' || w === 'zero') && /^(?:charge|cost)$/.test(at(k + 1)))) return 'free'
+      // Not their time ("Is your team free for 2 weeks?", "Do you have a free week?"), nor their own
+      // process waived ("Could security waive the 90-day review?"): only our side waives.
+      const available = w === 'free' && (FREE_AVAILABLE_BEFORE.test(at(k - 1)) || (/^(?:a|any)$/.test(at(k - 1)) && FREE_AVAILABLE_BEFORE.test(at(k - 2))))
+      const ourWaive = w.startsWith('waiv') && [1, 2, 3].some((d) => OUR_SIDE.test(at(k - d)) || /^(?:happy|glad)$/.test(at(k - d)))
+      if ((w === 'free' && !available && FREE_PERIOD_NEXT.test(at(k + 1))) || ourWaive || (w === 'on' && at(k + 1) === 'us') || ((w === 'no' || w === 'zero') && /^(?:charge|cost)$/.test(at(k + 1)))) return 'free'
     }
   }
   // A figure within 3 words of a price word (a spelled number only when it's big: "the two price tiers" is fine).
@@ -693,11 +699,22 @@ function asksTheirFigureBack(f: PriceFigure, reason: string, t: string, spend: S
  * it is").
  */
 function recapsTheirFigure(f: PriceFigure, reason: string, t: string, all: PriceFigure[]): boolean {
-  if (reason === 'offer' || reason === 'free' || CONDITION.test(t) || hasOfferShape(t) || OUR_PRICE.test(t) || ARIZE_SIDE.test(t)) return false
+  // Only an amount of their money (their spend, their budget): never a discount or a %, which recapped
+  // as a statement reads as agreeing to it ("You mentioned 20% off. Happy to.").
+  if (reason !== 'currency' && reason !== 'large') return false
+  if (CONDITION.test(t) || hasOfferShape(t) || OUR_PRICE.test(t) || ARIZE_SIDE.test(t)) return false
   if (all.filter((g) => g.value === f.value).length > 1) return false
-  const s = sentenceAt(t, f.start).text
-  return ATTRIBUTION.test(s) && !MODAL.test(s) && !WITH_ARIZE.test(s)
+  const s = sentenceAt(t, f.start)
+  if (!ATTRIBUTION.test(s.text) || MODAL.test(s.text) || WITH_ARIZE.test(s.text)) return false
+  // Nothing in the recap says it fits or settles anything ("Your budget of $150k covers the platform").
+  if (RECAP_JUDGES.test(s.text.slice(f.end - s.start))) return false
+  // Any other sentence of the line checks it with them ("...Does that still hold?"): a statement after
+  // it ("That works.", "Expect about a tenth of that here.") may accept or price it.
+  const rest = (t.slice(0, s.start) + t.slice(s.start + s.text.length)).split(/(?<=[.?!])\s+/).map((x) => x.trim()).filter(Boolean)
+  return rest.every((x) => x.endsWith('?'))
 }
+/** Words after their figure that judge it against Arize: it covers, fits, works, is enough, the same here. */
+const RECAP_JUDGES = /\b(?:covers?|covering|fits?|works?|enough|doable|fine|plenty|same|cheaper|less|more\s+than|under|within|gets?\s+you|buys?|pays?\s+for|here)\b/i
 
 /** The figures an approved item states, with what each is: a % only backs a %, money only money. */
 function approvedFigures(text: string): Array<{ value: string; unit: PriceUnit; priced: boolean }> {
@@ -743,6 +760,8 @@ export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpt
       const unit = priceUnit(f, toks)
       if (f.value && approved.some((a) => a.value === f.value && (unit === 'plain' ? a.unit !== 'plain' || a.priced : a.unit === unit))) continue
       if (mayAskBack && f.value && theirs.has(f.value) && asksTheirFigureBack(f, reason, t, theirSpend)) continue
+      // "Are your payment terms net 30 with every vendor?": a question about their terms, not ours.
+      if (reason === 'term' && line.question && /\b(?:your|their)\s+(?:standard\s+)?(?:payment\s+)?terms\b/i.test(sentenceAt(t, f.start).text)) continue
       if (f.value && theirs.has(f.value) && recapsTheirFigure(f, reason, t, figs)) continue
       // "Is that 10 million across all three assistants?" after they said "10 million traces": a big
       // figure they gave as a count is their volume, not a price, unless the line offers something.

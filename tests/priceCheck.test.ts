@@ -692,3 +692,28 @@ describe('HELP engine: the price check on a live card', () => {
     expect(s.events.at(-1)!.checks).toEqual([CHECK_NUMBER, CHECK_PRICE])
   })
 })
+
+describe('verification fixes: a recap never accepts; their time and their terms are not ours', () => {
+  const theirText = 'Our ceiling is $120k for this. Today we spend about $200k a year on Datadog. We need 20% off to get it through. Our budget is $150k. Our OpenAI spend is $40,000 a month.'
+  for (const type of CALL_TYPES) {
+    it(`a recap of their money passes only as a recap (${type})`, () => {
+      for (const line of [
+        'You mentioned the $200k a year on Datadog and two engineers debugging by hand. Does that still hold?',
+        'You spend $200k a year on Datadog today.',
+      ]) expect(priceFigures(card(line, { primary_kind: 'say' }), { callType: type, theirText }), line).toEqual([])
+      for (const line of [
+        'You mentioned 20% off. Happy to.', 'You mentioned $120k. That works.', 'You mentioned $120k. Yes.',
+        'Your ceiling is $120k. That should be doable.', 'Your budget of $150k covers the full platform.',
+        'Your OpenAI spend is $40,000 a month. Expect about a tenth of that here.',
+      ]) expect(priceFigures(card(line, { primary_kind: 'say' }), { callType: type, theirText }).length, line).toBeGreaterThan(0)
+    })
+    it(`their availability, their own review and their own terms pass; our waivers and free time flag (${type})`, () => {
+      for (const line of ['Is your team free for 2 weeks in March?', 'Do you have a free week before Q3 for the evaluation?', 'Could security waive the 90-day review for a sandbox?', 'Are your payment terms net 30 with every vendor?', 'Are you free for 30 minutes on Tuesday?']) {
+        expect(priceFigures(card(line, { primary_kind: 'ask' }), { callType: type }), line).toEqual([])
+      }
+      for (const line of ['We can waive the first 90 days.', 'Happy to waive the first month.', 'The first three months are free.', 'A free month to start.', 'We could do net 60.', 'Free for the first 30 days.']) {
+        expect(priceFigures(card(line, { primary_kind: 'say' }), { callType: type }).length, line).toBeGreaterThan(0)
+      }
+    })
+  }
+})
