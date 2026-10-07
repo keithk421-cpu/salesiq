@@ -27,7 +27,7 @@ import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
 import { planStillOpen, type WrapWhy } from './wrap'
-import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
+import { blindNote, heardLine, isFiller, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
 import { keithNotesChecks } from './keithNotes'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 import { planKey } from './callPlan'
@@ -231,13 +231,15 @@ export class HelpEngine {
    * Call when new final transcript words arrive. After the other side speaks, schedules a background
    * candidate; Keith's own words only cancel a pending one (he's talking, so it would be stale).
    * `text` is the turn's words: Keith's short filler ("Mm-hmm.") cancels nothing, as at a press (heard.ts).
-   * `cluster` (M5): on a demo or deep-dive, a tagged SA's words cancel a pending one like Keith's do.
+   * `cluster` (M5): on a demo or deep-dive, a tagged SA's words cancel a pending one like Keith's do,
+   * and their short filler ("Mm-hmm." while the buyer finishes) cancels nothing, like his.
    */
   onFinalWords(stream: Stream = 'system_remote', text?: string, cluster?: string | null): void {
     if (!this.d.prefetch || this.d.model.mock || this.cancelled || this.blocked) return
     // His "Mm-hmm" often comes back inside the 700 ms debounce: the card waiting for it must still start,
     // or there's no ready card for the filler rule to keep.
     if (text !== undefined && keithFiller({ stream, text })) return
+    if (text !== undefined && isFiller(text) && this.d.memory.saPresenting(cluster)) return
     if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
     this.prefetchTimer = null
     if (stream !== 'system_remote') return

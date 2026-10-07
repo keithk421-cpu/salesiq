@@ -1,10 +1,10 @@
 /**
  * M5 call modes in the setup strip: each call type has its own job, so the strip helps set it up.
  * - A small length select next to the call type ("30 min"), for HELP's "about 10 minutes left" cue.
- *   Before the call it follows the type's usual length (CALL_LENGTH_DEFAULTS: discovery 30, demo 60,
- *   ...) until Keith picks one; then a type change leaves their pick alone. It can be changed
- *   mid-call (the next HELP press uses it), but a type change mid-call doesn't move it: the meeting
- *   is still as long as it was booked for.
+ *   It follows the type's usual length (CALL_LENGTH_DEFAULTS: discovery 30, demo 60, ...) until Keith
+ *   picks one, before or during the call; then a type change leaves their pick alone. Only a picked
+ *   length is saved: otherwise the main process uses the type's usual one, so switching to a demo
+ *   mid-call means 60 minutes, not the 30 the strip showed for the discovery it said before.
  * - "No SA today", only on a demo or a technical deep-dive (Keith presents alone).
  * - The goal and outcomes boxes show what this type of call is for as grey placeholder text only:
  *   nothing is ever typed into them for Keith.
@@ -17,8 +17,6 @@
  */
 import type { CopilotApi } from '../preload/preload'
 import { CALL_LENGTH_CHOICES, CALL_LENGTH_DEFAULTS, CALL_TYPES, type CallSetup, type CallType } from '../shared/help'
-
-const IN_CALL = new Set(['checking', 'live', 'paused', 'stopping'])
 
 /** The call types where an Arize SA usually presents: only these offer "No SA today". */
 const SA_TYPES: ReadonlySet<CallType> = new Set(['demo', 'technical_deep_dive'])
@@ -42,7 +40,7 @@ export const GOAL_PLACEHOLDER: Record<CallType, { goal: string; outcomes: string
     outcomes: 'Outcomes: owed items closed or re-dated, dated next step with names',
   },
   negotiation: {
-    goal: "Goal: agree a fair deal: value first, trade don't give; path to signature with dates",
+    goal: "Goal: agree a fair deal (value first, trade don't give); path to signature with dates",
     outcomes: 'Outcomes: path to signature with dates, nothing unapproved given',
   },
   // Other: the strip's own examples, as before.
@@ -71,9 +69,9 @@ export function offersNoSa(type: unknown): boolean {
   return SA_TYPES.has(typeOf(type))
 }
 
-/** What the strip saves along with its other fields (renderer.ts saveSetup); nothing before init. */
-let extras: () => { length_min?: number; no_sa?: boolean } = () => ({})
-export function setupExtras(): { length_min?: number; no_sa?: boolean } {
+/** What the strip saves along with its other fields (renderer.ts saveSetup); nothing before init. null clears a saved length. */
+let extras: () => { length_min?: number | null; no_sa?: boolean } = () => ({})
+export function setupExtras(): { length_min?: number | null; no_sa?: boolean } {
   return extras()
 }
 
@@ -98,8 +96,7 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
   typeEl.after(lengthEl, noSaWrap)
   const noSaEl = $<HTMLInputElement>('csNoSa')
 
-  let inCall = false
-  /** Keith picked the length (before the call): a type change then leaves it alone. */
+  /** Keith picked the length (before or during the call): it is saved, and a type change leaves it alone. */
   let picked = false
 
   function setLength(n: number): void {
@@ -116,17 +113,22 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
     const ph = GOAL_PLACEHOLDER[type]
     $<HTMLInputElement>('csGoal').placeholder = ph.goal
     $<HTMLInputElement>('csOutcomes').placeholder = ph.outcomes
+    // The boxes cut the grey text off at normal widths: the hover shows all of it.
+    $<HTMLInputElement>('csGoal').title = ph.goal
+    $<HTMLInputElement>('csOutcomes').title = ph.outcomes
     noSaWrap.hidden = !offersNoSa(type)
   }
 
-  /** Before the call, the length follows the type until Keith picks one. */
+  /** The length follows the type until Keith picks one. */
   function presetLength(): void {
-    if (inCall || picked) return
+    if (picked) return
     const n = defaultLength(typeEl.value)
     if (lengthEl.value !== String(n)) setLength(n)
   }
 
-  extras = () => ({ length_min: Number(lengthEl.value) || defaultLength(typeEl.value), no_sa: noSaEl.checked })
+  // A length Keith didn't pick is the type's usual one, which the main process fills in itself: saving
+  // the shown number would pin it when the type changes later (null clears one saved before).
+  extras = () => ({ length_min: picked ? Number(lengthEl.value) || defaultLength(typeEl.value) : null, no_sa: noSaEl.checked })
 
   // The type changed, by Keith or by the app (faster setup and its Undo fire 'change'). These listeners
   // are added before renderer.ts's save on the same fields, so the one save carries the new length.
@@ -138,7 +140,7 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
     })
   }
   lengthEl.addEventListener('change', () => {
-    if (!inCall) picked = true
+    picked = true
     save()
   })
   noSaEl.addEventListener('change', save)
@@ -150,8 +152,8 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
     const type = typeOf(su?.call_type ?? typeEl.value)
     const saved = typeof su?.length_min === 'number' ? su.length_min : null
     setLength(saved ?? defaultLength(type))
-    // A saved length that isn't the type's usual one was Keith's pick.
-    picked = saved !== null && saved !== defaultLength(type)
+    // Only a length Keith picked is ever saved.
+    picked = saved !== null
     noSaEl.checked = su?.no_sa === true
     // The saved type: renderer.ts puts the same one in the strip, maybe a moment after this.
     showType(type)
@@ -160,7 +162,6 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
   api.onSession((raw) => {
     const ev = raw as { type?: string; state?: string }
     if (ev.type !== 'state' || !ev.state) return
-    inCall = IN_CALL.has(ev.state)
     if (ev.state === 'stopped' || ev.state === 'idle') void reload()
   })
   setLength(defaultLength(typeEl.value))

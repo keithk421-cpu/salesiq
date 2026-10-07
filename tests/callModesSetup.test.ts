@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AudioEndpointConfig } from '../src/shared/contracts'
+import type { AudioEndpointConfig, Turn } from '../src/shared/contracts'
 import { CALL_LENGTH_CHOICES, CALL_LENGTH_DEFAULTS, CALL_TYPES, type CallSetup } from '../src/shared/help'
 import { toEndpointRef } from '../src/main/endpoints'
 import { CallMemory, DEFAULT_SETUP, mergeModeSetup, setupKey, validLength } from '../src/main/help/callMemory'
@@ -196,6 +196,31 @@ describe('the background card follows the setup (M5)', () => {
     }
   })
 
+  it("the SA's short filler while the buyer finishes leaves the waiting card alone, as Keith's does", async () => {
+    for (const filler of ['Mm-hmm.', 'Yeah, makes sense.', 'Right.']) {
+      const { m, s } = demoCall()
+      s.engine.onFinalWords('system_remote', 'Can it show the cost per call?', 'e1:s0')
+      await vi.advanceTimersByTimeAsync(300)
+      s.engine.onFinalWords('system_remote', filler, 'e1:s1')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(m.calls, filler).toHaveLength(1)
+    }
+    // Filler with real words after it is the SA carrying on: it cancels.
+    for (const words of ['Mm-hmm, and over here is the cost view.', 'Yeah, so let me open that.']) {
+      const { m, s } = demoCall()
+      s.engine.onFinalWords('system_remote', 'Can it show the cost per call?', 'e1:s0')
+      await vi.advanceTimersByTimeAsync(300)
+      s.engine.onFinalWords('system_remote', words, 'e1:s1')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(m.calls, words).toHaveLength(0)
+    }
+    // The SA's filler on its own still starts nothing.
+    const { m, s } = demoCall()
+    s.engine.onFinalWords('system_remote', 'Mm-hmm.', 'e1:s1')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(m.calls).toHaveLength(0)
+  })
+
   it('anywhere else, or with nobody tagged, it behaves as before', async () => {
     // Discovery: a teammate's words start a candidate, as today.
     const d = demoCall('discovery')
@@ -223,6 +248,45 @@ describe('the background card follows the setup (M5)', () => {
       expect(mem.saPresenting('e2:s1'), type).toBe(false) // a new connection numbers speakers afresh: not tagged
       expect(mem.saPresenting(null), type).toBe(false)
     }
+  })
+})
+
+describe("the live call passes the speaker id to the background card (M5)", () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => vi.useRealTimers())
+
+  it("in a demo, the tagged SA's turn from the session starts no background card; the buyer's does", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'm5wire-'))
+    const help = new HelpService(new Storage(dir, plainBox), ROOT, () => {}, () => {})
+    help.setSettings({ prefetch: true, call_notes: false, wrapup: false })
+    const m = new StagedModel()
+    help.createModel = () => m
+    let t = 0
+    let n = 0
+    const state = (st: string) => help.onSessionEvent({ type: 'state', state: st, sessionId: 's-w' } as SessionEvent, 's-w', () => t)
+    const say = (cluster: string, text: string) => {
+      const start = t
+      t += 4000
+      const turn: Turn = {
+        turn_id: `w${++n}`, session_id: 's-w', stream: 'system_remote', speaker_cluster: cluster,
+        speaker_identity_id: null, speaker_role: 'unknown', start_ms: start, end_ms: t, text, final: true, source_word_ids: [], gap_before: null,
+      }
+      help.onSessionEvent({ type: 'turn', event: { type: 'turn_final', turn } } as SessionEvent, 's-w', () => t)
+    }
+    help.setSetup({ ...BASE, call_type: 'demo' })
+    state('checking')
+    state('live')
+    expect(help.setLabel({ cluster: 'e1:s1', role: 'teammate', name: 'Sam (SA)' })).toEqual({ ok: true })
+    const spy = vi.spyOn(help.engine!, 'onFinalWords')
+    say('e1:s1', 'So here you can see every span in the trace, and the cost per call.')
+    expect(spy).toHaveBeenLastCalledWith('system_remote', expect.any(String), 'e1:s1')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(m.calls).toHaveLength(0)
+    say('e1:s0', 'Can it show that per team?')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(m.calls).toHaveLength(1)
+    help.engine!.cancelAll('stop')
+    help.shutdown()
   })
 })
 
