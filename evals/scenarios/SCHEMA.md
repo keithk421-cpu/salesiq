@@ -66,7 +66,13 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
 **Call-mode scenarios (M5, `mode-*.json`, `"category": "call_mode"`)** test what each call type's mode should do at one
 moment. The mode's facts (time left, questions since the last play-back, who's talking now...) are counted from the
 replayed transcript, so a scenario sets them up with its lines, `help_at_s` and `length_min`; there is no field for them.
-`"wrap": "button"` replays a WRAP press. A `step_2` tag marks a moment judged only once the SA-aware demo cards are on.
+Which press it replays is stored, as in a saved moment, and must be the one Keith would get live from the same lines
+(`decidePress`; tests/scenarios.test.ts checks every scenario): `"wrap": "button"` for a WRAP press, `"wrap": "closing"` for a
+HELP press whose last 30 seconds sound like the call ending, and `"press_mode"` with `"press_detail"` for the smarter presses,
+for example `"press_mode": "opening", "press_detail": {"earlier_calls": true}` for a press in the first 5 minutes of a return
+call while the other side has said little. A `step_2` tag marks a moment judged only once the SA-aware demo cards are on: until
+then it counts in Level 1 and the timings, not in move agreement. A `live_words` tag allows the last line of a stream to still be
+going at the press (HELP sees only its first words, live); anywhere else every line must be over by then.
 
 SalesMove values: `no_move`, `clarify_current_state`, `explore_process`, `test_for_friction`, `quantify_impact`, `clarify_scale`, `identify_owner`, `clarify_desired_state`, `clarify_requirement`, `clarify_decision`, `handle_objection`, `handle_competitor`, `technical_clarification`, `technical_answer`, `confirm_next_step`, `call_control`.
 

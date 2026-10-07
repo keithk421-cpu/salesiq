@@ -28,6 +28,8 @@
     {"t": 72, "end": 112, "who": "keith", "text": "So quick recap from last time. You walked us through the headline agent, the two editors reviewing a hundred outputs every week, and that you wanted a way to compare prompt versions before they go out. You were also going to check with legal about sharing some sample outputs with us. And on our side we sent over the eval example."}
   ],
   "help_at_s": 115,
+  "press_mode": "opening",
+  "press_detail": {"earlier_calls": true},
   "knowledge": [],
   "best_moves": [
     "clarify_current_state"

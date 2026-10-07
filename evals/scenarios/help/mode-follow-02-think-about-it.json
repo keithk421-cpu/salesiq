@@ -37,7 +37,7 @@
     "Re-pitches the eval features"
   ],
   "forbid_regex": [
-    "\\bdiscount",
+    "(?<!\\b(?:no|not|don['’]?t|do not|never|won['’]?t|without|hold|hold off on|skip|avoid)\\b[^.,;:!?]{0,25})\\bdiscount",
     "\\b(end of (the )?quarter|quarter[- ]end|expires?|limited time|last chance|before (the )?price)\\b"
   ],
   "silence_preferred": false,

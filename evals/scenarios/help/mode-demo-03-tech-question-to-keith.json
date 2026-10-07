@@ -48,7 +48,7 @@
     "Ignores the question and asks a discovery question"
   ],
   "forbid_regex": [
-    "\\b(context|the trace|it) (does|will|would) (propagate|follow|carry)"
+    "\\b(context|the trace|it) (does|will|would) (propagate|follow|carry)(?![^.!?]*\\?)"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

@@ -49,8 +49,8 @@
     "Skips noting the requirement and moves on"
   ],
   "forbid_regex": [
-    "\\bmust[- ]have\\b",
-    "\\b(arize|it|we|everything|the platform) (can |could |would |will )?(runs?|deploys?|stays?|lives?) (entirely |fully )?(in|inside|within) your (own )?(vpc|network|cloud)"
+    "\\b(that['’]?s|that is|it['’]?s|it is|sounds like|definitely|clearly|so) (a |definitely a |clearly a |really a )?must[- ]have\\b(?![^.!?]*\\?)",
+    "\\b(arize|it|we|everything|the platform) (can |could |would |will )?(runs?|deploys?|stays?|lives?) (entirely |fully )?(in|inside|within) your (own )?(vpc|network|cloud)(?![^.!?]*\\?)"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

@@ -37,8 +37,8 @@
     "Urgency or end-of-quarter lines"
   ],
   "forbid_regex": [
-    "\\b(can|could|would|will) (we|I) (do|offer|give|go)\\b[^?]*\\d",
-    "\\b(we|I)( (can|could|would|will)|'ll|'d) (do|offer|give|go)\\b[^?]*\\d",
+    "\\b(can|could|would|will) (we|I) (do|offer|give|go (down|to|as low as|lower))\\b[^?]*\\d",
+    "\\b(we|I)( (can|could|would|will)|['’]ll|['’]d) (do|offer|give|go (down|to|as low as|lower))\\b(?! (you |them |us )?(a )?(call|ring|shout|quick|update)\\b)[^?]*\\d",
     "\\$\\s?\\d",
     "\\bdiscount of\\b",
     "\\b(end of (the )?quarter|quarter[- ]end)\\b"

@@ -68,7 +68,7 @@
   ],
   "forbid_regex": [
     "\\bdid I (miss|get that right)\\b|\\bfair summary\\b",
-    "\\bcost(ing|s)? you\\b"
+    "\\bcost(ing|s)? you (money|customers|deals|revenue|a lot|a fortune)\\b|\\bhow much (is|does|has) (that|it|this) (been )?cost(ing)? you\\b"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

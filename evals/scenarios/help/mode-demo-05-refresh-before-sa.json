@@ -38,6 +38,8 @@
     {"t": 218, "end": 222, "who": "e1:s0", "text": "Yeah, it did. All stores now."}
   ],
   "help_at_s": 225,
+  "press_mode": "opening",
+  "press_detail": {"earlier_calls": true},
   "knowledge": [],
   "best_moves": [
     "clarify_current_state"

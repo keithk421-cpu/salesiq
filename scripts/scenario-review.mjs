@@ -39,6 +39,11 @@ files.forEach((f, i) => {
   // M5 call modes: the call's length when the moment depends on the time left, and a step-2 moment.
   if (sc.length_min) out.push(`**When:** minute ${Math.floor(sc.help_at_s / 60)} of a ${sc.length_min}-minute call`)
   if (sc.tags?.includes('step_2')) out.push('**Step 2:** judged only once the SA-aware demo cards are on, after the real two-person demo call.')
+  // The drafter's note to the reviewer (never sent to HELP), e.g. what was agreed in a line the sheet doesn't show.
+  else if (sc.keith_notes) out.push(`**Note:** ${sc.keith_notes}`)
+  // The press it replays, when it isn't a plain HELP or WRAP press (what Keith would get live at that moment).
+  const press = { opening: 'the opening press (early in the call, they have said little so far)', signal: 'the next-step press (they just asked about a pilot, pricing, rollout...)' }[sc.press_mode] ?? (sc.wrap === 'closing' ? 'HELP as the call sounds like it is ending' : null)
+  if (press) out.push(`**Press:** ${press}`)
   if ((sc.knowledge ?? []).length) {
     out.push(`**Docs HELP has:** ${sc.knowledge.map((k) => `${k.title}${k.approved === false ? ' (not approved)' : ''}${k.applies_to?.length ? ` (applies to: ${k.applies_to.join(', ')})` : ''}${k.review_by ? ` (review by ${k.review_by})` : ''}`).join('; ')}`)
   } else {

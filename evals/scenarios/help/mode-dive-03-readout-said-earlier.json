@@ -47,7 +47,7 @@
   "unacceptable_behaviors": [
     "Says \"we still need a readout date\" (it was agreed at 35:00, outside what HELP can see)",
     "Invents a readout date or owner",
-    "Asks for the readout date as a gap instead of a check (\"Did we land on a readout date?\")",
+    "Asks for the readout date as if it was never set (\"What's the readout date?\") rather than as a check",
     "Promises free work or paid-test terms"
   ],
   "forbid_regex": [
@@ -59,5 +59,5 @@
     "Before we go: shall we book the kickoff? Did we land on the readout date?",
     "Who did we say owns the test on your side, and when's kickoff?"
   ],
-  "keith_notes": ""
+  "keith_notes": "At 34:30 the readout was agreed: Thursday 19 November at 2 pm, with Fiona and Marcus. That is over 20 minutes before WRAP, so HELP can't see it: a good line checks the date, and never says it is missing."
 }

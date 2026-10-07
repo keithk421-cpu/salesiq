@@ -27,6 +27,11 @@ export interface ScenarioResult {
   category: string
   /** M5: the call type the scenario was set up with, for the "By call type" table (absent in older results). */
   call_type?: string
+  /**
+   * M5: a moment judged only once step 2 (the SA-aware demo cards) ships: left out of move agreement
+   * until then, since a v1 card can't make that move (still in Level 1 and the timings).
+   */
+  step_2?: boolean
   approved: boolean
   /** Model id of the config that produced this result (grouping key). */
   model: string
@@ -145,6 +150,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
     scenario_id: s.id,
     category: s.category,
     call_type: s.call_type,
+    ...(Array.isArray(s.tags) && s.tags.includes('step_2') ? { step_2: true } : {}),
     approved: s.golden_approved === true,
     model: config.model,
     config_label: model.label(config),
@@ -235,7 +241,8 @@ export function summarize(model: string, results: ScenarioResult[]): ConfigSumma
   const n = results.length || 1
   const usage = results.map((r) => r.usage).filter((u): u is HelpUsage => !!u)
   const sum = (k: keyof HelpUsage) => usage.reduce((a, u) => a + (u[k] as number), 0)
-  const agree = (rs: ScenarioResult[]) => (rs.length ? rs.filter((r) => r.move_ok).length / rs.length : null)
+  // A step-2 moment (M5) can't agree until step 2 ships: it counts in everything but agreement.
+  const agree = (all: ScenarioResult[], rs = all.filter((r) => !r.step_2)) => (rs.length ? rs.filter((r) => r.move_ok).length / rs.length : null)
   const nums = (k: 'passage_ms' | 'first_token_ms' | 'context_ms' | 'knowledge_ms') => results.map((r) => r[k]).filter((x): x is number => typeof x === 'number')
   const withPassage = results.filter((r) => r.passage)
   return {

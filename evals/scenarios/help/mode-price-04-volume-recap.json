@@ -36,8 +36,8 @@
   ],
   "forbid_regex": [
     "[$€£]\\s?\\d",
-    "\\bdiscount",
-    "\\bper (trace|span|million|seat|user)\\b"
+    "(?<!\\b(?:no|not|don['’]?t|do not|never|won['’]?t|without|hold|hold off on|skip|avoid)\\b[^.,;:!?]{0,25})\\bdiscount",
+    "(?:[$€£]|\\b(?:costs?|pric(?:e|ed|es|ing)|charges?|rates?|fees?)\\b)[^.?!]{0,20}\\bper (trace|span|million|seat|user)\\b"
   ],
   "silence_preferred": false,
   "acceptable_questions": [

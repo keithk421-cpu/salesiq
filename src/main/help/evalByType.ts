@@ -20,6 +20,7 @@ export interface CallTypeRow {
   /**
    * Built-in rows: share of unapproved-draft runs whose move was right (null: no drafts), as in the
    * main table. Your moments: share of the runs your feedback could judge (null: none judged).
+   * Step-2 moments are left out until step 2 ships (a v1 card can't make that move).
    */
   move_agreement: number | null
   /** Cards by line: ASK, SAY, and Hold (MOVE no_move, a line to say at the pause). */
@@ -32,11 +33,17 @@ export interface CallTypeRow {
 }
 
 /**
- * A Level 1 failure from the price check. Read from the failure's words so the table works with or
- * without that check; a forbidden-pattern failure only quotes the scenario's own pattern, so it never counts.
+ * The words every price-check failure carries: the plan's fixed check text (M5 plan section 1.5,
+ * "Price or discount not from approved pricing: don't say it"), which the Level 1 failure reuses.
+ */
+export const PRICE_CHECK_WORDS = 'not from approved pricing'
+
+/**
+ * A Level 1 failure from the price check, read from those words so the table works with or without
+ * that check; a forbidden-pattern failure only quotes the scenario's own pattern, so it never counts.
  */
 export function isPriceCheckFailure(failure: string): boolean {
-  return !failure.startsWith('matched forbidden pattern') && /\bpric(?:e|es|ing)\b/i.test(failure)
+  return !failure.startsWith('matched forbidden pattern') && failure.toLowerCase().includes(PRICE_CHECK_WORDS)
 }
 
 function median(xs: number[]): number | null {
@@ -61,7 +68,7 @@ export function byCallType(results: ScenarioResult[], mine = false): CallTypeRow
     for (const model of models) {
       const rs = results.filter((r) => typeOf(r) === type && r.model === model)
       if (!rs.length) continue
-      const judged = mine ? rs.filter((r) => r.move_ok !== null) : rs.filter((r) => !r.approved)
+      const judged = (mine ? rs.filter((r) => r.move_ok !== null) : rs.filter((r) => !r.approved)).filter((r) => !r.step_2)
       const cards = rs.map((r) => r.card).filter((c): c is NonNullable<ScenarioResult['card']> => !!c)
       const hold = cards.filter((c) => c.move === 'no_move').length
       rows.push({
@@ -98,7 +105,7 @@ export function byCallTypeMarkdown(results: ScenarioResult[], mine?: ScenarioRes
   if (mineRows.length) lines.push('| **Your moments** (never pick the model) | | | | | | | |', ...mineRows.map(row))
   return `## By call type
 
-Each call type has its own mode. "Move agree" is on the unapproved drafts (your moments: only where your rating judged the move).
+Each call type has its own mode. "Move agree" is on the unapproved drafts (your moments: only where your rating judged the move), leaving out step-2 moments until step 2 ships.
 "Ask / Say / Hold" counts the cards; Hold is a line kept for the pause. "Price check" counts runs that failed it.
 
 | Call type | Model | Scenarios | Level 1 pass | Move agree (drafts) | Ask / Say / Hold | Price check | First usable p50 |

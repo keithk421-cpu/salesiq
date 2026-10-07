@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { CALL_TYPES, type HelpCardContent } from '../src/shared/help'
-import { benchmark, level1, loadScenarios, reportMarkdown, runScenario, type ScenarioResult } from '../src/main/help/evalRunner'
+import { benchmark, level1, loadScenarios, reportMarkdown, runScenario, summarize, type ScenarioResult } from '../src/main/help/evalRunner'
 import { byCallType, byCallTypeMarkdown, isPriceCheckFailure } from '../src/main/help/evalByType'
+import * as protocol from '../src/main/help/protocol'
 import { buildHelpContext } from '../src/main/help/context'
 import { DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG } from '../src/main/help/models'
 import { loadPlaybook } from '../src/main/help/prompt'
@@ -114,27 +115,38 @@ describe('M5 call-mode scenarios (drafts for Keith)', () => {
   // Level 1 extras: lines each scenario's patterns must catch, and lines they must let through.
   const cases: Array<[string, string[], string[]]> = [
     ['mode-disco-01-pitching-early', ['We can also run online evals on that.', 'You could use LLM-as-a-judge checks here.'], ['How do adjusters catch a missing detail today?']],
-    ['mode-disco-03-new-issue-after-many', ['So far: wrong citations, no owner. Did I miss anything?', 'Is that a fair summary?', 'How much is that costing you?'], ['What happened on the last slow release?']],
+    ['mode-disco-03-new-issue-after-many', ['So far: wrong citations, no owner. Did I miss anything?', 'Is that a fair summary?', 'How much is that costing you?', 'That must be costing you customers.'], ['What happened on the last slow release?', 'What does that cost you per release, in time?']],
     ['mode-disco-05-direct-question', ['Yes, with zero code changes.', 'No code changes needed at all.'], ['Which services would you trace first?']],
     ['mode-demo-02-reaction-go-deeper', ['Where does that bite today?'], ['What have you been hacking together so far?']],
-    ['mode-demo-03-tech-question-to-keith', ['Yes, the context will propagate across the call.', 'It does follow it across, as long as both are instrumented.', 'The trace will follow it.'], ['Good one for Sam. Sam, can you take the propagation question?', 'Sam, does the context propagate across that call?']],
-    ['mode-demo-04-objection', ['We have a self-hosted option for exactly that.', 'Our self-hosted version keeps data with you.'], ["Understood. What's behind that: client agreements, or a firm-wide policy?"]],
+    ['mode-demo-03-tech-question-to-keith', ['Yes, the context will propagate across the call.', 'It does follow it across, as long as both are instrumented.', 'The trace will follow it.'], ['Good one for Sam. Sam, can you take the propagation question?', 'Sam, does the context propagate across that call?', 'Good one for Sam. Sam, can you show how the context would carry across to fraud scoring?', 'Sam, can you walk through whether the trace would follow it into fraud scoring?']],
+    ['mode-demo-04-objection', ['We have a self-hosted option for exactly that.', 'Our self-hosted version keeps data with you.', 'No problem, we have a self-hosted option.'], ["Understood. What's behind that: client agreements, or a firm-wide policy?"]],
     ['mode-demo-05-refresh-before-sa', ['Let Sam carry on now.', 'Let Sam take it from here.'], ['What did going to all stores change for the Friday sample?', 'Sam, let\'s start with the Friday sample.']],
     ['mode-demo-06-non-tech-question', ['Yes, and viewers are free seats.', 'You get unlimited users.'], ['Which PMs would use them?']],
     ['mode-demo-07-wrap-already-started', ['Before we run out of time, what stood out most?'], ['What happened in August?', 'Who else should see the experiments view?']],
     ['mode-dive-01-new-ask', ['Sure, we can add that.', "Yes, we'll include cost tracking.", 'Of course, Sam can set up cost per team.'], ['Swap it for one of the three goals, or keep it for later?']],
-    ['mode-dive-02-requirement', ["That's a must-have, noted.", 'Arize can run entirely inside your VPC.', 'Everything stays in your network.'], ['Would it need to run inside your VPC for every service?', 'Got it, a hard requirement. Who reviews that?']],
+    ['mode-dive-02-requirement', ["That's a must-have, noted.", 'Sounds like a must-have.', 'Arize can run entirely inside your VPC.', 'Everything stays in your network.'], ['Would it need to run inside your VPC for every service?', 'Got it, a hard requirement. Who reviews that?', 'So everything stays inside your network, prompts included?', 'So it stays in your VPC: is that all prompt data?', 'Is that a must-have, or a nice-to-have?']],
     ['mode-dive-03-readout-said-earlier', ['We still need a readout date.', "We haven't set a readout yet."], ['Did we land on the readout date?']],
     ['mode-dive-04-onboarding-question', ['You can be live in two weeks.', 'Onboarding is free of charge.'], ['Who would join the kickoff from your side?']],
-    ['mode-price-01-discount-ask', ['We can do 20% if you sign annually.', 'We could do 15 if you sign today.', "We'll do 15 if you sign this week.", 'Could we do 18 for a two-year term?', 'That would be $40k a year.', 'Let me see about a discount of 10.', 'This price is only good until end of quarter.'], ["What's driving the 20?", 'Is the 20 a budget cap, or another quote?', 'What could you do on term or timing on your side?']],
+    ['mode-price-01-discount-ask', ['We can do 20% if you sign annually.', 'We could do 15 if you sign today.', "We'll do 15 if you sign this week.", 'Could we do 18 for a two-year term?', "I'll go down to 15 if you sign today.", 'We could go to 18 for two years.', 'That would be $40k a year.', 'Let me see about a discount of 10.', 'This price is only good until end of quarter.'], ["What's driving the 20?", 'Is the 20 a budget cap, or another quote?', 'What could you do on term or timing on your side?', "Could we go through what's driving the 20?", "Could we go over what's behind the 20%?", "I'll go back to our deal desk on the 20 and come back by Friday.", "I'll give you a call back Thursday at 2."]],
     ['mode-price-02-keith-gave-number', ['We could come down a bit.', 'There is some wiggle room.', 'To recap, $84,000 for the year.', 'I can ask about a discount.'], ['How does that land for you?']],
     ['mode-price-03-comparison', ['Langfuse charges for its enterprise tier.', "It isn't really free once you run it.", 'Ours starts at $2,000.'], ["Fair question. If you ran it yourselves, who'd own it?"]],
-    ['mode-price-04-volume-recap', ['That is about $0.10 per trace.', 'We price per million spans.', 'I can get you a discount.'], ['So about 10 million traces a month, 90 days of history?']],
+    ['mode-price-04-volume-recap', ['That is about $0.10 per trace.', 'We price per million spans.', 'The cost is lower per million at that volume.', 'I can get you a discount.'], ['So about 10 million traces a month, 90 days of history?', 'How many spans per trace, roughly?', 'Is that per million requests or per assistant?']],
     ['mode-follow-02-think-about-it', ['This offer expires Friday.', 'We can do a discount if you sign this quarter.', "It's the end of the quarter for us."], ['My sense is something still feels uncertain. Is that fair?']],
-    ['mode-follow-03-direct-question', ['I sent it over on Tuesday.', 'We already shared the security doc.'], ['I\'ll make sure Hana has it today. Anything else she needs?']],
+    ['mode-follow-03-direct-question', ['I sent it over on Tuesday.', 'We already shared the security doc.'], ['I\'ll make sure Hana has it today. Anything else she needs?', 'Let me check that I sent it to Hana, and confirm today.', "I'll check whether we sent it and get it to Hana today.", "I'll check that we sent it and confirm today."]],
   ]
-  // A cue in HAPPENING that names what was already asked is fine; asking it again is not.
-  const happenings: Record<string, string[]> = { 'mode-demo-07-wrap-already-started': ["You asked what stood out; they're reacting"] }
+  // A cue in HAPPENING that names what was already asked, or tells Keith what not to do, is fine; saying it to them is not.
+  const dontDiscount = ["Don't offer a discount; name the stall", 'No discount: find what\'s unsure']
+  const happenings: Record<string, string[]> = {
+    'mode-demo-07-wrap-already-started': ["You asked what stood out; they're reacting"],
+    'mode-demo-04-objection': ['Hold the self-hosted option until you know why'],
+    'mode-dive-02-requirement': ['Must-have: prompts stay in their VPC. Note it.'],
+    'mode-price-02-keith-gave-number': [
+      "Wait: don't lower it or justify it", "Don't come down: let them answer", "Wait for their answer. Don't flex on the number.",
+      "Don't lower it: let them answer", 'Hold: no discount, let them answer', ...dontDiscount,
+    ],
+    'mode-price-04-volume-recap': ['Volumes only: no price or discount yet', ...dontDiscount],
+    'mode-follow-02-think-about-it': dontDiscount,
+  }
   for (const [id, bad, good] of cases) {
     it(`${id}: its Level 1 extras catch the wrong lines and pass the right ones`, () => {
       const s = byId(id)
@@ -160,6 +172,7 @@ describe('M5 call-mode scenarios (drafts for Keith)', () => {
       const r = await runScenario(s, new MockHelpModel(0), DEFAULT_HELP_CONFIG, playbook)
       expect(r.level1, s.id).toEqual({ pass: true, failures: [] })
       expect(r.call_type).toBe(s.call_type)
+      expect(r.step_2 === true, s.id).toBe(s.tags?.includes('step_2') === true)
     }
   })
 })
@@ -174,8 +187,9 @@ describe('speed test: the "By call type" table', () => {
   const hold = { move: 'no_move' as const, primary_kind: 'ask' as const, primary: 'How does that land?', happening: null, follow_up: null, source_ids: [], note: null }
 
   it('reads price-check failures from their words, never from a quoted forbidden pattern', () => {
-    for (const f of ["Price or discount not from approved pricing: don't say it", 'price check: a discount not from approved pricing', 'Pricing figure not approved']) expect(isPriceCheckFailure(f), f).toBe(true)
-    for (const f of ['matched forbidden pattern /\\bpric(e|es|ing)\\b/', 'matched forbidden pattern /price/', 'invented figure: number not found in context: 40%', 'priceless', 'states an Arize capability ("we support") without citing an approved knowledge source']) expect(isPriceCheckFailure(f), f).toBe(false)
+    // The check's text (M5 plan 1.5) and the step-0 Level 1 failure both carry "not from approved pricing".
+    for (const f of ["Price or discount not from approved pricing: don't say it.", 'states a price or discount not from approved pricing', 'price check: a discount NOT FROM APPROVED PRICING']) expect(isPriceCheckFailure(f), f).toBe(true)
+    for (const f of ['matched forbidden pattern /not from approved pricing/', 'matched forbidden pattern /\\bpric(e|es|ing)\\b/', 'matched forbidden pattern /price/', 'Pricing figure not approved', 'invented figure: number not found in context: 40%', 'priceless', 'states an Arize capability ("we support") without citing an approved knowledge source']) expect(isPriceCheckFailure(f), f).toBe(false)
   })
 
   it('one row per call type and model, in the setup order, with the Ask / Say / Hold split and the price hits', () => {
@@ -195,6 +209,23 @@ describe('speed test: the "By call type" table', () => {
     // Agreement is on the drafts only, as in the main table (the failed run counts as not agreeing).
     expect(disco.move_agreement).toBe(0.5)
     expect(price).toMatchObject({ scenarios: 2, runs: 2, ask: 0, say: 1, hold: 1, price_hits: 1, level1_pass_rate: 0.5, move_agreement: 0.5, first_usable_median_ms: 900 })
+  })
+
+  it('a step-2 moment counts in Level 1 and the timings, never in move agreement (here or in the main table)', () => {
+    const rs = [res({ move_ok: true }), res({ scenario_id: 's2', step_2: true, move_ok: false, level1: { pass: false, failures: ['x'] }, first_usable_ms: 3000 })]
+    const [row] = byCallType(rs)
+    expect(row).toMatchObject({ scenarios: 2, runs: 2, level1_pass_rate: 0.5, move_agreement: 1, first_usable_median_ms: 1000 })
+    expect(summarize('m1', rs)).toMatchObject({ runs: 2, level1_pass_rate: 0.5, draft_move_agreement: 1 })
+    // Only step-2 moments: nothing to agree on yet.
+    expect(byCallType([rs[1]])[0].move_agreement).toBeNull()
+    expect(summarize('m1', [rs[1]]).draft_move_agreement).toBeNull()
+  })
+
+  // Activates once the price check (step 0) is merged: its real Level 1 failure lands in the Price check column.
+  it.runIf('priceFigures' in protocol)('with the price check in, an offer with a figure counts as a price-check hit', () => {
+    const failures = l1(byId('mode-price-01-discount-ask'), 'We can do 20% if you sign annually.', { move: 'handle_objection', primary_kind: 'say' })
+    expect(failures.filter(isPriceCheckFailure)).toHaveLength(1)
+    expect(byCallType([res({ call_type: 'negotiation', level1: { pass: false, failures } })])[0].price_hits).toBe(1)
   })
 
   it('your moments: agreement only where your rating judged the move; their own rows, marked as never picking the model', () => {

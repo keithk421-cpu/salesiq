@@ -344,6 +344,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 ## 12. keith-notes-01-check-setup-as-question
 
 **Call:** follow_up. Goal: Understand how Marrowfield Insurance reviews its claims assistant today and agree a next step
+**Note:** Draft for M4 "What I know": the notes say how they test today, the call hasn't. A good line checks it as a question; it never says they mentioned it, and never brings up the Sumble research.
 **Docs HELP has:** none
 **Keith's notes (What I know):** Who · Sep 2: Ines Calloway, head of applied AI [Notion, Sep 2] / Their setup: claims assistant evals run from notebooks by two engineers [Notion, Sep 2] / Research (not said by them) · Sumble, Oct 1: four open ML platform roles / To learn: who signs off · how they test answers today
 
@@ -372,6 +373,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 ## 13. keith-notes-02-call-overrides-old-notes
 
 **Call:** technical_deep_dive. Goal: Understand how Orrin Freight sends traces today and what a POC would have to show
+**Note:** Draft for M4 "What I know": Keith's August note is out of date and the call just said so. What was said on the call wins; the note is never stated as current.
 **Docs HELP has:** none
 **Keith's notes (What I know):** Their setup · Aug 14: traces go to LangSmith [Notion, Aug 14] / Who: Tomasz Brenner, platform lead [Notion, Aug 14] / To learn: what a POC must prove
 
@@ -503,6 +505,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 
 **Call:** demo. Goal: Show Fernleaf Grocers wrong substitutions getting caught; learn what lands; book a dated next step
 **When:** minute 3 of a 60-minute call
+**Press:** the opening press (early in the call, they have said little so far)
 **Docs HELP has:** none
 **From earlier calls:** 2026-09-14: The substitution agent runs in 40 pilot stores / 2026-09-14: Two analysts read a sample of substitutions every Friday / 2026-09-14: To see wrong substitutions before customers call about them
 
@@ -782,6 +785,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 
 **Call:** technical_deep_dive. Goal: Check Ashgrove Telecom's fit; agree 1-3 written test goals, owners and a decision date
 **When:** minute 55 of a 60-minute call
+**Note:** At 34:30 the readout was agreed: Thursday 19 November at 2 pm, with Fiona and Marcus. That is over 20 minutes before WRAP, so HELP can't see it: a good line checks the date, and never says it is missing.
 **Docs HELP has:** none
 
 **Last lines before WRAP** (press at 55:00):
@@ -804,7 +808,7 @@ Example good lines:
 **Bad HELP would:**
 - Says "we still need a readout date" (it was agreed at 35:00, outside what HELP can see)
 - Invents a readout date or owner
-- Asks for the readout date as a gap instead of a check ("Did we land on a readout date?")
+- Asks for the readout date as if it was never set ("What's the readout date?") rather than as a check
 - Promises free work or paid-test terms
 
 Approve? ☐ Yes ☐ No. Fix: ______
@@ -835,6 +839,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 ## 30. mode-follow-01-recap-then-stop
 
 **Call:** follow_up. Goal: Close owed items with Thistledown Media, hear what changed, move one thing forward
+**Press:** the opening press (early in the call, they have said little so far)
 **Docs HELP has:** none
 **From earlier calls:** 2026-09-24: Two editors review a hundred headline-agent outputs every week / 2026-09-24: A way to compare prompt versions before they go out / 2026-09-24: Check with legal about sharing sample outputs
 
@@ -888,6 +893,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 ## 32. mode-follow-03-direct-question
 
 **Call:** follow_up. Goal: Close owed items with Kittering Payments, hear what changed, move one thing forward
+**Press:** the opening press (early in the call, they have said little so far)
 **Docs HELP has:** none
 **From earlier calls:** 2026-09-29: Send the security overview to Hana Okafor, their security lead / 2026-09-29: Lars to share an outline of the eval test set
 
@@ -1785,6 +1791,7 @@ Approve? ☐ Yes ☐ No. Fix: ______
 ## 63. sources-07-acquisition-question-public-fact-only
 
 **Call:** follow_up. Goal: Answer Tillbury Learning's questions about the acquisition news without speculating, then continue the agenda
+**Note:** Fixture text is the public announcement only. Anything beyond it (pricing, roadmap, contracts, integration) is a follow-up, not an answer.
 **Docs HELP has:** Acquisition announcement (public) (applies to: all) (review by 2027-04-01)
 
 **Last lines before HELP** (press at 2:54):

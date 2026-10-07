@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { fileURLToPath } from 'node:url'
 import { level1, loadScenarios } from '../src/main/help/evalRunner'
 import { buildHelpContext } from '../src/main/help/context'
-import { replayAt } from '../src/main/help/replay'
+import { FINAL_DELAY_MS, replayAt } from '../src/main/help/replay'
+import { cleanPressDetail, cleanPressMode, decidePress } from '../src/main/help/pressModes'
 
 const scenarios = loadScenarios(fileURLToPath(new URL('../evals/scenarios/help', import.meta.url)))
 
@@ -53,14 +54,34 @@ describe('HELP scenario set', () => {
     expect(ctx.sources.get('K1')?.kind).toBe('knowledge')
   })
 
+  it('each replays the press Keith would get live (WRAP, closing words, a buying signal, the opening), as stored', () => {
+    for (const s of scenarios) {
+      const mode = cleanPressMode(s.press_mode)
+      // Another angle and a must-learn click need a card on screen or a click: not something a replay re-detects.
+      if (mode === 'another_angle' || mode === 'plan_item') continue
+      const r = replayAt(s)
+      const d = decidePress(s.wrap === 'button' ? 'wrap_requested' : 'help_requested', r.memory, r.atMs)
+      expect({ wrap: d.wrap, mode: d.mode }, s.id).toEqual({ wrap: s.wrap ?? null, mode })
+      expect(d.detail, s.id).toMatchObject(cleanPressDetail(s.press_detail))
+    }
+  })
+
   for (const s of scenarios) {
     it(`${s.id}: replays without leaking the future, and Level 1 accepts its example good lines`, () => {
       const r = replayAt(s)
       const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
-      // The decision point is after everything was available, except a line still being spoken at the
-      // press (M5: the SA mid-screen, a buyer mid-reaction): HELP sees only its start, as live words.
-      expect(r.hiddenLineIndexes.filter((i) => s.transcript[i].t >= s.help_at_s), 'a line after the press').toEqual([])
-      if (r.hiddenLineIndexes.length) expect(ctx.text).toContain('(still being transcribed')
+      // The decision point is after everything was available, except in a scenario tagged live_words (M5:
+      // the SA mid-screen, a buyer mid-reaction): the last line of a stream, still being spoken at the
+      // press, which HELP sees only as its first words, live. A typo'd "end" can't hide a line anywhere else.
+      if (!s.tags?.includes('live_words')) expect(r.hiddenLineIndexes, 'a line not yet available at the press').toEqual([])
+      const streamOf = (i: number) => (s.transcript[i].who === 'keith' ? 'keith' : 'meeting')
+      const live = ctx.text.slice(Math.max(0, ctx.text.indexOf('(still being transcribed')))
+      for (const i of r.hiddenLineIndexes) {
+        const l = s.transcript[i]
+        expect(l.t, `line ${i} started early enough to be heard`).toBeLessThan(s.help_at_s - FINAL_DELAY_MS / 1000)
+        expect(s.transcript.slice(i + 1).some((_, j) => streamOf(i + 1 + j) === streamOf(i)), `line ${i} is the last of its stream`).toBe(false)
+        expect(live, `line ${i} shows as live words`).toContain(l.text.split(/\s+/).slice(0, 3).join(' '))
+      }
       expect(ctx.text).toContain('<last_30_seconds>')
       const kinds = new Map([...ctx.sources.entries()].map(([k, v]) => [k, v.kind]))
       // Where the best move is to answer from knowledge, a good line states approved knowledge and
