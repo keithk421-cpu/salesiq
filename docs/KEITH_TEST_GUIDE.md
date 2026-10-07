@@ -178,3 +178,27 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 ## After Stop
 - **Learn next time** (in the wrap-up, where "Still to learn" was): the must-learns you didn't get, plus **+** chips for topics the call never covered and a box to add your own. At most 3. What you keep shows up next time as Ideas and fills the strip. In Practice mode it says **Practice mode: not kept for next time** and has nothing to add.
 - **For next time** at the top of the wrap-up: a few short lines on where it stands (the agreed or proposed next step, what they owe, what you promised, what's left to learn), built from the items you kept. Edit them, then **Save to What I know** to put them at the top of the account's notes, or **Copy**. Change the wrap-up after saving and the button becomes **Update What I know**, which swaps the lines instead of adding them twice. In Practice mode there's nothing to save.
+
+# M5: each call type has its own job
+
+## Before the call
+- Pick the **call type** as before (Pricing is the old "Negotiation"). The type now changes what HELP does, what WRAP goes for, and the Ideas you're offered (3 per type). The goal and outcomes boxes show a hint of what that call is for; they stay empty until you type.
+- **Length** (next to the type): discovery 30, demo 60, technical deep-dive 60, pricing 30, follow-up 30 minutes. Change it for a call that runs differently, before or during the call; HELP uses it for "about 10 minutes left".
+- **No SA today** (demo and deep-dive only): tick it when you're presenting alone.
+- **Tag your SA** in the speaker labels as a teammate (as before). On a demo or deep-dive that's how HELP knows who's presenting.
+
+## During the call: what HELP does in each mode
+In every mode: **if they just asked you something, HELP answers that first**, and the mode's own line goes underneath. Notes meant for you ("Hold the pitch", "Not heard yet: pass criteria") go in the small line under the card, never in the line you read out.
+- **Discovery:** your next good question, one layer deeper on what they just said (an example, what happened, what they tried, what it meant). If you've been describing the product for a while before they've named two or three problems: "Hold the pitch". After lots of questions: play back what you heard. With about 10 minutes left and no next step: play back their problems and book the next meeting.
+- **Demo:** your SA presents; HELP helps you dig into what lands. A reaction on screen gets the question behind it ("How does that compare to how you do it today?"). An objection gets "what's behind that?" before anyone answers. **A technical question goes to your SA** (your choice), with a business question for after they answer. The opening card recaps their problems and hands over to your SA in the buyer's words. With about 10 minutes left: "what stood out most?" and a dated next step.
+- **Technical deep-dive:** HELP tracks the test plan: a hard requirement ("prompts can't leave our network") gets "who reviews that?"; a new ask gets "swap it for a goal or park it for phase 2?"; in a lull, the plan item not heard yet, asked as a check ("What would you need to see to decide either way?").
+- **Pricing:** restraint. HELP never gives a number. Before any price: recap their value. After you give your number: a **Hold** card ("let them answer", with a question ready if the silence runs on). A discount ask: ask what's driving it, then a trade ("What could you do on term or timing?"), or "Let me take that to our deal desk."
+- **Follow-up:** after your recap, "What's changed on your side since we spoke?"; then what each side still owes, and one thing to move forward. "We need to think about it" gets a gentle "something still feels uncertain, is that fair?", never pressure.
+- **Hold cards** say "Hold · at the pause": wait, then use the question on the card.
+- **Price check (every mode):** if a card ever has a price, discount or term that isn't in your approved files, it gets a yellow note: "Price or discount not from approved pricing: don't say it." Normal numbers (traces a month, days of history, error rates) aren't flagged.
+- **Changed the call type mid-call?** (a discovery that turns into a demo): change it in the strip in the full window. The next HELP press uses the new mode.
+
+## After the call
+- WRAP and the wrap-up work as before; WRAP now aims for what that call type needs (a booked meeting, a dated trial or POC, a written test plan, the next paper step, or a dated next step with names).
+- Setup → playbook shows "Call modes: built-in" (or "yours" if you've edited the playbook's call modes).
+- New practice scenarios for each call type are drafts in `docs/SCENARIO_REVIEW.md`: approve the ones that look right, and the speed test's "By call type" table shows how each mode does.
