@@ -37,12 +37,13 @@ items). Screen hooks: `#akBox` (after the Last time box) and `#wuNext` (top of t
    5. the "To learn" lines of What I know (`notesToLearn`);
    6. "SaaS or self-hosted" while Deployment is "not sure";
    7. two or three starters for the call type (a fixed list in code; neutral: no assumed pain,
-      urgency or deadline; at most 28 characters so they read in full on the plan line):
-      - Discovery: what prompted the call · how they test answers today · who signs off · timeline to decide
-      - Demo: which use case to show · what they need to see · who else should see it
-      - Technical deep-dive: how they send traces today · where data must stay · what a POC must prove
-      - Follow-up: what changed since last call · who else has weighed in · next step and date
-      - Negotiation: steps left to sign · who signs and how · start date they need
+      urgency or deadline; at most 28 characters so they read in full on the plan line). M5 replaced
+      them with 3 per type in priority order (docs/M5_PLAN.md §2):
+      - Discovery: what prompted the call · how they check quality today · who else has a view
+      - Demo: what landed for them · who else should see it · how they'd judge it next
+      - Technical deep-dive: what pass looks like · who approves, by when · who runs security review
+      - Follow-up: what changed since last call · who else has weighed in · how they'd explain it inside
+      - Pricing (negotiation): steps left to sign · volumes that drive cost · how they fund tools
       - Other: what they want from today
    The row hides once the call starts and when 3 chips are set, and refreshes when the account, call
    type, deployment or must-learns change, after Stop, and when What I know is saved (the notes box

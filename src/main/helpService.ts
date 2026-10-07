@@ -19,6 +19,7 @@ import { accountMemory } from './help/accountMemory'
 import { mustLearnIdeas } from './help/mustLearnIdeas'
 import { mustLearnOf, sanitizeMustLearn } from './help/callPlan'
 import { CallMemory, DEFAULT_SETUP } from './help/callMemory'
+import { mergeModeSetup } from './help/callMemory'
 import { HelpEngine } from './help/engine'
 import { CallNotesKeeper } from './help/callNotesKeeper'
 import { WrapupKeeper } from './help/wrapup'
@@ -382,6 +383,8 @@ export class HelpService {
     const hasMustLearn = typeof raw === 'object' && raw !== null && 'must_learn' in raw
     const mustLearn = hasMustLearn ? sanitizeMustLearn(r.must_learn) : mustLearnOf(this.setup)
     if (mustLearn.length) setup.must_learn = mustLearn
+    // M5: the call's length and "No SA today" merge the same way (callMemory.ts).
+    mergeModeSetup(setup, raw, this.setup)
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
     if (this.memory && this.callInProgress()) {
@@ -389,10 +392,13 @@ export class HelpService {
       // After Stop the strip is for the next call; the finished call's record keeps what it was.
       const accountChanged = accountKey(this.memory.setup.account) !== accountKey(setup.account)
       const planChanged = mustLearnOf(this.memory.setup).join('\n') !== mustLearn.join('\n')
+      // M5: a new call type (its mode) or goal: a background card built for the old one goes.
+      const modeChanged = this.memory.setup.call_type !== setup.call_type || this.memory.setup.call_goal !== setup.call_goal
       this.memory.setup = setup
       this.db.sql.prepare('UPDATE sessions SET setup_json = ? WHERE id = ?').run(JSON.stringify(setup), this.memory.sessionId)
       // The account is often typed after Start: HELP then gets that account's earlier calls.
       if (accountChanged) this.refreshEarlierCalls()
+      if (modeChanged) this.engine?.discardPrefetch()
       // A must-learn added or removed: the plan line shows it now, and a background card built on the old plan goes.
       if (planChanged) {
         this.engine?.discardPrefetch()
@@ -477,13 +483,13 @@ export class HelpService {
       case 'turn': {
         const t = ev.event.turn
         m.upsertTurn({ id: t.turn_id, stream: t.stream, cluster: t.speaker_cluster, start_ms: t.start_ms, end_ms: t.end_ms, text: t.text, available_ms: now }, ev.event.type === 'turn_final')
-        this.engine?.onFinalWords(t.stream, t.text)
+        this.engine?.onFinalWords(t.stream, t.text, t.speaker_cluster)
         if (ev.event.type === 'turn_final') this.notes?.onFinalTurn(t.turn_id)
         if (ev.event.type === 'turn_final') this.noteSignal(signalIn(m, { stream: t.stream, cluster: t.speaker_cluster, text: t.text, start_ms: t.start_ms }))
         break
       }
       case 'interim':
-        m.setInterim(ev.stream, ev.text, now)
+        m.setInterim(ev.stream, ev.text, now, ev.cluster)
         break
       case 'gap_open':
       case 'gap_close':
@@ -965,6 +971,7 @@ export class HelpService {
         follow_up: c.follow_up ?? null, rating: f?.rating ?? null, bad_reason: (f && f.rating === 'bad' ? ([...f.reasons].at(-1) ?? null) : null) as BadReason | null,
         used: f?.used ?? false, note: f?.note ?? null,
         ...(f?.passed ? { passed: true } : {}),
+        ...(c.move === 'no_move' ? { hold: true } : {}),
       }
     })
   }

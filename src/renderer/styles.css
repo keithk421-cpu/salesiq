@@ -520,3 +520,19 @@ body.compact .help-card[data-press="plan_item"] #hcFollow:not([hidden]) { displa
 .wn-text { width: 100%; height: auto; padding: 8px 10px; font: inherit; font-size: 13px; line-height: 1.4; resize: vertical; }
 .wn-foot { margin: 0; gap: 8px; }
 .ak-box.am-chip { padding: 6px 14px; }
+/* ---- M5 call modes: the strip's call length and "No SA today" (callSetup.ts); Hold cards (pressModes.ts) ---- */
+.setup-strip .cs-length { flex: none; width: auto; padding-right: 6px; }
+.cs-nosa { flex: none; white-space: nowrap; font-size: 13px; }
+/* label.inline sets display, which would beat the hidden attribute. */
+.cs-nosa[hidden] { display: none !important; }
+/* A Hold card: a small muted tag at the top; the ASK below keeps its full weight (it's the one new thing on the card). */
+.hc-hold { display: none; }
+.help-card[data-move="no_move"] .hc-hold { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border-strong); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+/* Compact has no top row: "Hold ·" goes before the line, after the press label when there is one. */
+body.compact .help-card[data-move="no_move"] .hc-primary .kind::before { content: "Hold · "; }
+body.compact .help-card.wrap[data-move="no_move"] .hc-primary .kind::before { content: "Wrapping up · Hold · "; }
+body.compact .help-card[data-press="opening"][data-move="no_move"] .hc-primary .kind::before { content: "Opening · Hold · "; }
+body.compact .help-card[data-press="signal"][data-move="no_move"] .hc-primary .kind::before { content: "Next step · Hold · "; }
+body.compact .help-card[data-press="another_angle"][data-move="no_move"] .hc-primary .kind::before { content: "Another angle · Hold · "; }
+body.compact .help-card[data-press="plan_item"][data-move="no_move"] .hc-primary .kind::before { content: "Must learn · Hold · "; }
+.rv-hold { color: var(--muted); margin-right: 4px; }

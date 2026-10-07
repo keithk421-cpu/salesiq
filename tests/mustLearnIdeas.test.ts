@@ -103,15 +103,40 @@ describe('starters for the call type', () => {
     }
   })
 
+  it('M5: 3 per type in priority order, with their topic tags; no topic twice in a type; neutral by the plan\'s check', () => {
+    // The plan's neutral check (docs/M5_PLAN.md §6), with must-match and must-not-match cases.
+    const PLAN_NEUTRAL = /\b(pain|struggl|problem with|issue with|urgent|deadline|asap|frustrat|broken)\b/i
+    for (const bad of ['where the pain is', 'any problem with evals', 'their deadline', 'what is broken', 'how urgent it is']) expect(bad, bad).toMatch(PLAN_NEUTRAL)
+    for (const ok of ['how they check quality today', 'who approves, by when', 'volumes that drive cost', 'painting the picture']) expect(ok, ok).not.toMatch(PLAN_NEUTRAL)
+    const view = (t: (typeof CALL_TYPES)[number]) => STARTERS[t].map((x) => [x.text, x.topic ?? null])
+    expect(view('discovery')).toEqual([['what prompted the call', null], ['how they check quality today', 'current_tooling'], ['who else has a view', 'decision_process']])
+    expect(view('demo')).toEqual([['what landed for them', null], ['who else should see it', null], ["how they'd judge it next", null]])
+    expect(view('technical_deep_dive')).toEqual([['what pass looks like', 'success_criteria'], ['who approves, by when', 'decision_process'], ['who runs security review', null]])
+    expect(view('negotiation')).toEqual([['steps left to sign', 'decision_process'], ['volumes that drive cost', null], ['how they fund tools', null]])
+    expect(view('follow_up')).toEqual([['what changed since last call', null], ['who else has weighed in', null], ["how they'd explain it inside", null]])
+    expect(view('other')).toEqual([['what they want from today', null]])
+    for (const type of CALL_TYPES) {
+      expect(STARTERS[type].length, type).toBeLessThanOrEqual(3)
+      const topics = STARTERS[type].map((x) => x.topic).filter(Boolean)
+      expect(new Set(topics).size, type).toBe(topics.length)
+      for (const x of STARTERS[type]) {
+        expect(x.text.length, x.text).toBeLessThanOrEqual(STARTER_MAX_CHARS)
+        expect(x.text, x.text).not.toMatch(PLAN_NEUTRAL)
+      }
+    }
+    // The hover names the type as Keith sees it: negotiation reads "Pricing".
+    expect(mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas' }, memory: null }).map((i) => i.hint)).toEqual(['Pricing starter', 'Pricing starter', 'Pricing starter'])
+  })
+
   it('a first call: "SaaS or self-hosted" while not sure, then up to 3 starters', () => {
     expect(mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'unknown' }, memory: null, now: NOW }).map((i) => [i.text, i.source, i.date, i.hint])).toEqual([
       ['SaaS or self-hosted', 'deployment', null, 'Deployment is set to "not sure"'],
       ['what prompted the call', 'starter', null, 'Discovery starter'],
-      ['how they test answers today', 'starter', null, 'Discovery starter'],
-      ['who signs off', 'starter', null, 'Discovery starter'],
+      ['how they check quality today', 'starter', null, 'Discovery starter'],
+      ['who else has a view', 'starter', null, 'Discovery starter'],
     ])
     // Deployment set: the room goes to the starters, still at most 3 of them.
-    expect(mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: null }).map((i) => i.text)).toEqual(['what prompted the call', 'how they test answers today', 'who signs off'])
+    expect(mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: null }).map((i) => i.text)).toEqual(['what prompted the call', 'how they check quality today', 'who else has a view'])
     expect(mustLearnIdeas({ setup: { call_type: 'other', deployment: 'saas' }, memory: null }).map((i) => i.text)).toEqual(['what they want from today'])
     // Read defensively: no setup, an unknown call type.
     expect(mustLearnIdeas({ setup: null, memory: null }).map((i) => i.source)).toEqual(['deployment', 'starter', 'starter', 'starter'])
@@ -119,8 +144,8 @@ describe('starters for the call type', () => {
   })
 
   it('skips what is already a must-learn (however it is typed), and one already set makes room for the next', () => {
-    const ideas = mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas', must_learn: ['What prompted the call?', 'Who signs off'] }, memory: null })
-    expect(ideas.map((i) => i.text)).toEqual(['how they test answers today', 'timeline to decide'])
+    const ideas = mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas', must_learn: ['What prompted the call?', 'Who else has a view'] }, memory: null })
+    expect(ideas.map((i) => i.text)).toEqual(['how they check quality today'])
   })
 })
 
@@ -224,10 +249,10 @@ describe('ideas from the account', () => {
     const covered = mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: mem({ last_not_covered: ['timeline'] }) })
     expect(covered.map((i) => i.text)).toEqual(['timeline to decide', 'what prompted the call'])
     // No notes from the last call (or a Practice call): nothing is known to be covered.
-    expect(mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: mem() }).map((i) => i.text)).toEqual(['what prompted the call', 'how they test answers today', 'who signs off'])
-    // "who signs off and how" (not covered) and the Negotiation starter "who signs and how" are one topic.
+    expect(mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: mem() }).map((i) => i.text)).toEqual(['what prompted the call', 'how they check quality today', 'who else has a view'])
+    // "who signs off and how" (not covered) and the Pricing starter "steps left to sign" are one topic.
     const neg = mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas' }, memory: mem({ last_not_covered: ['decision_process'] }) })
-    expect(neg.map((i) => i.text)).toEqual(['who signs off and how', 'steps left to sign', 'start date they need'])
+    expect(neg.map((i) => i.text)).toEqual(['who signs off and how', 'volumes that drive cost', 'how they fund tools'])
     // Junk from an older or hand-edited row is ignored.
     expect(mustLearnIdeas({ setup: { call_type: 'other', deployment: 'saas' }, memory: mem({ last_not_covered: ['pain' as never], items: [null as never, { kind: 'to_learn', text: 7 } as never] }) }).map((i) => i.text)).toEqual(['what they want from today'])
   })
@@ -237,12 +262,12 @@ describe('ideas from the account', () => {
     // "Learn next time" kept "who signs off and how" (a not-covered chip), so it comes back as still to learn.
     const asToLearn = mem({ items: [it_('to_learn', whoSigns)], last_not_covered: ['decision_process'] })
     const neg = mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas' }, memory: asToLearn, now: NOW })
-    expect(neg.map((i) => [i.text, i.source])).toEqual([[whoSigns, 'still_to_learn'], ['steps left to sign', 'starter'], ['start date they need', 'starter']])
+    expect(neg.map((i) => [i.text, i.source])).toEqual([[whoSigns, 'still_to_learn'], ['volumes that drive cost', 'starter'], ['how they fund tools', 'starter']])
     const disc = mustLearnIdeas({ setup: { call_type: 'discovery', deployment: 'saas' }, memory: asToLearn, now: NOW })
     expect(disc.map((i) => i.text)).toEqual([whoSigns, 'what prompted the call'])
     // Faster setup already made it a must-learn.
     const asChip = mustLearnIdeas({ setup: { call_type: 'negotiation', deployment: 'saas', must_learn: [whoSigns] }, memory: mem({ last_not_covered: ['decision_process'] }), now: NOW })
-    expect(asChip.map((i) => i.text)).toEqual(['steps left to sign', 'start date they need'])
+    expect(asChip.map((i) => i.text)).toEqual(['volumes that drive cost', 'how they fund tools'])
   })
 
   it('what they owed reads as a topic', () => {
@@ -596,7 +621,7 @@ describe('a call, its wrap-up, and the next call with them', () => {
     ])
     // Set as must-learns, the rest come up: the fact to confirm, then his notes.
     a.help.setMustLearn(['timeline to decide', 'Eval dataset owner', 'what good looks like'])
-    expect(a.help.mustLearnIdeas().map((i) => i.text)).toEqual(['status of their eval rubric', 'Confirm: score answers with a rubric…', 'where data must stay', 'how they send traces today'])
+    expect(a.help.mustLearnIdeas().map((i) => i.text)).toEqual(['status of their eval rubric', 'Confirm: score answers with a rubric…', 'where data must stay', 'who runs security review'])
     // The chip is cut; a click saves the whole fact.
     expect(a.help.mustLearnIdeas()[1].full).toBe('Confirm: score answers with a rubric in a spreadsheet')
     // Logs: counts and codes only, never what Keith wanted to learn, the account or the notes.

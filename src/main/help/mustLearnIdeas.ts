@@ -11,7 +11,7 @@
  *      stale one reads as a check, never as current fact);
  *   5. the "To learn" lines of Keith's own notes (What I know);
  *   6. "SaaS or self-hosted" while Deployment is "not sure";
- *   7. two or three starters for the call type.
+ *   7. up to three starters for the call type.
  * Ideas are topics in plain words, never scripted questions, and neutral: no assumed pain, problem,
  * urgency or deadline. Keith's notes are his plan, never something the buyer said.
  *
@@ -19,7 +19,7 @@
  * next call, from the last call's agreed next step) and NOT_COVERED_IDEA (the plain words for a topic
  * the call didn't cover). Pure functions: logs carry counts only, never the ideas.
  */
-import { MUST_LEARN_IDEAS_MAX, MUST_LEARN_IDEA_MAX_CHARS, NOT_COVERED_TOPICS, type AccountMemory, type CallSetup, type CallType, type MustLearnIdea, type MustLearnIdeaSource, type NotCoveredTopic } from '../../shared/help'
+import { CALL_TYPE_LABELS, MUST_LEARN_IDEAS_MAX, MUST_LEARN_IDEA_MAX_CHARS, NOT_COVERED_TOPICS, type AccountMemory, type CallSetup, type CallType, type MustLearnIdea, type MustLearnIdeaSource, type NotCoveredTopic } from '../../shared/help'
 import { notesToLearn } from './accountNotes'
 import { MUST_LEARN_MAX_CHARS, mustLearnOf, planKey, sanitizeMustLearn, shortItem } from './callPlan'
 
@@ -47,23 +47,27 @@ export interface Starter {
   topic?: NotCoveredTopic
 }
 
-/** Fixed lists, in the order Keith reads them. Neutral: nothing assumes a pain, urgency or deadline. */
+/**
+ * Fixed lists, 3 per type in the order Keith reads them (M5: what each call type must learn, from the
+ * call-types research). Neutral: nothing assumes a pain, urgency or deadline. Discovery asks "who else
+ * has a view" (formal sign-off comes later); a deep-dive first asks what a pass looks like (whether a
+ * test is needed at all); pricing never presumes a start date.
+ */
 export const STARTERS: Record<CallType, readonly Starter[]> = {
   discovery: [
     { text: 'what prompted the call' },
-    { text: 'how they test answers today', topic: 'current_tooling' },
-    { text: 'who signs off', topic: 'decision_process' },
-    { text: 'timeline to decide', topic: 'timeline' },
+    { text: 'how they check quality today', topic: 'current_tooling' },
+    { text: 'who else has a view', topic: 'decision_process' },
   ],
-  demo: [{ text: 'which use case to show' }, { text: 'what they need to see' }, { text: 'who else should see it' }],
-  technical_deep_dive: [{ text: 'how they send traces today' }, { text: 'where data must stay' }, { text: 'what a POC must prove' }],
-  follow_up: [{ text: 'what changed since last call' }, { text: 'who else has weighed in' }, { text: 'next step and date' }],
-  negotiation: [{ text: 'steps left to sign' }, { text: 'who signs and how', topic: 'decision_process' }, { text: 'start date they need' }],
+  demo: [{ text: 'what landed for them' }, { text: 'who else should see it' }, { text: "how they'd judge it next" }],
+  technical_deep_dive: [
+    { text: 'what pass looks like', topic: 'success_criteria' },
+    { text: 'who approves, by when', topic: 'decision_process' },
+    { text: 'who runs security review' },
+  ],
+  follow_up: [{ text: 'what changed since last call' }, { text: 'who else has weighed in' }, { text: "how they'd explain it inside" }],
+  negotiation: [{ text: 'steps left to sign', topic: 'decision_process' }, { text: 'volumes that drive cost' }, { text: 'how they fund tools' }],
   other: [{ text: 'what they want from today' }],
-}
-
-const TYPE_LABEL: Record<CallType, string> = {
-  discovery: 'Discovery', demo: 'Demo', technical_deep_dive: 'Technical deep-dive', follow_up: 'Follow-up', negotiation: 'Negotiation', other: 'Other',
 }
 
 /** Facts worth checking again on the next call: who decides and what they use today. */
@@ -249,7 +253,7 @@ export function mustLearnIdeas({ setup, memory, notesText, now = new Date() }: I
   for (const s of STARTERS[type]) {
     if (starters >= STARTERS_MAX) break
     const before = out.length
-    add(s.text, 'starter', null, `${TYPE_LABEL[type]} starter`, s.topic)
+    add(s.text, 'starter', null, `${CALL_TYPE_LABELS[type]} starter`, s.topic)
     if (out.length > before) starters++
   }
   return out
