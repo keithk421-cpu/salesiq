@@ -60,15 +60,15 @@ describe('which press is a must-learn click', () => {
 
   it('comes before another angle, closing words, a buying signal and the opening; the WRAP button stays a wrap card', () => {
     const quiet = memoryWith([{ who: 'buyer', text: 'Hi, thanks for making the time.', at: 20_000 }])
-    expect(decidePress('help_requested', quiet, 25_000, null, [], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM } })
+    expect(decidePress('help_requested', quiet, 25_000, null, [], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM, mode_facts: expect.any(Object) } })
     const sig = memoryWith([{ who: 'buyer', text: 'Can we do a pilot first?', at: 60_000 }])
-    expect(decidePress('help_requested', sig, 65_000, null, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM } })
+    expect(decidePress('help_requested', sig, 65_000, null, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM, mode_facts: expect.any(Object) } })
     // The same must-learn clicked again for the same moment (the engine decides that): the card he already has comes too.
-    expect(decidePress('help_requested', sig, 65_000, prior, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM, prior, earlier: [prior] } })
+    expect(decidePress('help_requested', sig, 65_000, prior, [prior], ITEM)).toEqual({ wrap: null, mode: 'plan_item', detail: { plan_item: ITEM, prior, earlier: [prior], mode_facts: expect.any(Object) } })
     const closing = memoryWith([{ who: 'buyer', text: 'This was great. I have a hard stop in two minutes.', at: 60_000 }])
     expect(decidePress('help_requested', closing, 65_000, null, [], ITEM).mode).toBe('plan_item')
     // The WRAP button is its own origin: unchanged.
-    expect(decidePress('wrap_requested', sig, 65_000, null, [], ITEM)).toEqual({ wrap: 'button', mode: null, detail: { wrap_signal: { kind: 'pilot', at_ms: 57_000 } } })
+    expect(decidePress('wrap_requested', sig, 65_000, null, [], ITEM)).toEqual({ wrap: 'button', mode: null, detail: { wrap_signal: { kind: 'pilot', at_ms: 57_000 }, mode_facts: expect.any(Object) } })
     expect(decidePress('coach_proactive', sig, 65_000, null, [], ITEM)).toEqual({ wrap: null, mode: null, detail: {} })
     // No item (or only spaces): the press is decided as before.
     expect(decidePress('help_requested', sig, 65_000, null, [], '   ').mode).toBe('signal')
@@ -289,9 +289,10 @@ describe('practice moments replay the same must-learn press', () => {
     const res = await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
     expect(res.status).toBe('complete')
     expect(block(model.users[0])).toBe(block(m.calls[0].user))
-    expect(res.card?.primary).toMatch(/^\[MOCK\] To get to Who signs off/)
+    // M5: replayed in its call mode (discovery), as on the call.
+    expect(res.card?.primary).toMatch(/^\[MOCK · discovery\] To get to Who signs off/)
     // Re-saving keeps it; a hand-edited moment with a broken item replays without one, still as a must-learn press.
-    expect(refreshFeedback({ ...b.moment, press_mode: undefined, press_detail: undefined }, b.moment).press_detail).toEqual({ plan_item: ITEM })
+    expect(refreshFeedback({ ...b.moment, press_mode: undefined, press_detail: undefined }, b.moment).press_detail).toEqual({ plan_item: ITEM, mode_facts: expect.any(Object) })
     // A must-learn clicked again replays with the line he already had (from the card it was clicked on).
     s.advance(3000)
     vi.useFakeTimers()
@@ -306,7 +307,7 @@ describe('practice moments replay the same must-learn press', () => {
     const againModel = new Capturing(0)
     const againRes = await runScenario(a.moment, againModel, DEFAULT_HELP_CONFIG, playbook)
     expect(block(againModel.users[0])).toBe(block(m.calls[1].user))
-    expect(againRes.card?.primary).toMatch(/^\[MOCK\] Another way to Who signs off/)
+    expect(againRes.card?.primary).toMatch(/^\[MOCK · discovery\] Another way to Who signs off/)
     const broken = new Capturing(0)
     await runScenario({ ...b.moment, press_detail: { plan_item: 7 as unknown as string } }, broken, DEFAULT_HELP_CONFIG, playbook)
     expect(broken.users[0]).toContain('one of the "must learn" items in call_setup')
@@ -357,7 +358,7 @@ describe('in the app', () => {
     // Wait for the Practice card itself, not a fixed time: GitHub's Windows machine can be far slower.
     await vi.waitFor(() => expect(a.events.at(-1)).toMatchObject({ request_id: r.request_id, status: 'complete' }), { timeout: 10_000 })
     expect(a.events.at(-1)).toMatchObject({ request_id: r.request_id, status: 'complete', mock: true, press_mode: 'plan_item' })
-    expect(a.events.at(-1)!.content.primary).toBe('[MOCK] To get to Who signs off on new tools: how does that work?')
+    expect(a.events.at(-1)!.content.primary).toBe('[MOCK · discovery] To get to Who signs off on new tools: how does that work?')
     const row = a.help.db.sql.prepare('SELECT timing_json FROM help_requests WHERE id = ?').get(r.request_id!) as { timing_json: string }
     expect(JSON.parse(row.timing_json)).toMatchObject({ press_mode: 'plan_item', press_plan_item: ITEM })
     // An item removed mid-call can't be pressed any more.

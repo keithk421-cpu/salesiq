@@ -100,9 +100,9 @@ describe('which press is this', () => {
     expect(decidePress('help_requested', quiet, 25_000).mode).toBe('opening')
     // A buying signal beats the opening; another angle beats the signal; WRAP beats them all.
     const sig = memoryWith([{ who: 'buyer', text: 'Can we do a pilot first?', at: 60_000 }])
-    expect(decidePress('help_requested', sig, 65_000)).toEqual({ wrap: null, mode: 'signal', detail: { signal: 'pilot' } })
-    expect(decidePress('help_requested', sig, 65_000, prior)).toEqual({ wrap: null, mode: 'another_angle', detail: { prior } })
-    expect(decidePress('wrap_requested', sig, 65_000, prior)).toEqual({ wrap: 'button', mode: null, detail: { wrap_signal: { kind: 'pilot', at_ms: 57_000 } } })
+    expect(decidePress('help_requested', sig, 65_000)).toEqual({ wrap: null, mode: 'signal', detail: { signal: 'pilot', mode_facts: expect.any(Object) } })
+    expect(decidePress('help_requested', sig, 65_000, prior)).toEqual({ wrap: null, mode: 'another_angle', detail: { prior, mode_facts: expect.any(Object) } })
+    expect(decidePress('wrap_requested', sig, 65_000, prior)).toEqual({ wrap: 'button', mode: null, detail: { wrap_signal: { kind: 'pilot', at_ms: 57_000 }, mode_facts: expect.any(Object) } })
     // Closing words beat a signal (the wrap instruction then mentions the signal).
     const closing = memoryWith([{ who: 'buyer', text: 'How much does it cost? I have a hard stop in two minutes.', at: 60_000 }])
     expect(decidePress('help_requested', closing, 65_000)).toMatchObject({ wrap: 'closing', mode: null, detail: { wrap_signal: { kind: 'pricing' } } })
@@ -111,7 +111,7 @@ describe('which press is this', () => {
     expect(decidePress('wrap_requested', sig, 400_000).detail.wrap_signal?.kind).toBe('pilot')
     // Past the opening and nothing special: a normal press.
     const busy = memoryWith([{ who: 'buyer', text: LONG_ANSWER, at: 60_000 }])
-    expect(decidePress('help_requested', busy, 65_000)).toEqual({ wrap: null, mode: null, detail: {} })
+    expect(decidePress('help_requested', busy, 65_000)).toEqual({ wrap: null, mode: null, detail: { mode_facts: expect.any(Object) } })
     expect(decidePress('coach_proactive', sig, 65_000)).toEqual({ wrap: null, mode: null, detail: {} })
   })
 
@@ -609,7 +609,8 @@ describe('the opening on a follow-up call', () => {
     vi.useRealTimers()
     const b = buildPracticeMoment(s.db, id)
     if (!b.ok) throw new Error(b.reason)
-    expect(b.moment.press_detail).toEqual({ must_learn: [TO_LEARN], earlier_calls: true })
+    // M5: with the mode facts at the press, so it replays with the same <call_mode> block.
+    expect(b.moment.press_detail).toEqual({ must_learn: [TO_LEARN], earlier_calls: true, mode_facts: expect.any(Object) })
     const model = new Capturing(0)
     const res = await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
     expect(model.users[0]).toMatch(/This is a follow-up call, with nothing they said on earlier calls on file/)
@@ -620,9 +621,9 @@ describe('the opening on a follow-up call', () => {
 
   it('a call typed Follow-up with nothing on file, or earlier calls that left nothing at all: a follow-up too', () => {
     const quiet = memoryWith([{ who: 'buyer', text: 'Hi Keith, good to see you again.', at: 12_000 }])
-    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: {} })
+    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: { mode_facts: expect.any(Object) } })
     quiet.hadEarlierCalls = true
-    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: { earlier_calls: true } })
+    expect(decidePress('help_requested', quiet, 16_000)).toEqual({ wrap: null, mode: 'opening', detail: { earlier_calls: true, mode_facts: expect.any(Object) } })
     const ctx = '<call_setup>\ntype: discovery\ngoal: Agree a deep-dive\n</call_setup>'
     expect(pressUserMessage(ctx, null, 'opening', { earlier_calls: true })).toMatch(/This is a follow-up call[\s\S]*set a short agenda from the call goal, and check it works/)
     // Typed as Follow-up, no account memory at all (he met them before using the app): read from the call setup, so replays get it too.
@@ -759,7 +760,7 @@ describe('practice moments keep Keith\'s must-learns', () => {
     const b = buildPracticeMoment(s.db, id)
     if (!b.ok) throw new Error(b.reason)
     expect(b.moment.must_learn).toEqual([ML])
-    expect(b.moment.press_detail).toEqual({ wrap_plan: true })
+    expect(b.moment.press_detail).toEqual({ wrap_plan: true, mode_facts: expect.any(Object) })
     const model = new Capturing(0)
     await runScenario(b.moment, model, DEFAULT_HELP_CONFIG, playbook)
     expect(model.users[0]).toMatch(FOLLOW_PLAN)
@@ -782,7 +783,8 @@ describe('practice moments keep Keith\'s must-learns', () => {
     vi.useRealTimers()
     const w = buildPracticeMoment(s.db, wrap)
     if (!w.ok) throw new Error(w.reason)
-    expect(w.moment.press_detail).toBeUndefined()
+    // Only the mode facts at the press (M5): nothing else to replay.
+    expect(w.moment.press_detail).toEqual({ mode_facts: expect.any(Object) })
     const model = new Capturing(0)
     await runScenario(w.moment, model, DEFAULT_HELP_CONFIG, playbook)
     expect(model.users[0]).toContain("- FOLLOW: what Keith still owes them from this call")

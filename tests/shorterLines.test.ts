@@ -13,9 +13,15 @@ const builtText = fs.readFileSync(path.join(ROOT, 'config', 'playbook.json'), 'u
 const built = JSON.parse(builtText) as Playbook
 const plainBox = { isEncryptionAvailable: () => false, encryptString: (s: string) => Buffer.from(s), decryptString: (b: Buffer) => b.toString() }
 
-/** The previous built-in playbook: this one with only its version and limits as they were. */
+/** The built-in playbook before M5: this one without call modes, at its old version. */
+function m1Draft2(): Playbook {
+  const { call_modes: _modes, ...rest } = built
+  return { ...rest, version: 'm1-draft-2' }
+}
+
+/** The one before that: m1-draft-2 with only its version and limits as they were. */
 function m1Draft1(): Playbook {
-  return { ...built, version: 'm1-draft-1', card_limits: { primary_max_words: 30, happening_max_words: 18, follow_up_max_words: 22 } }
+  return { ...m1Draft2(), version: 'm1-draft-1', card_limits: { primary_max_words: 30, happening_max_words: 18, follow_up_max_words: 22 } }
 }
 
 function card(move: string, kind: 'ASK' | 'SAY', words: number) {
@@ -26,8 +32,8 @@ function card(move: string, kind: 'ASK' | 'SAY', words: number) {
 }
 
 describe('shorter lines', () => {
-  it('the built-in playbook is m1-draft-2: 15/12/15 words, 30 for a technical answer', () => {
-    expect(built.version).toBe('m1-draft-2')
+  it('the built-in playbook is m1-draft-3 (M5 call modes): 15/12/15 words, 30 for a technical answer', () => {
+    expect(built.version).toBe('m1-draft-3')
     expect(built.card_limits).toEqual({ primary_max_words: 15, happening_max_words: 12, follow_up_max_words: 15, technical_max_words: 30 })
     expect(playbookProblem(built)).toBeNull()
     const sys = buildSystemPrompt(built)
@@ -72,15 +78,15 @@ describe('a playbook copy Keith never edited follows the new built-in', () => {
     return { dir, help, logs }
   }
 
-  it('an unedited m1-draft-1 copy (even re-saved with other spacing) moves to m1-draft-2 by itself, keeping a dated backup', () => {
-    for (const copy of [JSON.stringify(m1Draft1(), null, 2), JSON.stringify(m1Draft1(), null, 4).replace(/\n/g, '\r\n')]) {
+  it('an unedited m1-draft-1 or m1-draft-2 copy (even re-saved with other spacing) moves to m1-draft-3 by itself, keeping a dated backup', () => {
+    for (const copy of [JSON.stringify(m1Draft1(), null, 2), JSON.stringify(m1Draft1(), null, 4).replace(/\n/g, '\r\n'), JSON.stringify(m1Draft2(), null, 2)]) {
       const { dir, help, logs } = setUp(copy)
-      expect(help.playbookInfo).toMatchObject({ using: 'built_in', version: 'm1-draft-2', newer_built_in: false, problem: null })
+      expect(help.playbookInfo).toMatchObject({ using: 'built_in', version: 'm1-draft-3', newer_built_in: false, problem: null, call_modes_from: 'built_in' })
       expect(fs.existsSync(path.join(dir, 'playbook.json'))).toBe(false)
       const backups = fs.readdirSync(dir).filter((f) => /^playbook-earlier-\d{4}-\d\d-\d\d-\d\d-\d\d-\d\d\.json$/.test(f))
       expect(backups).toHaveLength(1)
       expect(fs.readFileSync(path.join(dir, backups[0]), 'utf8')).toBe(copy)
-      expect(logs.find((l) => l.e === 'playbook_auto_updated')?.d).toEqual({ from: 'm1-draft-1', to: 'm1-draft-2' })
+      expect(logs.find((l) => l.e === 'playbook_auto_updated')?.d).toEqual({ from: JSON.parse(copy).version, to: 'm1-draft-3' })
       help.shutdown()
     }
   })
@@ -88,18 +94,20 @@ describe('a playbook copy Keith never edited follows the new built-in', () => {
   it('an edited copy stays in use and is offered the new one, as before', () => {
     const edited = { ...m1Draft1(), principles: [...built.principles, 'Keep it short.'] }
     const { dir, help } = setUp(JSON.stringify(edited, null, 2))
-    expect(help.playbookInfo).toMatchObject({ using: 'yours', version: 'm1-draft-1', newer_built_in: true })
+    // A copy from before call modes still gets them, from the built-in playbook.
+    expect(help.playbookInfo).toMatchObject({ using: 'yours', version: 'm1-draft-1', newer_built_in: true, call_modes_from: 'built_in' })
     expect(fs.existsSync(path.join(dir, 'playbook.json'))).toBe(true)
     help.shutdown()
   })
 
   it('a copy of the current built-in is left alone', () => {
     const { help } = setUp(builtText)
-    expect(help.playbookInfo).toMatchObject({ using: 'yours', version: 'm1-draft-2', newer_built_in: false })
+    expect(help.playbookInfo).toMatchObject({ using: 'yours', version: 'm1-draft-3', newer_built_in: false, call_modes_from: 'yours' })
     help.shutdown()
   })
 
-  it('the earlier built-in fingerprint is the m1-draft-1 file as it shipped', () => {
+  it('the earlier built-in fingerprints are the m1-draft-1 and m1-draft-2 files as they shipped', () => {
     expect(playbookFingerprint(JSON.stringify(m1Draft1()))).toBe('242186ec247fd3f77036830782fd5407ece10bdf5cae25c451ed4dd91538135a')
+    expect(playbookFingerprint(JSON.stringify(m1Draft2()))).toBe('5497ddaa898a14e17387b30c16ae25aa25356819c3eb5a66a38df78ee34ffcb3')
   })
 })

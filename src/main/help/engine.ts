@@ -32,6 +32,7 @@ import { blindNote, heardLine, isFiller, keithFiller, theyAsked, withoutTrailing
 import { keithNotesChecks } from './keithNotes'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 import { planKey } from './callPlan'
+import { numbersBackedBy } from './callModes'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -406,7 +407,7 @@ export class HelpEngine {
 
   /** What this run sends: the call context, then the HELP, wrap-card or press instruction (also what is kept on disk). */
   private userMessage(run: Run): string {
-    return pressUserMessage(run.ctx.text, run.wrap, run.mode, run.detail)
+    return pressUserMessage(run.ctx.text, run.wrap, run.mode, run.detail, this.d.playbook.call_modes)
   }
 
   private async execute(run: Run): Promise<void> {
@@ -426,7 +427,7 @@ export class HelpEngine {
           if (run.parser.feed(chunk)) {
             run.content = run.parser.partial()
             // Keith may read the line before the card finishes: what's already certain goes up with it.
-            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, knowledgeInContext: run.knowledgeInContext, ...priceCheckInputs(this.d.memory, run.ctx) })
+            run.checks = streamingChecks(run.content, { contextText: numbersBackedBy(run.ctx.text, run.detail), knowledgeInContext: run.knowledgeInContext, ...priceCheckInputs(this.d.memory, run.ctx) })
             run.earlyChecks = Math.max(run.earlyChecks, run.checks.length)
             this.emit(run)
           }
@@ -446,7 +447,8 @@ export class HelpEngine {
       }
       const v = validateCard(run.content, run.parser.fieldOrder, {
         knownSourceIds: new Set(run.ctx.sources.keys()),
-        contextText: run.ctx.text,
+        // M5: the mode facts the app counted ("about 10 min left") back a card's numbers too.
+        contextText: numbersBackedBy(run.ctx.text, run.detail),
         limits: this.d.playbook.card_limits,
       })
       run.issues = v.issues
@@ -625,6 +627,8 @@ export class HelpEngine {
         ...(run.detail.wrap_signal ? { wrap_signal: run.detail.wrap_signal } : {}),
         // The must-learn Keith clicked (M4), in his words, kept like the request text: only once shown.
         ...(shown && run.detail.plan_item ? { press_plan_item: run.detail.plan_item } : {}),
+        // M5: the call type's facts at the press (buckets and codes only), so a practice moment sends the same <call_mode> block.
+        ...(run.detail.mode_facts ? { mode_facts: run.detail.mode_facts } : {}),
         // WRAP asked a must-learn the notes still had open (a replay has no notes to tell).
         ...(run.wrap === 'button' && planStillOpen(run.ctx.text) ? { wrap_plan: true } : {}),
       }),

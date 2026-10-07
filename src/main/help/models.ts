@@ -9,6 +9,7 @@ import type { HelpModelConfig, HelpUsage } from '../../shared/help'
 import { isWrapRequest } from './wrap'
 import { planItemOf, pressModeOf, priorMoveOf } from './pressModes'
 import { shortItem } from './callPlan'
+import { callModeOf } from './callModes'
 
 export interface HelpModelRun {
   system: string
@@ -279,11 +280,14 @@ export class MockHelpModel implements HelpModel {
     // A WRAP press gets a next-step placeholder, so Practice mode shows what that card looks like.
     const wrap = isWrapRequest(req.user)
     // An opening, buying-signal, another-angle or must-learn press (pressModes.ts) gets a placeholder of its kind too.
-    const press = wrap ? null : mockPress(req.user)
+    // M5: in a call mode, a normal press gets that mode's placeholder, and every line says which mode
+    // reached the request ("[MOCK · demo]"), so Practice mode shows the type made it into the request.
+    const mode = callModeOf(req.user)
+    const press = wrap ? null : mockPress(req.user) ?? (mode ? mockModeLine(mode) : null)
     const lines = [
       press ? `MOVE: ${press.move}` : wrap ? 'MOVE: confirm_next_step' : 'MOVE: clarify_current_state',
-      press ? press.line : wrap ? 'ASK: [MOCK] What day works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?',
-      'HAPPENING: [MOCK] Placeholder read - no model was called.',
+      (press ? press.line : wrap ? 'ASK: [MOCK] What day works for a follow-up, and who should join?' : 'ASK: [MOCK] How does that work in practice today?').replace('[MOCK]', mode ? `[MOCK · ${mode.type}]` : '[MOCK]'),
+      `HAPPENING: ${press?.happening ?? '[MOCK] Placeholder read - no model was called.'}`,
       press ? `FOLLOW: ${press.follow}` : wrap ? "FOLLOW: [MOCK] I'll send over what I promised." : 'FOLLOW: -',
       `SOURCES: ${last ?? '-'}`,
       'NOTE: MOCK output for offline testing',
@@ -327,8 +331,27 @@ export class MockHelpModel implements HelpModel {
   }
 }
 
+/**
+ * M5: a normal press in a call mode, one placeholder per type. A pricing call where Keith's number is
+ * waiting for an answer gets a Hold: no move now, and the question for after they answer.
+ */
+function mockModeLine(mode: { type: string; number_unanswered: boolean }): { move: string; line: string; follow: string; happening?: string } {
+  if (mode.type === 'negotiation' && mode.number_unanswered) {
+    return { move: 'no_move', line: 'ASK: [MOCK] How does that land for you?', follow: '-', happening: "[MOCK] You've given the number: let them answer first." }
+  }
+  return MOCK_MODE_LINES[mode.type] ?? { move: 'clarify_current_state', line: 'ASK: [MOCK] How does that work in practice today?', follow: '-' }
+}
+
+const MOCK_MODE_LINES: Record<string, { move: string; line: string; follow: string }> = {
+  discovery: { move: 'clarify_current_state', line: 'ASK: [MOCK] Can you walk me through a recent example?', follow: '-' },
+  demo: { move: 'clarify_current_state', line: 'ASK: [MOCK] How does that compare to how you do it today?', follow: '-' },
+  technical_deep_dive: { move: 'identify_owner', line: 'ASK: [MOCK] Got it. Who on your side reviews that?', follow: '-' },
+  follow_up: { move: 'clarify_current_state', line: "ASK: [MOCK] What's changed on your side since we spoke?", follow: '-' },
+  negotiation: { move: 'clarify_decision', line: 'ASK: [MOCK] Who reviews this on your side before signature?', follow: '-' },
+}
+
 /** Placeholder lines for a smarter press, so Practice mode shows what each card looks like. */
-function mockPress(user: string): { move: string; line: string; follow: string } | null {
+function mockPress(user: string): { move: string; line: string; follow: string; happening?: string } | null {
   switch (pressModeOf(user)) {
     case 'opening':
       // Only when the block asked for a check-in on what they said last time (pressModes.ts openingBlock):

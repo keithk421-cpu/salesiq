@@ -438,7 +438,8 @@ describe('saving practice moments', () => {
     expect(md).toMatch(/Plus 1 of your saved moments, reported separately/)
     expect(md).toMatch(/## Your saved moments \(1, from real calls\)/)
     expect(md).toMatch(/never part of the numbers above/)
-    expect(md).toMatch(/\| Bluefin Logistics · [\d-]+ [\d:]+ \| claude-sonnet-5-5 \| [\d.]+ s \| pass \| clarify_current_state \| clarify_requirement \| not judged \|/)
+    // M5: a deep-dive moment replays in its call mode, so the MOCK model gives that mode's placeholder (identify_owner).
+    expect(md).toMatch(/\| Bluefin Logistics · [\d-]+ [\d:]+ \| claude-sonnet-5-5 \| [\d.]+ s \| pass \| identify_owner \| clarify_requirement \| not judged \|/)
     // A run without them has no such section.
     expect(reportMarkdown(await benchmark({ scenarios: [builtIn], model: new MockHelpModel(0), configs: [DEFAULT_HELP_CONFIG], playbook, repeats: 1 }))).not.toMatch(/saved moments/)
   })

@@ -19,6 +19,7 @@ import { priceCheckInputs } from './priceInputs'
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 import { keithNotesChecks } from './keithNotes'
+import { numbersBackedBy, withModeFacts } from './callModes'
 
 export { findCapabilityClaim }
 
@@ -117,10 +118,13 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   let usage: HelpUsage | null = null
   let error: string | null = null
   let status: ScenarioResult['status'] = 'complete'
+  // M5: the call type's facts as stored with a saved moment, else counted from the replayed call.
+  const detail = withModeFacts(cleanPressDetail(s.press_detail), r.memory, r.atMs)
   try {
     const res = await model.run({
       // A moment saved from a WRAP or smarter press replays with the instruction it had (stored, not re-detected).
-      system: buildSystemPrompt(playbook), user: pressUserMessage(ctx.text, s.wrap === 'button' || s.wrap === 'closing' ? s.wrap : null, cleanPressMode(s.press_mode), cleanPressDetail(s.press_detail)), config, signal: abort.signal,
+      // M5: with the call type's <call_mode> block.
+      system: buildSystemPrompt(playbook), user: pressUserMessage(ctx.text, s.wrap === 'button' || s.wrap === 'closing' ? s.wrap : null, cleanPressMode(s.press_mode), detail, playbook.call_modes), config, signal: abort.signal,
       onText: (c) => { firstTokenAt ??= performance.now(); raw += c; parser.feed(c) },
     })
     usage = res.usage
@@ -133,7 +137,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   }
   const completeAt = performance.now()
   parser.end()
-  const v = validateCard(parser.partial(), parser.fieldOrder, { knownSourceIds: new Set(ctx.sources.keys()), contextText: ctx.text, limits: playbook.card_limits })
+  const v = validateCard(parser.partial(), parser.fieldOrder, { knownSourceIds: new Set(ctx.sources.keys()), contextText: numbersBackedBy(ctx.text, detail), limits: playbook.card_limits })
   if (status === 'complete' && !v.ok) status = 'failed'
   const kinds = new Map([...ctx.sources.entries()].map(([k, v2]) => [k, v2.kind]))
   const failures = status === 'complete' ? level1(s, v.card, v.issues, ctx.text, kinds, priceCheckInputs(r.memory, ctx)) : [`request ${status}${error ? `: ${error}` : ''}`]

@@ -112,15 +112,16 @@ const FOLLOW_PLAN = `instead of a recap, one thing Keith still wants to learn (l
 /**
  * The user message for a wrap card: the same call context, then what this card is for. `storedPlan` is
  * what a saved WRAP press stored (a replay has no call notes to read it from); otherwise it's read
- * from the context.
+ * from the context. `mode` (M5): the call type's <call_mode> block, which goes after the context and
+ * before the card, and what WRAP aims for on this type (callModes.ts), added inside the card.
  */
-export function wrapUserMessage(contextText: string, why: WrapWhy, storedPlan?: boolean): string {
+export function wrapUserMessage(contextText: string, why: WrapWhy, storedPlan?: boolean, mode?: { block: string; aim: string } | null): string {
   const askPlan = why === 'button' && (storedPlan ?? planStillOpen(contextText))
   return `${contextText}
-
+${mode ? `\n${mode.block}\n` : ''}
 <wrap_card>
 ${WRAP_REASON[why]} Before they hang up, help Keith lock a concrete next step.
-- ASK or SAY: one line that pins down the next step: what happens, who attends, and a date or time. If a next step is already agreed (call_notes "agreed", or the transcript), confirm its details instead of proposing a new one. A step that was only proposed is not agreed: ask whether it works for them.
+${mode?.aim ? `- Aim for this call type: ${mode.aim}\n` : ''}- ASK or SAY: one line that pins down the next step: what happens, who attends, and a date or time. If a next step is already agreed (call_notes "agreed", or the transcript), confirm its details instead of proposing a new one. A step that was only proposed is not agreed: ask whether it works for them.
 - If no date or time was said, ask for one ("What day works for you?"); never pick a date, a name or a commitment nobody said. Keep to any timeframe they named ("after our Q1 planning").
 - If they said not now or not interested, don't push for a meeting: ask how and when they'd like Keith to follow up.
 - MOVE: ${why === 'button' ? 'confirm_next_step. Use call_control only if they are mid-thought and Keith should let them finish.' : 'confirm_next_step when the line locks the next step; when it answers what they just asked, the move that fits that.'}
