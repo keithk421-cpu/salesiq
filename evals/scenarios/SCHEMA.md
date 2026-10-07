@@ -5,11 +5,14 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
 ```jsonc
 {
   "id": "objection-01-budget-next-year",        // unique, kebab-case, matches file name
-  "category": "neutral_discovery | objection | competitor | technical | answered | sa_leading | older_context | sources | real_call",
+  "category": "neutral_discovery | objection | competitor | technical | answered | sa_leading | older_context | sources | call_mode | real_call",
   "tags": ["unknown_speaker", "technical_confusion", "fully_answered", "older_context", "missing_source", "stale_source", "sa_handling", "buyer_claim"],
   "golden_approved": false,
   "synthetic": true,                             // fictional company/people; no real customer data
   "call_type": "discovery | demo | technical_deep_dive | follow_up | negotiation | other",
+  "length_min": 45,                              // optional (M5): how long the call is meant to run, for the "about 10 minutes
+                                                 // left" cue; absent = the type's default (discovery 30, demo 60, ...)
+  "no_sa": false,                                // optional (M5): no Arize SA on this demo or deep-dive
   "call_goal": "one concrete goal for the call",
   "desired_outcomes": ["..."],
   "deployment": "unknown | saas | self_hosted",  // optional, default unknown: the buyer's deployment as set for the call
@@ -21,6 +24,8 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
   // who: "keith" for Keith's mic, otherwise a cluster key from "speakers".
   // "end" (optional) = when the utterance ended; replay assumes the final transcript becomes available
   // ~1 s after "end" (or after t + words/2.5 s when absent). Replay never shows text before it was available.
+  // A line that starts before help_at_s and is still going at the press (M5: the SA mid-screen, a buyer
+  // mid-reaction) reaches HELP only as live words: its first part, with that speaker's cluster.
   "transcript": [
     { "t": 0, "who": "keith", "text": "..." },
     { "t": 6.5, "end": 14.0, "who": "e1:s0", "text": "..." }
@@ -57,6 +62,11 @@ One JSON file per scenario in `evals/scenarios/help/`. Agents may draft; **every
                                                  // lines are left out). Not the same as keith_notes above.
 }
 ```
+
+**Call-mode scenarios (M5, `mode-*.json`, `"category": "call_mode"`)** test what each call type's mode should do at one
+moment. The mode's facts (time left, questions since the last play-back, who's talking now...) are counted from the
+replayed transcript, so a scenario sets them up with its lines, `help_at_s` and `length_min`; there is no field for them.
+`"wrap": "button"` replays a WRAP press. A `step_2` tag marks a moment judged only once the SA-aware demo cards are on.
 
 SalesMove values: `no_move`, `clarify_current_state`, `explore_process`, `test_for_friction`, `quantify_impact`, `clarify_scale`, `identify_owner`, `clarify_desired_state`, `clarify_requirement`, `clarify_decision`, `handle_objection`, `handle_competitor`, `technical_clarification`, `technical_answer`, `confirm_next_step`, `call_control`.
 

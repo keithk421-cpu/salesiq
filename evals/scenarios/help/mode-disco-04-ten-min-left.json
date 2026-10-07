@@ -1,0 +1,57 @@
+{
+  "id": "mode-disco-04-ten-min-left",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "time_left"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn whether Brambleton Bank has a real problem with its KYC summary assistant, why now, and who else cares",
+  "desired_outcomes": [
+    "Their top problems in their words",
+    "Next meeting booked"
+  ],
+  "length_min": 30,
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Ruth Danso (Head of Onboarding Ops)"}
+  },
+  "transcript": [
+    {"t": 1020, "end": 1060, "who": "e1:s0", "text": "So the assistant reads the ID and proof-of-address documents and drafts the KYC summary, and an analyst checks it. The slow bit is the analysts double-checking everything, because they don't trust the summaries yet."},
+    {"t": 1061, "end": 1065, "who": "keith", "text": "What would make them trust it more?"},
+    {"t": 1066, "end": 1100, "who": "e1:s0", "text": "Knowing why it said what it said, I think. Right now if an auditor asks why a file was approved, we can't show what the assistant looked at. That's the bit that worries compliance."},
+    {"t": 1101, "end": 1104, "who": "keith", "text": "Who in compliance raised that?"},
+    {"t": 1105, "end": 1125, "who": "e1:s0", "text": "Paul Nyberg, he runs model risk. He's been asking for an audit trail since the pilot."},
+    {"t": 1126, "end": 1130, "who": "keith", "text": "How many files go through the assistant a week?"},
+    {"t": 1131, "end": 1145, "who": "e1:s0", "text": "Around four thousand, and more once we add business accounts next year."},
+    {"t": 1146, "end": 1150, "who": "keith", "text": "And how long does an analyst check take?"},
+    {"t": 1151, "end": 1170, "who": "e1:s0", "text": "Ten, fifteen minutes. Without the assistant it was about forty."},
+    {"t": 1171, "end": 1175, "who": "keith", "text": "What happens when the summary's wrong?"},
+    {"t": 1176, "end": 1200, "who": "e1:s0", "text": "The analyst fixes it, and nobody upstream hears about it. We don't keep track of the fixes anywhere."},
+    {"t": 1201, "end": 1206, "who": "keith", "text": "Which team built the assistant?"},
+    {"t": 1207, "end": 1230, "who": "e1:s0", "text": "Our data science team, three people, with an outside partner for the document reading part."},
+    {"t": 1231, "end": 1235, "who": "keith", "text": "Is the partner still involved?"},
+    {"t": 1236, "end": 1260, "who": "e1:s0", "text": "For the document model, yes. The summary part is all ours now."}
+  ],
+  "help_at_s": 1265,
+  "knowledge": [],
+  "best_moves": [
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "call_control"
+  ],
+  "unacceptable_behaviors": [
+    "Asks another discovery question with about 9 minutes left and no next step",
+    "Books a meeting without playing back what they said first (weak, not wrong)",
+    "Pressure or urgency lines to get the meeting",
+    "Plays back pain they didn't name"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "From what you said: audit trail and untracked fixes. Book a session with Paul?",
+    "Can we book a follow-up with you and Paul next week?"
+  ],
+  "keith_notes": ""
+}

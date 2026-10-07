@@ -1,0 +1,59 @@
+{
+  "id": "mode-demo-03-tech-question-to-keith",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "sa_handling",
+    "direct_question"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Hollowell Insurance its claims triage agent traced across services; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Carmen Ruiz (Principal Engineer)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 1500, "end": 1530, "who": "e1:s1", "text": "And that's the agent's own steps. Each tool call shows up as a child span under the request, so you can see which tool was slow."},
+    {"t": 1531, "end": 1555, "who": "e1:s0", "text": "Keith, quick one while Sam's here. When the agent calls our fraud-scoring service, does the trace follow it across? Like, does the span context propagate to that service?"}
+  ],
+  "help_at_s": 1558,
+  "knowledge": [
+    {
+      "id": "k-context-propagation",
+      "title": "Traces across services",
+      "text": "Arize tracing uses standard OpenTelemetry context propagation: when the calling service and the called service are both instrumented, the trace context passed between them links their spans into one trace.",
+      "category": "product",
+      "source": "Arize tracing docs (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-28"
+    }
+  ],
+  "best_moves": [
+    "call_control"
+  ],
+  "acceptable_moves": [
+    "technical_clarification"
+  ],
+  "unacceptable_behaviors": [
+    "Keith answers the propagation question alone, even from approved knowledge, while Sam is on the call",
+    "Claims specific language or framework support not in a source",
+    "Ignores the question and asks a discovery question"
+  ],
+  "forbid_regex": [
+    "\\b(context|the trace|it) (does|will|would) (propagate|follow|carry)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Good one for Sam. Sam, can you take the propagation question?",
+    "Sam's the right person for that one. Sam?"
+  ],
+  "keith_notes": ""
+}

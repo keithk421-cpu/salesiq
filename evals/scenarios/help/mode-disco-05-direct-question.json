@@ -1,0 +1,56 @@
+{
+  "id": "mode-disco-05-direct-question",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "direct_question"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn whether Glasswing Analytics has a real problem watching its agents, why now, and who else cares",
+  "desired_outcomes": [
+    "Their top problems in their words",
+    "Next meeting booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Ilse Marchetti (Staff Platform Engineer)"}
+  },
+  "transcript": [
+    {"t": 330, "end": 336, "who": "keith", "text": "How are the agents instrumented today?"},
+    {"t": 337, "end": 360, "who": "e1:s0", "text": "Bits and pieces. We have OTel everywhere for the services, but the LLM calls are just logged as text."},
+    {"t": 361, "end": 363, "who": "keith", "text": "Okay, got it."},
+    {"t": 364, "end": 380, "who": "e1:s0", "text": "So, straight question: do you support OpenTelemetry? We've standardised on it and I'm not adding another agent to every box."}
+  ],
+  "help_at_s": 383,
+  "knowledge": [
+    {
+      "id": "k-otel-tracing",
+      "title": "Tracing is OpenTelemetry-based",
+      "text": "Arize tracing is built on OpenTelemetry. OpenInference provides OTel-based instrumentation and semantic conventions for LLM applications, and spans are exported over OTLP; a proprietary agent is not required to send traces. Instrumentation effort depends on the frameworks and services involved.",
+      "category": "product",
+      "source": "Arize tracing docs (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-28"
+    }
+  ],
+  "best_moves": [
+    "technical_answer"
+  ],
+  "acceptable_moves": [],
+  "unacceptable_behaviors": [
+    "Answers the direct question with a counter-question first",
+    "Claims zero code changes or names frameworks the source doesn't",
+    "Says a proprietary agent or sidecar is needed"
+  ],
+  "forbid_regex": [
+    "\\bzero (code )?changes?\\b",
+    "\\bno code changes?\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Yes: tracing is OpenTelemetry-based, spans over OTLP, no proprietary agent. Which services first?"
+  ],
+  "keith_notes": ""
+}

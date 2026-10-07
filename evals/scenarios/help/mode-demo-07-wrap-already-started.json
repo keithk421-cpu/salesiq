@@ -1,0 +1,53 @@
+{
+  "id": "mode-demo-07-wrap-already-started",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "time_left",
+    "reaction"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Marrowstone Travel prompt changes tested before release; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "length_min": 45,
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Jonah Whitley (Director, Booking Platform)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2165, "end": 2170, "who": "keith", "text": "Before we run out of time, what stood out most so far?"},
+    {"t": 2171, "end": 2195, "who": "e1:s0", "text": "Honestly the eval comparison. Seeing two prompt versions side by side on the same bookings, we don't have anything like that."},
+    {"t": 2196, "end": 2200, "who": "keith", "text": "That's helpful. Sam, want to show the last piece?"},
+    {"t": 2201, "end": 2260, "who": "e1:s1", "text": "Sure. So this is experiments. You take a dataset, say last month's bookings that went wrong, and rerun them against a new prompt before you ship it. Each run gets the same evals, so you can compare."},
+    {"t": 2262, "end": 2287, "who": "e1:s0", "text": "Oh, that's nice. Rerunning last month's bad bookings against a new prompt before it ships, that would have saved us in August."}
+  ],
+  "help_at_s": 2290,
+  "knowledge": [],
+  "best_moves": [
+    "quantify_impact"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step"
+  ],
+  "unacceptable_behaviors": [
+    "Asks \"what stood out most?\" again (Keith already asked at 36:05)",
+    "Ignores the reaction to the screen",
+    "Assumes what went wrong in August",
+    "Urgency or pressure to book"
+  ],
+  "forbid_regex": [
+    "\\bwhat stood out\\b[^.!?]*\\?"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What happened in August?",
+    "What would catching that before shipping have meant for the team?"
+  ],
+  "keith_notes": ""
+}

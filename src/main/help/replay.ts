@@ -42,6 +42,10 @@ export interface Scenario {
    * so HELP sees them all as still open, as before the first notes of a live call.
    */
   must_learn?: string[]
+  /** M5: how long the call is meant to run (minutes), for the time-left cue; absent: the type's default. */
+  length_min?: number
+  /** M5: no Arize SA on this demo or deep-dive (Keith presents alone). */
+  no_sa?: boolean
   speakers: Record<string, { role: 'buyer' | 'teammate' | 'unknown'; name: string | null }>
   transcript: ScenarioLine[]
   gaps?: Array<{ start: number; end: number; stream: Stream; cause: string }>
@@ -131,6 +135,9 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
   const setup: CallSetup = { call_type: s.call_type, call_goal: s.call_goal, desired_outcomes: s.desired_outcomes, account: s.account ?? '', deployment: s.deployment ?? 'unknown' }
   const ml = sanitizeMustLearn(s.must_learn)
   if (ml.length) setup.must_learn = ml
+  // M5 call modes: a scenario that needs a time ("minute 38 of 45") sets the call's length; read defensively.
+  if (typeof s.length_min === 'number' && s.length_min > 0) setup.length_min = s.length_min
+  if (s.no_sa === true) setup.no_sa = true
   memory.setup = setup
   memory.earlierCalls = cleanEarlierItems(s.earlier_calls)
   memory.keithNotes = typeof s.account_notes === 'string' ? s.account_notes : ''

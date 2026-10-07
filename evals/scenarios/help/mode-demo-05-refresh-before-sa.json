@@ -1,0 +1,63 @@
+{
+  "id": "mode-demo-05-refresh-before-sa",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "sa_handling",
+    "before_sa"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Fernleaf Grocers wrong substitutions getting caught; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "length_min": 60,
+  "account": "Fernleaf Grocers",
+  "earlier_calls": [
+    {"kind": "fact", "text": "The substitution agent runs in 40 pilot stores", "date": "2026-09-14"},
+    {"kind": "fact", "text": "Two analysts read a sample of substitutions every Friday", "date": "2026-09-14"},
+    {"kind": "wants", "text": "To see wrong substitutions before customers call about them", "date": "2026-09-14"}
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Imogen Hart (Head of Data, E-commerce)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 15, "end": 22, "who": "keith", "text": "Thanks for joining, everyone. Sam's with us today to show the product."},
+    {"t": 23, "end": 28, "who": "e1:s1", "text": "Hi all, Sam here, I'll be driving the screen today."},
+    {"t": 29, "end": 31, "who": "e1:s0", "text": "Great, hi Sam."},
+    {"t": 170, "end": 198, "who": "keith", "text": "So the plan is a quick recap of where you are, then Sam shows tracing and evals on a substitution example, and we save ten minutes at the end to talk about next steps."},
+    {"t": 199, "end": 202, "who": "e1:s0", "text": "Sounds good to me."},
+    {"t": 203, "end": 207, "who": "keith", "text": "So, what's changed since we last spoke?"},
+    {"t": 208, "end": 211, "who": "e1:s0", "text": "Not much, honestly."},
+    {"t": 212, "end": 217, "who": "keith", "text": "Did the rollout to all stores happen in September?"},
+    {"t": 218, "end": 222, "who": "e1:s0", "text": "Yeah, it did. All stores now."}
+  ],
+  "help_at_s": 225,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "quantify_impact"
+  ],
+  "unacceptable_behaviors": [
+    "Tells Keith to let Sam carry on or hold back (Sam hasn't presented yet)",
+    "Holds (no_move) before the demo has started",
+    "Assumes the rollout caused trouble they haven't mentioned",
+    "Starts the demo pitch from Keith's side"
+  ],
+  "forbid_regex": [
+    "\\blet sam (carry on|continue|keep going|present|take it)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What did going to all stores change for the Friday sample?",
+    "How are the analysts keeping up now it's in every store?"
+  ],
+  "keith_notes": ""
+}

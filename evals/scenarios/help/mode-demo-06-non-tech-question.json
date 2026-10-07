@@ -1,0 +1,58 @@
+{
+  "id": "mode-demo-06-non-tech-question",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "direct_question"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Calder Ridge Software eval scores per feature; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Ana Sokolova (Eng Manager, AI Features)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2400, "end": 2430, "who": "e1:s1", "text": "And this dashboard rolls up the eval scores per feature, so you can see helpfulness and correctness trending week over week."},
+    {"t": 2431, "end": 2442, "who": "e1:s0", "text": "Can our PMs see these dashboards too, or is it just engineers?"}
+  ],
+  "help_at_s": 2445,
+  "knowledge": [
+    {
+      "id": "k-workspace-roles",
+      "title": "Workspace roles",
+      "text": "Arize AX workspaces use role-based access. Admins can give teammates view-only access to dashboards and monitors without edit rights.",
+      "category": "product",
+      "source": "Arize admin docs (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-28"
+    }
+  ],
+  "best_moves": [
+    "technical_answer",
+    "call_control"
+  ],
+  "acceptable_moves": [
+    "clarify_requirement"
+  ],
+  "unacceptable_behaviors": [
+    "Answers with a counter-question first (\"Which PMs?\") before answering",
+    "Claims more than the source says (free or unlimited seats, single sign-on)",
+    "Ignores the question and carries on with the demo"
+  ],
+  "forbid_regex": [
+    "\\b(free|unlimited) (seats?|users?|viewers?|access)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Yes, admins can give PMs view-only access to dashboards. Which PMs would use them?"
+  ],
+  "keith_notes": ""
+}

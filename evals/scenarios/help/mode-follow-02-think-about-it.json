@@ -1,0 +1,49 @@
+{
+  "id": "mode-follow-02-think-about-it",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "stall"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Close owed items with Bramblecove Software, hear what changed, move one thing forward",
+  "desired_outcomes": [
+    "Owed items closed or re-dated",
+    "Dated next step with names"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Nell Ashworth (Director, Platform)"}
+  },
+  "transcript": [
+    {"t": 1300, "end": 1310, "who": "keith", "text": "So, where did you land after the team saw the demo?"},
+    {"t": 1311, "end": 1335, "who": "e1:s0", "text": "We liked it, honestly. The eval side especially. We just need to think about it a bit more before we decide anything."},
+    {"t": 1336, "end": 1337, "who": "keith", "text": "Sure."},
+    {"t": 1338, "end": 1342, "who": "e1:s0", "text": "Yeah. So, no rush."}
+  ],
+  "help_at_s": 1345,
+  "knowledge": [],
+  "best_moves": [
+    "handle_objection"
+  ],
+  "acceptable_moves": [
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Urgency lines (end of quarter, offer expires)",
+    "Offers a discount, pilot or other concession to get a yes",
+    "Takes \"think about it\" as a no and gives up",
+    "Re-pitches the eval features"
+  ],
+  "forbid_regex": [
+    "\\bdiscount",
+    "\\b(end of (the )?quarter|quarter[- ]end|expires?|limited time|last chance|before (the )?price)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "My sense is something still feels uncertain. Is that fair?",
+    "What would you want to think through, so I can help?"
+  ],
+  "keith_notes": ""
+}

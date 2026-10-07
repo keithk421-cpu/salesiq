@@ -7,8 +7,8 @@ import { replayAt } from '../src/main/help/replay'
 const scenarios = loadScenarios(fileURLToPath(new URL('../evals/scenarios/help', import.meta.url)))
 
 describe('HELP scenario set', () => {
-  it('has the M1 drafts (25 + 8 from the knowledge review + 10 practice moments + 2 with Keith\'s notes), none approved by anyone but Keith', () => {
-    expect(scenarios).toHaveLength(45)
+  it('has the M1 drafts (25 + 8 from the knowledge review + 10 practice moments + 2 with Keith\'s notes + 23 call modes), none approved by anyone but Keith', () => {
+    expect(scenarios).toHaveLength(68)
     // Only Keith flips this. If this fails after his review, update the expected count here.
     expect(scenarios.filter((s) => s.golden_approved)).toHaveLength(0)
     // The repo is public: every scenario is made up.
@@ -57,7 +57,10 @@ describe('HELP scenario set', () => {
     it(`${s.id}: replays without leaking the future, and Level 1 accepts its example good lines`, () => {
       const r = replayAt(s)
       const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
-      expect(r.hiddenLineIndexes).toEqual([]) // the decision point is after everything was available
+      // The decision point is after everything was available, except a line still being spoken at the
+      // press (M5: the SA mid-screen, a buyer mid-reaction): HELP sees only its start, as live words.
+      expect(r.hiddenLineIndexes.filter((i) => s.transcript[i].t >= s.help_at_s), 'a line after the press').toEqual([])
+      if (r.hiddenLineIndexes.length) expect(ctx.text).toContain('(still being transcribed')
       expect(ctx.text).toContain('<last_30_seconds>')
       const kinds = new Map([...ctx.sources.entries()].map(([k, v]) => [k, v.kind]))
       // Where the best move is to answer from knowledge, a good line states approved knowledge and

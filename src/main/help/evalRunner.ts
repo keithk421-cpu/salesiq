@@ -18,12 +18,15 @@ import { LineProtocolParser, findCapabilityClaim, validateCard } from './protoco
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 import { keithNotesChecks } from './keithNotes'
+import { byCallTypeMarkdown } from './evalByType'
 
 export { findCapabilityClaim }
 
 export interface ScenarioResult {
   scenario_id: string
   category: string
+  /** M5: the call type the scenario was set up with, for the "By call type" table (absent in older results). */
+  call_type?: string
   approved: boolean
   /** Model id of the config that produced this result (grouping key). */
   model: string
@@ -141,6 +144,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   return {
     scenario_id: s.id,
     category: s.category,
+    call_type: s.call_type,
     approved: s.golden_approved === true,
     model: config.model,
     config_label: model.label(config),
@@ -165,6 +169,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
 function unreplayable(s: Scenario, model: HelpModel, config: HelpModelConfig, err: unknown): ScenarioResult {
   return {
     scenario_id: typeof s.id === 'string' ? s.id : '?', category: typeof s.category === 'string' ? s.category : 'real_call', approved: false,
+    ...(typeof s.call_type === 'string' ? { call_type: s.call_type } : {}),
     model: config.model, config_label: model.label(config), status: 'failed', card: null, raw: '', first_usable_ms: null, complete_ms: null, usage: null,
     level1: { pass: false, failures: [`could not replay: ${(err as Error)?.message ?? String(err)}`] }, move_ok: null, error: (err as Error)?.message ?? String(err),
   }
@@ -507,6 +512,8 @@ Times are from the press, including finding the approved note and building the c
 ${rows.join('\n')}
 
 ${stagesMarkdown(r.summaries, pc)}
+
+${byCallTypeMarkdown(r.results, r.mine?.results)}
 
 ## Level 1 failures
 ${fails.join('\n') || 'None.'}

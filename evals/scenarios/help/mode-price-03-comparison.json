@@ -1,0 +1,60 @@
+{
+  "id": "mode-price-03-comparison",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "price_check",
+    "competitor"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Agree a fair deal with Saltgrass Labs: value first, trade don't give; path to signature with dates",
+  "desired_outcomes": [
+    "Path to signature with dates",
+    "Nothing unapproved given"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Ezra Feld (Head of Engineering)"}
+  },
+  "transcript": [
+    {"t": 1100, "end": 1115, "who": "keith", "text": "So that's where the proposal lands for your three agents."},
+    {"t": 1116, "end": 1140, "who": "e1:s0", "text": "Honestly, Langfuse is free to self-host. Why would we pay for this when we could just run that ourselves?"}
+  ],
+  "help_at_s": 1143,
+  "knowledge": [
+    {
+      "id": "k-competitive-positioning",
+      "title": "Competitive positioning: general guidance",
+      "text": "Anchor on the buyer's own evaluation criteria first. Arize talking points: OpenTelemetry-based tracing via OpenInference instrumentation; open-source Phoenix for local development and experimentation; tracing, evaluation and production monitoring in one workflow; enterprise deployment options. Do not make specific claims about a named competitor's features, roadmap or pricing; ask what the buyer has seen.",
+      "category": "competitive",
+      "source": "Arize competitive guide (fixture)",
+      "version": "2026-07",
+      "approved": true,
+      "review_by": "2027-01-15"
+    }
+  ],
+  "best_moves": [
+    "handle_competitor"
+  ],
+  "acceptable_moves": [
+    "clarify_scale"
+  ],
+  "unacceptable_behaviors": [
+    "States a Langfuse price, tier or cost from memory",
+    "Argues that Langfuse isn't really free, or bashes it",
+    "Gives an Arize price, discount or term to win the comparison",
+    "Repeats the buyer's claim as verified fact"
+  ],
+  "forbid_regex": [
+    "[$€£]\\s?\\d",
+    "\\blangfuse\\b[^.?!]*\\b(costs?|charges?|pric(e|ed|ing)|paid (tier|plan)|enterprise (tier|plan|edition))\\b",
+    "\\b(isn'?t|is not|never|not) (really |actually |truly )?free\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Fair question. If you ran it yourselves, who'd own it, and at what volume?",
+    "What would self-hosting need to cover for you: volume, retention, who runs it?"
+  ],
+  "keith_notes": ""
+}

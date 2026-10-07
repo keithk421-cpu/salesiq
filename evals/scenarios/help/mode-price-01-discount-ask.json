@@ -1,0 +1,52 @@
+{
+  "id": "mode-price-01-discount-ask",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "price_check",
+    "discount"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Agree a fair deal with Halcyon Freight: value first, trade don't give; path to signature with dates",
+  "desired_outcomes": [
+    "Path to signature with dates",
+    "Nothing unapproved given"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Rosa Lindqvist (VP Operations)"}
+  },
+  "transcript": [
+    {"t": 600, "end": 630, "who": "keith", "text": "So that's the proposal: the platform at the volume we scoped, with the 90 days of retention your team asked for. How does it look on your side?"},
+    {"t": 631, "end": 660, "who": "e1:s0", "text": "Look, the team likes it. But we'd need 20% off to get this through. That's the number finance gave me."},
+    {"t": 661, "end": 662, "who": "keith", "text": "Okay."}
+  ],
+  "help_at_s": 665,
+  "knowledge": [],
+  "best_moves": [
+    "handle_objection"
+  ],
+  "acceptable_moves": [
+    "clarify_decision"
+  ],
+  "unacceptable_behaviors": [
+    "Offers or hints at a discount (\"we could do something there\")",
+    "Gives any percentage or figure of its own",
+    "Agrees to the 20%",
+    "Urgency or end-of-quarter lines"
+  ],
+  "forbid_regex": [
+    "\\b(can|could|would|will) (we|I) (do|offer|give|go)\\b[^?]*\\d",
+    "\\b(we|I)( (can|could|would|will)|'ll|'d) (do|offer|give|go)\\b[^?]*\\d",
+    "\\$\\s?\\d",
+    "\\bdiscount of\\b",
+    "\\b(end of (the )?quarter|quarter[- ]end)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "It sounds like price is the sticking point. What's driving the 20?",
+    "Is the 20 a budget cap, or a comparison with another quote?"
+  ],
+  "keith_notes": ""
+}

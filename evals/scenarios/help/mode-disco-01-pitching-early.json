@@ -1,0 +1,49 @@
+{
+  "id": "mode-disco-01-pitching-early",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "pitching_early"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn whether Larkfield Mutual has a real problem with its claims-summary assistant, why now, and who else cares",
+  "desired_outcomes": [
+    "Their top problems in their words",
+    "Next meeting booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Nadia Brennan (Dir. Claims AI)"}
+  },
+  "transcript": [
+    {"t": 352, "end": 360, "who": "keith", "text": "What made you want to look at this now?"},
+    {"t": 361, "end": 398, "who": "e1:s0", "text": "So the summaries go to adjusters, and every so often an adjuster flags one that left out a detail from the claim file. That's the thing I keep hearing about from the claims floor."},
+    {"t": 399, "end": 400, "who": "keith", "text": "Got it."},
+    {"t": 401, "end": 471, "who": "keith", "text": "Yeah, so that's actually a big part of what we do. You'd get tracing on every step of the assistant, so you can see the retrieval, the prompt and the model call in one view. And then on top of that there's evals, so you can run LLM-as-a-judge checks on every summary, for things like completeness, and set those up as online evals on production traffic. And there's dashboards and monitors, so you'd get alerted when scores drop, and you can pull the bad examples into a dataset and run experiments on a new prompt before you ship it."},
+    {"t": 472, "end": 473, "who": "e1:s0", "text": "Okay."}
+  ],
+  "help_at_s": 475,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "explore_process"
+  ],
+  "unacceptable_behaviors": [
+    "Continues the pitch or adds another feature line",
+    "Puts advice to Keith (\"Hold the pitch\") in the ASK line instead of HAPPENING",
+    "Assumes the missed details are a big or costly problem (one mention so far)",
+    "States Arize capabilities as fact without an approved source"
+  ],
+  "forbid_regex": [
+    "\\b(online evals?|llm[- ]as[- ]a[- ]judge|experiments)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Before I go further: how do adjusters catch a missing detail today?",
+    "How often does that come up, and who hears about it first?"
+  ],
+  "keith_notes": ""
+}
