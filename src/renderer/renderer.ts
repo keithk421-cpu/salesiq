@@ -18,6 +18,7 @@ import { initPressModes } from './pressModes'
 import { initPlanPress } from './planPress'
 import { initAccountNotes } from './accountNotes'
 import { initForNextTime } from './forNextTime'
+import { initCallSetup, setupExtras } from './callSetup'
 
 declare global {
   interface Window { copilot: CopilotApi }
@@ -901,8 +902,11 @@ function saveSetup(): void {
     desired_outcomes: $<HTMLInputElement>('csOutcomes').value.split(',').map((x) => x.trim()).filter(Boolean),
     account: $<HTMLInputElement>('csAccount').value,
     deployment: $<HTMLSelectElement>('csDeploy').value,
+    ...setupExtras(),
   })
 }
+// M5: the call's length and "No SA today" (callSetup.ts); first, so a type change's length preset is in the save below.
+initCallSetup(api, saveSetup)
 for (const id of ['csType', 'csGoal', 'csOutcomes', 'csAccount', 'csDeploy']) $(id).addEventListener('change', saveSetup)
 initAccountMemory(api)
 initCallPlan(api)

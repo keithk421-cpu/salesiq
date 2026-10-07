@@ -158,7 +158,7 @@ export function replayAt(s: Scenario, atS = s.help_at_s): ReplayState {
       const w = l.text.split(/\s+/)
       const frac = Math.min(1, (heardUntil - startMs) / Math.max(1, endMs - startMs))
       const n = Math.floor(w.length * frac)
-      if (n > 0) memory.setInterim(stream, w.slice(0, n).join(' '), heardUntil)
+      if (n > 0) memory.setInterim(stream, w.slice(0, n).join(' '), heardUntil, cluster)
     }
   })
   for (const [i, g] of (s.gaps ?? []).entries()) {

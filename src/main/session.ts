@@ -71,7 +71,8 @@ export type SessionEvent =
   | { type: 'gap_open'; gap: GapRecord }
   | { type: 'gap_close'; gap: GapRecord }
   | { type: 'turn'; event: TurnEvent }
-  | { type: 'interim'; stream: Stream; text: string }
+  /** cluster (M5): the speaker id of the newest live word (meeting audio, when diarized), so HELP knows exactly who is talking now. */
+  | { type: 'interim'; stream: Stream; text: string; cluster?: string | null }
   | { type: 'timing'; stream: Stream; captureLagMs: number; sttDelayMs: number | null }
   | { type: 'alert'; level: 'error' | 'warning' | 'info'; message: string }
   | { type: 'suppressed'; kind: 'echo_audio' | 'duplicate_text'; stream: Stream; detail: string }
@@ -709,8 +710,9 @@ export class SessionController {
     // Words came back for audio up to here: sound before it isn't "untranscribed" (untranscribedMs).
     rt.lastWordEndMs = Math.max(rt.lastWordEndMs, ...words.map((w) => w.end_ms))
     if (!isFinal) {
-      // Interim text is provisional and display-only; turns are built from finals.
-      this.deps.emit({ type: 'interim', stream: rt.stream, text: words.map((w) => w.word).join(' ') })
+      // Interim text is provisional and display-only; turns are built from finals. The newest word's
+      // speaker id goes with it (M5): who is talking right now, exactly, not guessed from the last turn.
+      this.deps.emit({ type: 'interim', stream: rt.stream, text: words.map((w) => w.word).join(' '), cluster: words[words.length - 1]?.speaker_cluster ?? null })
       return
     }
     const last = words[words.length - 1]

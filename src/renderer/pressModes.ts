@@ -8,6 +8,12 @@
  *   14:22"), so Keith knows the next WRAP builds on it. Shown only during a call (styles.css), cleared
  *   when a new call starts;
  * - the after-call review marks a card Keith pressed again on: "You pressed for another angle".
+ * M5 Hold cards: a card whose move is no_move means "wait, with this question ready for the pause". The
+ * card gets data-move from the first event that carries its move (MOVE is the first line, so the label
+ * is there before the ASK streams in, and the card never restyles while Keith reads it): a small muted
+ * "Hold · at the pause" tag at the top, "Hold ·" before the line in the compact strip (styles.css). The
+ * ASK keeps its full weight: it's the one thing on the card Keith doesn't already know. The after-call
+ * review labels such a card "Hold".
  * Nothing pops up: the labels ride on cards Keith pressed for, the tag is quiet state.
  */
 import type { CopilotApi } from '../preload/preload'
@@ -31,6 +37,14 @@ export function initPressModes(api: CopilotApi): void {
 
   // ---- the card's label: the newest request only, as the card itself (renderer.ts onHelp) ----
   let shownSeq = 0
+  // M5: the Hold tag (shown by styles.css only on a card whose move is no_move), next to the MOCK badge.
+  const hold = document.createElement('span')
+  hold.className = 'hc-hold'
+  hold.textContent = 'Hold · at the pause'
+  hold.title = 'Wait for a pause, then ask this'
+  $('hcBadge').after(hold)
+  /** The request whose move set data-move: later events for it never change it. */
+  let moveOf = ''
   api.onHelp((raw) => {
     const ev = raw as HelpCardEvent
     if (ev.seq < shownSeq) return
@@ -39,6 +53,14 @@ export function initPressModes(api: CopilotApi): void {
     const el = $('helpCard')
     if (mode) el.dataset.press = mode
     else delete el.dataset.press
+    // M5: a new request starts unlabelled until its move arrives; then it keeps that one.
+    if (moveOf !== ev.request_id) {
+      const move = ev.content?.move
+      if (move) {
+        el.dataset.move = move
+        moveOf = ev.request_id
+      } else delete el.dataset.move
+    }
   })
 
   // ---- the WRAP button's tag: the latest buying signal of this call ----
@@ -74,6 +96,7 @@ export function initPressModes(api: CopilotApi): void {
     // A new call: request numbers start again, and the last call's signal is gone.
     if (ev.type === 'state' && ev.state === 'checking') {
       shownSeq = 0
+      moveOf = ''
       showSignal(null)
     }
   })
@@ -91,6 +114,16 @@ export function initPressModes(api: CopilotApi): void {
       return
     }
     const passed = new Set(cards.filter((c) => c.passed).map((c) => c.id))
+    // M5: a Hold card reads "Hold" ahead of its line.
+    const holds = new Set(cards.filter((c) => c.hold).map((c) => c.id))
+    for (const c of fresh) {
+      if (!holds.has(c.dataset.id ?? '')) continue
+      c.dataset.move = 'no_move'
+      const tag = document.createElement('span')
+      tag.className = 'kind rv-hold'
+      tag.textContent = 'Hold'
+      c.querySelector('.rv-line')?.prepend(tag)
+    }
     for (const c of fresh) {
       if (!passed.has(c.dataset.id ?? '')) continue
       const note = document.createElement('div')

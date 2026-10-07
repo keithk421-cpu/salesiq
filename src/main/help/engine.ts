@@ -20,7 +20,7 @@ import type { HeardLine } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
 import type { Db } from '../db'
 import type { KnowledgeBase } from '../knowledge'
-import type { CallMemory } from './callMemory'
+import { setupKey, type CallMemory } from './callMemory'
 import { buildHelpContext, type BuiltContext } from './context'
 import { describeError, type HelpError, type HelpModel } from './models'
 import { findApprovedPassage } from './passage'
@@ -231,8 +231,9 @@ export class HelpEngine {
    * Call when new final transcript words arrive. After the other side speaks, schedules a background
    * candidate; Keith's own words only cancel a pending one (he's talking, so it would be stale).
    * `text` is the turn's words: Keith's short filler ("Mm-hmm.") cancels nothing, as at a press (heard.ts).
+   * `cluster` (M5): on a demo or deep-dive, a tagged SA's words cancel a pending one like Keith's do.
    */
-  onFinalWords(stream: Stream = 'system_remote', text?: string): void {
+  onFinalWords(stream: Stream = 'system_remote', text?: string, cluster?: string | null): void {
     if (!this.d.prefetch || this.d.model.mock || this.cancelled || this.blocked) return
     // His "Mm-hmm" often comes back inside the 700 ms debounce: the card waiting for it must still start,
     // or there's no ready card for the filler rule to keep.
@@ -240,6 +241,7 @@ export class HelpEngine {
     if (this.prefetchTimer) clearTimeout(this.prefetchTimer)
     this.prefetchTimer = null
     if (stream !== 'system_remote') return
+    if (this.d.memory.saPresenting(cluster)) return
     this.prefetchTimer = setTimeout(() => this.prefetchNow(), PREFETCH_DEBOUNCE_MS)
   }
 
@@ -345,7 +347,8 @@ export class HelpEngine {
     const turns = withoutTrailingFiller(this.d.memory.turnsAsOf(this.d.sessionNowMs())).slice(-6)
     const gaps = this.d.memory.gapsAsOf(this.d.sessionNowMs()).map((g) => `${g.id}:${g.end_ms ?? 'open'}`).join(',')
     const labels = [...this.d.memory.labels.values()].map((l) => `${l.cluster}=${l.role}/${l.name ?? ''}`).join(',')
-    return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}`
+    // M5: and the setup it was built for, so a card for the old call type or goal is never served after a change.
+    return `${turns.map((t) => `${t.id}:${t.text.length}`).join('|')}#${gaps}#${labels}#${setupKey(this.d.memory.setup)}`
   }
 
   private start(origin: HelpOrigin, prefetch: boolean, pressedWall: number | null, passage: ApprovedPassage | null = null, wrap: WrapWhy | null = null, press?: PressDecision, angleOf: string | null = null): Run {
