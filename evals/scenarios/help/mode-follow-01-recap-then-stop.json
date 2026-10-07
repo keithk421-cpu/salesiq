@@ -1,0 +1,51 @@
+{
+  "id": "mode-follow-01-recap-then-stop",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "recap"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Close owed items with Thistledown Media, hear what changed, move one thing forward",
+  "desired_outcomes": [
+    "Owed items closed or re-dated",
+    "Dated next step with names"
+  ],
+  "account": "Thistledown Media",
+  "earlier_calls": [
+    {"kind": "fact", "text": "Two editors review a hundred headline-agent outputs every week", "date": "2026-09-24"},
+    {"kind": "wants", "text": "A way to compare prompt versions before they go out", "date": "2026-09-24"},
+    {"kind": "they_owe", "text": "Check with legal about sharing sample outputs", "date": "2026-09-24"}
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Rafael Duarte (Head of Newsroom Tools)"}
+  },
+  "transcript": [
+    {"t": 60, "end": 65, "who": "keith", "text": "Thanks for making time again, Rafael."},
+    {"t": 66, "end": 70, "who": "e1:s0", "text": "Of course, good to see you."},
+    {"t": 72, "end": 112, "who": "keith", "text": "So quick recap from last time. You walked us through the headline agent, the two editors reviewing a hundred outputs every week, and that you wanted a way to compare prompt versions before they go out. You were also going to check with legal about sharing some sample outputs with us. And on our side we sent over the eval example."}
+  ],
+  "help_at_s": 115,
+  "press_mode": "opening",
+  "press_detail": {"earlier_calls": true},
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "no_move"
+  ],
+  "unacceptable_behaviors": [
+    "Re-pitches the product or adds a feature line",
+    "Keeps Keith talking with more recap instead of handing over",
+    "Treats the legal check as done"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What's changed on your side since we spoke?",
+    "Before I go on: what's changed since last time?"
+  ],
+  "keith_notes": ""
+}

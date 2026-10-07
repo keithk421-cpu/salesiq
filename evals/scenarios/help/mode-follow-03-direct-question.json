@@ -1,0 +1,51 @@
+{
+  "id": "mode-follow-03-direct-question",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "direct_question",
+    "owed_item"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "follow_up",
+  "call_goal": "Close owed items with Kittering Payments, hear what changed, move one thing forward",
+  "desired_outcomes": [
+    "Owed items closed or re-dated",
+    "Dated next step with names"
+  ],
+  "account": "Kittering Payments",
+  "earlier_calls": [
+    {"kind": "promised", "text": "Send the security overview to Hana Okafor, their security lead", "date": "2026-09-29"},
+    {"kind": "they_owe", "text": "Lars to share an outline of the eval test set", "date": "2026-09-29"}
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Lars Petrov (Head of Risk Engineering)"}
+  },
+  "transcript": [
+    {"t": 30, "end": 36, "who": "keith", "text": "Hi Lars, thanks for making time again."},
+    {"t": 37, "end": 55, "who": "e1:s0", "text": "Hey Keith. Before we start, did you get the security doc over to Hana? She was asking about it yesterday."}
+  ],
+  "help_at_s": 58,
+  "press_mode": "opening",
+  "press_detail": {"earlier_calls": true},
+  "knowledge": [],
+  "best_moves": [
+    "confirm_next_step",
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [],
+  "unacceptable_behaviors": [
+    "Asks \"What's changed on your side?\" before answering about the security doc",
+    "Says the doc was sent (HELP can't know that)",
+    "States security facts without an approved source"
+  ],
+  "forbid_regex": [
+    "(?<!\\b(?:check|see|confirm|make sure|sure|whether|if)(?: that)? )\\b(i|we) (already |just )?(sent|emailed|shared) (it|that|the (security )?(doc|overview))(?![^.!?]*\\?)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "I'll make sure Hana has it today. Anything else she needs from us?"
+  ],
+  "keith_notes": ""
+}

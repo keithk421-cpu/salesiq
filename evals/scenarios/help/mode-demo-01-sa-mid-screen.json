@@ -1,0 +1,47 @@
+{
+  "id": "mode-demo-01-sa-mid-screen",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "step_2",
+    "sa_handling",
+    "live_words"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Quarry Point Logistics wrong carrier picks getting caught; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "length_min": 60,
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Marta Kowalczyk (Dir. Data Science)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 1240, "end": 1256, "who": "e1:s0", "text": "So the one we care about is when the dispatch agent picks the wrong carrier and nobody notices until the invoice comes in."},
+    {"t": 1257, "end": 1260, "who": "keith", "text": "Sam, can you show them how that would look?"},
+    {"t": 1261, "end": 1290, "who": "e1:s1", "text": "Sure. So here you can see a trace from a dispatch run like yours. Each step of the agent is a span: the order it read, the carrier lookup, the rate check, and the final pick."},
+    {"t": 1291, "end": 1330, "who": "e1:s1", "text": "And if I click into the carrier lookup, you see the inputs it got and what it returned. Then over here is the eval we'd set up for carrier choice. It scores each run, and you can filter down to the ones that failed, so you'd have a list of the wrong picks before the invoice ever shows up."}
+  ],
+  "help_at_s": 1312,
+  "knowledge": [],
+  "best_moves": [
+    "no_move"
+  ],
+  "acceptable_moves": [],
+  "unacceptable_behaviors": [
+    "A question that interrupts Sam mid-screen (should be held for the pause)",
+    "Keith answers or adds a product fact while Sam is presenting",
+    "Remarks on how long Sam has been talking",
+    "Treats Sam's words as something the buyer said"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "(At the pause) How do you spot a wrong carrier pick today?"
+  ],
+  "keith_notes": "Step 2 scenario: Sam is still talking at the press (live words from the SA's speaker). Judged once the SA-aware demo Holds are switched on, after the real two-person demo call."
+}

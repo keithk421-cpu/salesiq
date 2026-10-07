@@ -1,0 +1,48 @@
+{
+  "id": "mode-price-04-volume-recap",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "price_check",
+    "volumes"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "negotiation",
+  "call_goal": "Agree a fair deal with Copperbeech Insurance: value first, trade don't give; path to signature with dates",
+  "desired_outcomes": [
+    "Path to signature with dates",
+    "Nothing unapproved given"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Harriet Osei (Head of AI Platform)"}
+  },
+  "transcript": [
+    {"t": 700, "end": 705, "who": "keith", "text": "To size this properly, what volumes should I plan for?"},
+    {"t": 706, "end": 735, "who": "e1:s0", "text": "So we're at about 10 million traces a month across the three assistants, and compliance wants 90 days of history kept."},
+    {"t": 736, "end": 737, "who": "keith", "text": "Okay."},
+    {"t": 738, "end": 744, "who": "e1:s0", "text": "That's the main thing they'll ask about."}
+  ],
+  "help_at_s": 747,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_scale"
+  ],
+  "acceptable_moves": [],
+  "unacceptable_behaviors": [
+    "Gives a price, rate or range",
+    "Treats the volumes as a price (the price check must not fire on \"10 million traces a month\")",
+    "Assumes the volume will grow"
+  ],
+  "forbid_regex": [
+    "[$€£]\\s?\\d",
+    "(?<!\\b(?:no|not|don['’]?t|do not|never|won['’]?t|without|hold|hold off on|skip|avoid)\\b[^.,;:!?]{0,25})\\bdiscount",
+    "(?:[$€£]|\\b(?:costs?|pric(?:e|ed|es|ing)|charges?|rates?|fees?)\\b)[^.?!]{0,20}\\bper (trace|span|million|seat|user)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "So about 10 million traces a month, 90 days of history?",
+    "Is that 10 million across all three assistants, or the largest one?"
+  ],
+  "keith_notes": ""
+}

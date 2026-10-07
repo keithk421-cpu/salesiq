@@ -1,0 +1,79 @@
+{
+  "id": "mode-disco-03-new-issue-after-many",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "question_count",
+    "new_issue"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn whether Tidewell Software has a real problem with the agents in its product, why now, and who else cares",
+  "desired_outcomes": [
+    "Their top problems in their words",
+    "Next meeting booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Grace Oyelaran (VP Engineering)"}
+  },
+  "transcript": [
+    {"t": 120, "end": 123, "who": "keith", "text": "What made you want to talk this month?"},
+    {"t": 124, "end": 150, "who": "e1:s0", "text": "We shipped three agents into the product this year, a ticket triage agent, a summary agent and a search assistant, and leadership wants a clearer picture of how they're doing."},
+    {"t": 151, "end": 153, "who": "keith", "text": "How do you get that picture today?"},
+    {"t": 154, "end": 175, "who": "e1:s0", "text": "Some dashboards on latency and error rates, and a weekly review where we read a sample of conversations."},
+    {"t": 176, "end": 177, "who": "keith", "text": "Who runs that weekly review?"},
+    {"t": 178, "end": 190, "who": "e1:s0", "text": "Two of our staff engineers, Kenji and Bea, they split it."},
+    {"t": 191, "end": 192, "who": "keith", "text": "How big is the sample they read?"},
+    {"t": 193, "end": 205, "who": "e1:s0", "text": "About fifty conversations per agent, so a hundred and fifty a week."},
+    {"t": 206, "end": 207, "who": "keith", "text": "What are they looking for in those?"},
+    {"t": 208, "end": 235, "who": "e1:s0", "text": "Wrong answers, mostly. The search assistant sometimes cites a doc that doesn't say what it claims. That's the one customers notice."},
+    {"t": 236, "end": 237, "who": "keith", "text": "How do customers tell you about it?"},
+    {"t": 238, "end": 250, "who": "e1:s0", "text": "Support tickets, and there's a thumbs-down button in the product."},
+    {"t": 251, "end": 252, "who": "keith", "text": "How many thumbs-downs do you see a week?"},
+    {"t": 253, "end": 265, "who": "e1:s0", "text": "Not many, maybe thirty, but most people don't click it."},
+    {"t": 266, "end": 267, "who": "keith", "text": "What happens to a thumbs-down after it comes in?"},
+    {"t": 268, "end": 290, "who": "e1:s0", "text": "It lands in a channel and someone looks if they have time. There's no real owner for it, honestly."},
+    {"t": 291, "end": 292, "who": "keith", "text": "Who would you want to own that?"},
+    {"t": 293, "end": 305, "who": "e1:s0", "text": "Probably the search team, but they're stretched thin this quarter."},
+    {"t": 306, "end": 307, "who": "keith", "text": "How are the agents built, framework-wise?"},
+    {"t": 308, "end": 325, "who": "e1:s0", "text": "Mostly our own Python, with LangGraph for the triage agent."},
+    {"t": 326, "end": 327, "who": "keith", "text": "Which models are they running on?"},
+    {"t": 328, "end": 340, "who": "e1:s0", "text": "Two hosted models, and we're testing a smaller one for summaries."},
+    {"t": 341, "end": 342, "who": "keith", "text": "How do you test a model swap today?"},
+    {"t": 343, "end": 365, "who": "e1:s0", "text": "We run the same hundred and fifty from the review on the new model and compare them by eye."},
+    {"t": 366, "end": 367, "who": "keith", "text": "How long does that comparison take?"},
+    {"t": 368, "end": 378, "who": "e1:s0", "text": "A couple of days, between the two of them."},
+    {"t": 379, "end": 380, "who": "keith", "text": "Who decides whether a swap goes ahead?"},
+    {"t": 381, "end": 392, "who": "e1:s0", "text": "Me, with input from the search lead."},
+    {"t": 393, "end": 394, "who": "keith", "text": "Are you looking at other tools for this?"},
+    {"t": 395, "end": 410, "who": "e1:s0", "text": "We've looked at a few, nothing serious yet."},
+    {"t": 411, "end": 412, "who": "keith", "text": "How many engineers work on the agents overall?"},
+    {"t": 413, "end": 425, "who": "e1:s0", "text": "About twelve across the three agents."},
+    {"t": 426, "end": 450, "who": "e1:s0", "text": "One other thing, actually. Our releases are slow since we added agents. Every release now waits on someone reading through the agent answers by hand."}
+  ],
+  "help_at_s": 453,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "quantify_impact"
+  ],
+  "unacceptable_behaviors": [
+    "Plays back instead of going one layer deeper on the issue they just raised",
+    "Assumes the slow releases cost them money, customers or deadlines (not said)",
+    "Pitches release gating or automated evals",
+    "Moves on to a new topic and leaves the new issue"
+  ],
+  "forbid_regex": [
+    "\\bdid I (miss|get that right)\\b|\\bfair summary\\b",
+    "\\bcost(ing|s)? you (money|customers|deals|revenue|a lot|a fortune)\\b|\\bhow much (is|does|has) (that|it|this) (been )?cost(ing)? you\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Can you walk me through the last release that waited on that?",
+    "What does a slow release look like, say last month's?"
+  ],
+  "keith_notes": ""
+}

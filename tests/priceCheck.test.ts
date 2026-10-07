@@ -160,6 +160,12 @@ describe('priceFigures: pricing calls (negotiation) also flag a bare % and an of
     expect(flagged('Can we go through the 3 paper steps left?', 'negotiation')).toBe(false)
     expect(flagged('Could we do two short calls instead?', 'negotiation')).toBe(false)
     expect(flagged('What could you do on term or timing on your side?', 'negotiation')).toBe(false)
+    // Their volume, given as a count of things, asked back as a yes/no question: not a price.
+    const volume = { theirText: "We're at about 10 million traces a month across the three assistants." }
+    expect(flagged('Is that 10 million across all three assistants, or the largest one?', 'negotiation', volume)).toBe(false)
+    // ...but the same big figure as money they named, or offered back, still flags.
+    expect(flagged('Is 40,000 OK for you?', 'negotiation', { theirText: 'Our budget is 40,000 for this.' })).toBe(true)
+    expect(flagged('We could do 10 million if you sign this quarter?', 'negotiation', volume)).toBe(true)
   })
 
   it('their figure is only theirs when their side said it, asked as a question that offers nothing', () => {

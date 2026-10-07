@@ -453,6 +453,21 @@ function priceTokens(t: string): PriceToken[] {
 }
 
 /** Every value a text's figures could mean: "40k" is 40 and 40,000; "20%" is 20. */
+/**
+ * Figures the other side gave as a count of things ("10 million traces a month", "about 40 engineers"):
+ * the same figure on a card is their volume asked back or recapped, not a price.
+ */
+function countValues(text: string): Set<string> {
+  const t = priceText(text)
+  const toks = priceTokens(t)
+  const at = (k: number) => toks[k]?.w ?? ''
+  const out = new Set<string>()
+  for (const f of priceFiguresIn(toks, t)) {
+    if (f.value && (COUNT_NOUN.test(at(f.j + 1)) || (at(f.j + 1) !== 'per' && COUNT_NOUN.test(at(f.j + 2))))) out.add(f.value)
+  }
+  return out
+}
+
 function figureValues(text: string): Set<string> {
   const out = numbersIn(text)
   for (const m of text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s?(k|mm|m|bn|thousand|million|billion)\b/gi)) {
@@ -614,6 +629,7 @@ export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpt
   const cited = (card.source_ids ?? []).map((id) => opts.sources?.get(id)).filter((s) => s?.kind === 'knowledge')
   const approved = approvedFigures(cited.map((s) => s!.detail).join('\n'))
   const theirs = figureValues(opts.theirText ?? '')
+  const theirCounts = countValues(opts.theirText ?? '')
   // A FOLLOW that is itself a question asks too.
   const lines = [
     { text: card.primary ?? '', question: card.primary_kind === 'ask' },
@@ -631,6 +647,9 @@ export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpt
       const unit = priceUnit(f, toks)
       if (f.value && approved.some((a) => a.value === f.value && (unit === 'plain' ? a.unit !== 'plain' || a.priced : a.unit === unit))) continue
       if (mayAskBack && f.value && theirs.has(f.value) && asksTheirFigureBack(f, reason, t)) continue
+      // "Is that 10 million across all three assistants?" after they said "10 million traces": a big
+      // figure they gave as a count is their volume, not a price, unless the line offers something.
+      if (reason === 'large' && f.value && theirCounts.has(f.value) && !hasOfferShape(t)) continue
       out.push(f.raw)
     }
   }

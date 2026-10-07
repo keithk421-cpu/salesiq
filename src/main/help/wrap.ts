@@ -53,7 +53,10 @@ const CLOSING: RegExp[] = [
   /\b(?:let's|let us|we should|we can|we'll|we will|we need to|we have to|we're going to|time to|to|i'll|i will|i should|i'll start|let's start|start|we're|we are|i'm)\s+(?:wrap(?:ping)?|wind(?:ing)?)(?: (?:things|this|it|us))? (?:up|down)(?: (?:here|now|for today|the call))?(?= ?(?:[.,!?;\n]|$|so\b|and\b|then\b|with (?:a|one|the) (?:last|final|quick)\b))/,
   // "what are the next steps?", "in terms of next steps", "as a next step", "next steps?", but not
   // "our next steps are to migrate", "next steps for us internally" or "the next steps in the pipeline"
-  /\b(?:what(?:'s| is| are| would be| should be)?|talk about|talk through|discuss|cover|agree on|align on|figure out|map out|lock in|nail down|in terms of|as for|as) (?:the |some |any |a |our )?next steps?\b(?!\s+(?:in|of|after|within|inside|for (?:the|your|their|this|that|each|our)|on (?:the|your|their|that)|with (?:the|your|their|that))\b)/,
+  // (M5) nor an agenda at the start: "we save ten minutes at the end to talk about next steps",
+  // "we'll cover next steps at the end", "and then talk about next steps later" (but "we're at the
+  // end of our time, so let's talk about next steps" is the call ending)
+  /(?<!\b(?:(?<!\b(?:we['’]re|we are|we['’]re (?:getting|coming) (?:up )?|almost|nearly|basically|pretty much) )(?:at|towards?|near|by) the end|(?:save|leave|set aside|keep|hold) (?:(?:some|a few|a couple of|the last|\w+) )?(?:time|minutes?|mins?))\b[^.,;!?\n]{0,30})\b(?:what(?:'s| is| are| would be| should be)?|talk about|talk through|discuss|cover|agree on|align on|figure out|map out|lock in|nail down|in terms of|as for|as) (?:the |some |any |a |our )?next steps?\b(?!\s+(?:in|of|after|within|inside|for (?:the|your|their|this|that|each|our)|on (?:the|your|their|that)|with (?:the|your|their|that)|(?:at|towards?|near|by) the end|later|afterwards)\b)/,
   /\bnext steps\s*\?/,
   // "Should we wrap up?", "can we wrap things up here", but not "should we wrap up the evaluation by Q3"
   /\b(?:should|shall|can|could) (?:we|i) (?:wrap|wind)(?: (?:things|this|it))? (?:up|down)(?= ?(?:[.,!?;\n]|$|here\b|now\b|for today\b))/,

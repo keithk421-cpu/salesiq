@@ -1,0 +1,50 @@
+{
+  "id": "mode-dive-01-new-ask",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "scope"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Check Wrenfield Energy's fit; agree 1-3 written test goals, owners and a decision date",
+  "desired_outcomes": [
+    "Goals with baseline and target",
+    "Owners",
+    "Readout and decision date booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Mateo Silva (Grid Ops AI Lead)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2340, "end": 2370, "who": "keith", "text": "So let me read back what we've got. Goal one: catch made-up restore times with an eval. Goal two: trace every tool call end to end. Goal three: a weekly regression run on the test set. Does that look right?"},
+    {"t": 2371, "end": 2380, "who": "e1:s0", "text": "Yeah, that's the three."},
+    {"t": 2381, "end": 2400, "who": "e1:s1", "text": "And on our side I'd set up the eval for restore times in the first week."},
+    {"t": 2401, "end": 2425, "who": "e1:s0", "text": "Perfect. Oh, and cost tracking too. We'd want token cost per team in the test, finance keeps asking."}
+  ],
+  "help_at_s": 2428,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "call_control"
+  ],
+  "unacceptable_behaviors": [
+    "Accepts the new ask into the test scope (\"Sure, we'll add it\")",
+    "Promises free work or a build on Arize's side",
+    "States cost-tracking capabilities without an approved source",
+    "Tells them how important the ask is"
+  ],
+  "forbid_regex": [
+    "\\b(sure|yes|yeah|absolutely|of course|no problem),? (we|i|sam)('ll| will| can) (add|include|cover|do|build|set up|throw in)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Swap it for one of the three goals, or keep it for later?",
+    "Is cost per team a goal for this test, or something for after?"
+  ],
+  "keith_notes": ""
+}

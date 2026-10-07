@@ -1,0 +1,63 @@
+{
+  "id": "mode-dive-03-readout-said-earlier",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "older_context",
+    "wrap"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Check Ashgrove Telecom's fit; agree 1-3 written test goals, owners and a decision date",
+  "desired_outcomes": [
+    "Goals with baseline and target",
+    "Owners",
+    "Readout and decision date booked"
+  ],
+  "length_min": 60,
+  "wrap": "button",
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Fiona Gallagher (Head of Network AI)"},
+    "e1:s2": {"role": "buyer", "name": "Dev Ramaswamy (Platform Engineer)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2070, "end": 2100, "who": "keith", "text": "So, for the readout: Thursday the nineteenth of November, with Fiona and your VP, Marcus. Does that work?"},
+    {"t": 2101, "end": 2115, "who": "e1:s0", "text": "Yes, the nineteenth works. Put it in for two o'clock our time."},
+    {"t": 2116, "end": 2130, "who": "e1:s1", "text": "Great, I'll hold that and send the invite after the call."},
+    {"t": 2700, "end": 2740, "who": "e1:s2", "text": "On sampling, we'd keep everything for the network-fault agent, it's low volume."},
+    {"t": 2741, "end": 2770, "who": "e1:s1", "text": "That's fine, we'd trace all of it."},
+    {"t": 3080, "end": 3120, "who": "e1:s2", "text": "And PII. The agent sees customer phone numbers, and we mask those before they hit the logs today."},
+    {"t": 3121, "end": 3170, "who": "e1:s1", "text": "You'd do the same masking before export, so the spans never carry the raw numbers. I'll send the snippet for that."},
+    {"t": 3171, "end": 3180, "who": "e1:s2", "text": "Okay, that works for me."},
+    {"t": 3230, "end": 3245, "who": "keith", "text": "Anything else on the technical side before we wrap?"},
+    {"t": 3246, "end": 3275, "who": "e1:s0", "text": "No, I think that covers it. This was really useful, thanks both. Sam, the masking snippet would be great."},
+    {"t": 3276, "end": 3282, "who": "e1:s1", "text": "Will do, today."}
+  ],
+  "help_at_s": 3300,
+  "knowledge": [],
+  "best_moves": [
+    "confirm_next_step"
+  ],
+  "acceptable_moves": [
+    "clarify_decision",
+    "call_control"
+  ],
+  "unacceptable_behaviors": [
+    "Says \"we still need a readout date\" (it was agreed at 35:00, outside what HELP can see)",
+    "Invents a readout date or owner",
+    "Asks for the readout date as if it was never set (\"What's the readout date?\") rather than as a check",
+    "Promises free work or paid-test terms"
+  ],
+  "forbid_regex": [
+    "\\bwe still need\\b",
+    "\\b(no|without a|haven'?t (set|booked|got)( a)?) readout\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Before we go: shall we book the kickoff? Did we land on the readout date?",
+    "Who did we say owns the test on your side, and when's kickoff?"
+  ],
+  "keith_notes": "At 34:30 the readout was agreed: Thursday 19 November at 2 pm, with Fiona and Marcus. That is over 20 minutes before WRAP, so HELP can't see it: a good line checks the date, and never says it is missing."
+}

@@ -1,0 +1,50 @@
+{
+  "id": "mode-demo-02-reaction-go-deeper",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "live_words",
+    "reaction"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Juniper Row Media its recommendation agent's runs end to end; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Theo Brandt (ML Platform Lead)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 1740, "end": 1758, "who": "e1:s0", "text": "Mostly we want to see a single recommendation from start to finish, that's the part we can't see today."},
+    {"t": 1760, "end": 1800, "who": "e1:s1", "text": "So this is the trace view. Each row is one request to your recommendation agent, and if I open one you see every step: the user context it pulled, the candidate search, the ranking prompt, and the final picks, with timings on each."},
+    {"t": 1802, "end": 1814, "who": "e1:s0", "text": "Oh, that trace view is what we've been hacking together in Grafana, honestly, for like six months now."}
+  ],
+  "help_at_s": 1810,
+  "knowledge": [],
+  "best_moves": [
+    "clarify_current_state"
+  ],
+  "acceptable_moves": [
+    "quantify_impact"
+  ],
+  "unacceptable_behaviors": [
+    "Holds (no_move) while the buyer is reacting: this is the moment to dig",
+    "Lists more features instead of asking about their reaction",
+    "Assumes a pain they haven't stated (\"Where does that bite today?\")",
+    "Quotes Sam's words as the buyer's"
+  ],
+  "forbid_regex": [
+    "\\bwhere does (that|it) bite\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "What have you been hacking together so far, and who maintains it?",
+    "How does that compare to what you've built yourselves?"
+  ],
+  "keith_notes": ""
+}

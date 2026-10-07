@@ -1,0 +1,59 @@
+{
+  "id": "mode-dive-04-onboarding-question",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "direct_question"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Check Pinecrest Learning's fit; agree 1-3 written test goals, owners and a decision date",
+  "desired_outcomes": [
+    "Goals with baseline and target",
+    "Owners",
+    "Readout and decision date booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Kofi Mensah (CTO)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2900, "end": 2925, "who": "e1:s1", "text": "So that's the instrumentation side, about a day of work for the tutor agent based on what you've shown me."},
+    {"t": 2926, "end": 2945, "who": "e1:s0", "text": "Makes sense. What does onboarding actually look like if we go ahead? Who does what in the first few weeks?"}
+  ],
+  "help_at_s": 2948,
+  "knowledge": [
+    {
+      "id": "k-onboarding",
+      "title": "Onboarding outline",
+      "text": "New customers start with a kickoff with their account team and an assigned solutions architect, followed by instrumentation working sessions on the customer's own services. Timelines depend on the customer's stack.",
+      "category": "product",
+      "source": "Customer onboarding guide (fixture)",
+      "version": "2026-08",
+      "approved": true,
+      "review_by": "2027-02-28"
+    }
+  ],
+  "best_moves": [
+    "technical_answer"
+  ],
+  "acceptable_moves": [
+    "call_control",
+    "confirm_next_step"
+  ],
+  "unacceptable_behaviors": [
+    "Answers with a counter-question first before saying what onboarding looks like",
+    "Promises timelines the source doesn't give (\"live in two weeks\")",
+    "Offers free services or paid-test terms"
+  ],
+  "forbid_regex": [
+    "\\blive (in|within) (\\d+|a|one|two|three|four|a few) (days?|weeks?)\\b",
+    "\\b(free of charge|no[- ]cost|at no charge)\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "There's a kickoff, then instrumentation sessions with our solutions architect. Who would join from your side?"
+  ],
+  "keith_notes": ""
+}

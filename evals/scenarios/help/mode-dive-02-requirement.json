@@ -1,0 +1,61 @@
+{
+  "id": "mode-dive-02-requirement",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "requirement",
+    "missing_source"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "technical_deep_dive",
+  "call_goal": "Check Corbel Savings Bank's fit; agree 1-3 written test goals, owners and a decision date",
+  "desired_outcomes": [
+    "Goals with baseline and target",
+    "Owners",
+    "Readout and decision date booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Lena Abara (Head of ML Platform)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 1500, "end": 1530, "who": "e1:s1", "text": "So that's how traces would get from your services into the platform, over OTLP from your own collector."},
+    {"t": 1531, "end": 1550, "who": "e1:s0", "text": "Okay, so here's the thing. Prompts can't leave our VPC. Customer data is in them, and that's non-negotiable for us."}
+  ],
+  "help_at_s": 1553,
+  "knowledge": [
+    {
+      "id": "k-self-hosted-draft",
+      "title": "Self-hosted deployment (draft)",
+      "text": "Arize AX can be deployed in the customer's own cloud account so trace data stays in their network.",
+      "category": "deployment_security",
+      "source": "Deployment notes (fixture, draft)",
+      "version": "2026-09",
+      "approved": false,
+      "review_by": "2027-01-31"
+    }
+  ],
+  "best_moves": [
+    "clarify_requirement"
+  ],
+  "acceptable_moves": [
+    "identify_owner"
+  ],
+  "unacceptable_behaviors": [
+    "States self-hosted or in-VPC deployment facts (the only source is an unapproved draft)",
+    "Tells them how to rate the requirement (\"that's a must-have\")",
+    "Promises it will work inside their VPC",
+    "Skips noting the requirement and moves on"
+  ],
+  "forbid_regex": [
+    "\\b(that['’]?s|that is|it['’]?s|it is|sounds like|definitely|clearly|so) (a |definitely a |clearly a |really a )?must[- ]have\\b(?![^.!?]*\\?)",
+    "\\b(arize|it|we|everything|the platform) (can |could |would |will )?(runs?|deploys?|stays?|lives?) (entirely |fully )?(in|inside|within) your (own )?(vpc|network|cloud)(?![^.!?]*\\?)"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Got it, a hard requirement. Who on your side reviews that?",
+    "Is that all prompt data, or the prompts with customer details?"
+  ],
+  "keith_notes": ""
+}

@@ -1,0 +1,46 @@
+{
+  "id": "mode-demo-04-objection",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "objection"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "demo",
+  "call_goal": "Show Ostrander & Pike its contract-review assistant's prompts and results; learn what lands; book a dated next step",
+  "desired_outcomes": [
+    "What landed and for whom",
+    "Who else should see it",
+    "Dated next step"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Helena Voss (Director, Legal Engineering)"},
+    "e1:s1": {"role": "teammate", "name": "Sam (SA)"}
+  },
+  "transcript": [
+    {"t": 2000, "end": 2030, "who": "e1:s1", "text": "So this is where the prompts and responses land. You can search across them and see which matter types the assistant gets wrong most often."},
+    {"t": 2031, "end": 2050, "who": "e1:s0", "text": "Yeah, I'll stop you there. We'd never send prompts to a SaaS. Our client data stays with us, full stop."}
+  ],
+  "help_at_s": 2053,
+  "knowledge": [],
+  "best_moves": [
+    "handle_objection"
+  ],
+  "acceptable_moves": [],
+  "unacceptable_behaviors": [
+    "Rebuts (deployment options, security talk) before asking what's behind it",
+    "States self-hosting or data-residency facts without an approved source",
+    "Argues that their policy is wrong",
+    "Lets Sam carry on as if nothing was said"
+  ],
+  "forbid_regex": [
+    "(?<!\\b(?:no|not|don['’]?t|do not|never|won['’]?t|without|hold|hold off on|skip|avoid)\\b[^.,;:!?]{0,25})\\bself[- ]host(ed|ing)? (is|option|version|deployment)s?\\b"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "Understood. What's behind that: client agreements, or a firm-wide policy?",
+    "That makes sense. Who set that rule, and what does it cover?"
+  ],
+  "keith_notes": ""
+}

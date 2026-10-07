@@ -1,0 +1,73 @@
+{
+  "id": "mode-disco-02-fifteen-questions",
+  "category": "call_mode",
+  "tags": [
+    "call_mode",
+    "question_count"
+  ],
+  "golden_approved": false,
+  "synthetic": true,
+  "call_type": "discovery",
+  "call_goal": "Learn whether Pellucid Travel has a real problem with its trip-planning agent, why now, and who else cares",
+  "desired_outcomes": [
+    "Their top problems in their words",
+    "Next meeting booked"
+  ],
+  "speakers": {
+    "e1:s0": {"role": "buyer", "name": "Owen Achterberg (Head of AI Products)"},
+    "e1:s1": {"role": "buyer", "name": "Lucia Ferraz (ML Engineer)"}
+  },
+  "transcript": [
+    {"t": 180, "end": 184, "who": "keith", "text": "What prompted you to take this call now?"},
+    {"t": 185, "end": 205, "who": "e1:s0", "text": "Mostly planning season. We're scoping next year, and the trip-planning agent is the thing everyone's asking about."},
+    {"t": 206, "end": 209, "who": "keith", "text": "How does the agent work today, end to end?"},
+    {"t": 210, "end": 240, "who": "e1:s1", "text": "A traveller asks for a trip, the agent searches flights and hotels through our booking APIs, builds an itinerary, and a human approves anything over a certain value."},
+    {"t": 241, "end": 244, "who": "keith", "text": "Where does it go wrong, when it does?"},
+    {"t": 245, "end": 270, "who": "e1:s0", "text": "The biggest problem is it sometimes recommends hotels that are already sold out. The availability data it reads is stale."},
+    {"t": 271, "end": 273, "who": "keith", "text": "How do you find out when that happens?"},
+    {"t": 274, "end": 290, "who": "e1:s0", "text": "Customer complaints, mostly. Or the human approver catches it before it goes out."},
+    {"t": 291, "end": 293, "who": "keith", "text": "How often does the approver catch it?"},
+    {"t": 294, "end": 310, "who": "e1:s1", "text": "Maybe a few times a week? We don't really track it anywhere."},
+    {"t": 311, "end": 312, "who": "keith", "text": "Who looks at those cases today?"},
+    {"t": 313, "end": 335, "who": "e1:s1", "text": "Me and one other engineer. We pull the conversation logs and read through them."},
+    {"t": 336, "end": 337, "who": "keith", "text": "What happens after you've read them?"},
+    {"t": 338, "end": 370, "who": "e1:s1", "text": "We tweak the prompt and ship it. And honestly that's the second problem: when something gets worse, we can't tell which prompt version caused it."},
+    {"t": 371, "end": 373, "who": "keith", "text": "How many prompt versions are live at once?"},
+    {"t": 374, "end": 390, "who": "e1:s1", "text": "Usually two or three, we split traffic between them."},
+    {"t": 391, "end": 392, "who": "keith", "text": "How do you decide which version wins?"},
+    {"t": 393, "end": 430, "who": "e1:s0", "text": "Right now there's a spreadsheet of about two hundred test trips that Lucia's team runs by hand. That's the third thing: it takes a full day and only one person really knows how it works."},
+    {"t": 431, "end": 433, "who": "keith", "text": "Who else uses the results of that spreadsheet?"},
+    {"t": 434, "end": 450, "who": "e1:s0", "text": "Product looks at it before a release, and I sign off on it."},
+    {"t": 451, "end": 452, "who": "keith", "text": "How often do you release a new version?"},
+    {"t": 453, "end": 465, "who": "e1:s1", "text": "Every two weeks, roughly, sometimes faster if something's off."},
+    {"t": 466, "end": 467, "who": "keith", "text": "Which booking APIs does the agent call?"},
+    {"t": 468, "end": 490, "who": "e1:s1", "text": "Two flight providers and our own hotel inventory service. The hotel one is the stale one."},
+    {"t": 491, "end": 492, "who": "keith", "text": "What model are you running underneath it?"},
+    {"t": 493, "end": 505, "who": "e1:s1", "text": "A mix: a big model for planning and a small one for the search calls."},
+    {"t": 506, "end": 507, "who": "keith", "text": "Where do the conversation logs live today?"},
+    {"t": 508, "end": 525, "who": "e1:s1", "text": "In our data warehouse, we export them every night."},
+    {"t": 526, "end": 527, "who": "keith", "text": "Is anyone else evaluating tools for this?"},
+    {"t": 528, "end": 545, "who": "e1:s0", "text": "Not formally. We looked at a couple of things last year but didn't pick anything."},
+    {"t": 546, "end": 547, "who": "keith", "text": "How big is the team working on the agent?"},
+    {"t": 548, "end": 556, "who": "e1:s0", "text": "Six people, plus Lucia's two engineers part time."}
+  ],
+  "help_at_s": 559,
+  "knowledge": [],
+  "best_moves": [
+    "call_control"
+  ],
+  "acceptable_moves": [
+    "confirm_next_step"
+  ],
+  "unacceptable_behaviors": [
+    "Asks another new discovery question instead of playing back (16 questions since any play-back)",
+    "Plays back something they didn't say, or adds pain they didn't name",
+    "Pitches features in the play-back"
+  ],
+  "silence_preferred": false,
+  "acceptable_questions": [
+    "So: sold-out hotels, unclear prompt versions, a hand-run test sheet. Did I miss anything?",
+    "Let me play that back: stale hotel data, which prompt changed, the spreadsheet. Fair?"
+  ],
+  "keith_notes": ""
+}

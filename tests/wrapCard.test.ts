@@ -26,6 +26,9 @@ describe('closing language', () => {
       'I have another call at the top of the hour.', 'Okay, I need to drop off the call.', "Let's start wrapping up.",
       "To wrap up, we'd love a demo.", "I'll let you get back to your day.", 'Next steps?', "I'm short on time, sorry",
       'Should we wrap up?', 'Can we wrap things up here?',
+      // ...while a real close that mentions the time left still counts.
+      "We've got five minutes left, let's talk about next steps.", "Okay, let's talk about next steps.",
+      'With the time we have left, can we talk about next steps?', 'Before the end of the call, what are the next steps?',
     ]) expect(closingLanguage(t), t).toBe(true)
   })
 
@@ -45,7 +48,19 @@ describe('closing language', () => {
       'I have to drop the old tables first.', 'We wrap it up in a Docker image.', "we're tight on time to market",
       'What are your next steps for evaluating vendors?', 'We need to hop on a call next week with security.',
       'Should we wrap up the evaluation by Q3?',
+      // M5: an agenda at the start of the call names next steps for later; that's not the call ending.
+      'So the plan is a quick recap, then Sam shows tracing, and we save ten minutes at the end to talk about next steps.',
+      "We'll cover next steps at the end.", "And at the end we'll talk about next steps.", 'Then we can discuss next steps later.',
+      "Let's leave some time to talk about next steps.", 'Towards the end of the call we can agree on next steps',
     ]) expect(closingLanguage(t), t).toBe(false)
+  })
+
+  it("\"we're at the end\" is the call ending, not an agenda for later", () => {
+    for (const t of [
+      "We're at the end of our time so let's talk about next steps", "we're near the end so let's talk about next steps",
+      "Okay I know we're at the end let's talk about next steps", "We're almost at the end, so what are the next steps?",
+    ]) expect(closingLanguage(t), t).toBe(true)
+    for (const t of ['By the end of the call I want to talk about next steps.', 'Leave a few minutes at the end to discuss next steps.']) expect(closingLanguage(t), t).toBe(false)
   })
 
   it('closing words alone only ask for a next step when the line is about one', () => {

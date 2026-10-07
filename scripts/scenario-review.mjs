@@ -36,6 +36,14 @@ files.forEach((f, i) => {
   out.push(`## ${i + 1}. ${sc.id}${sc.golden_approved ? ' ✅ approved' : ''}`)
   out.push('')
   out.push(`**Call:** ${sc.call_type}${sc.call_goal ? `. Goal: ${sc.call_goal}` : ''}${sc.deployment ? `. Buyer's deployment: ${sc.deployment.replace('_', '-')}` : ''}`)
+  // M5 call modes: the call's length when the moment depends on the time left, and a step-2 moment.
+  if (sc.length_min) out.push(`**When:** minute ${Math.floor(sc.help_at_s / 60)} of a ${sc.length_min}-minute call`)
+  if (sc.tags?.includes('step_2')) out.push('**Step 2:** judged only once the SA-aware demo cards are on, after the real two-person demo call.')
+  // The drafter's note to the reviewer (never sent to HELP), e.g. what was agreed in a line the sheet doesn't show.
+  else if (sc.keith_notes) out.push(`**Note:** ${sc.keith_notes}`)
+  // The press it replays, when it isn't a plain HELP or WRAP press (what Keith would get live at that moment).
+  const press = { opening: 'the opening press (early in the call, they have said little so far)', signal: 'the next-step press (they just asked about a pilot, pricing, rollout...)' }[sc.press_mode] ?? (sc.wrap === 'closing' ? 'HELP as the call sounds like it is ending' : null)
+  if (press) out.push(`**Press:** ${press}`)
   if ((sc.knowledge ?? []).length) {
     out.push(`**Docs HELP has:** ${sc.knowledge.map((k) => `${k.title}${k.approved === false ? ' (not approved)' : ''}${k.applies_to?.length ? ` (applies to: ${k.applies_to.join(', ')})` : ''}${k.review_by ? ` (review by ${k.review_by})` : ''}`).join('; ')}`)
   } else {
@@ -43,10 +51,18 @@ files.forEach((f, i) => {
   }
   // M4: Keith's own notes on the account ("What I know"), as HELP gets them.
   if (sc.account_notes) out.push(`**Keith's notes (What I know):** ${sc.account_notes.split('\n').join(' / ')}`)
+  // What earlier calls with the account left behind, as HELP gets them.
+  if (sc.earlier_calls?.length) out.push(`**From earlier calls:** ${sc.earlier_calls.map((e) => `${e.date}: ${e.text}`).join(' / ')}`)
   out.push('')
-  out.push(`**Last lines before HELP** (press at ${mmss(sc.help_at_s)}):`)
+  out.push(`**Last lines before ${sc.wrap === 'button' ? 'WRAP' : 'HELP'}** (press at ${mmss(sc.help_at_s)}):`)
+  // Earlier lines aren't shown; say how many, and how many were Keith's questions (M5 counts them).
+  const hidden = sc.transcript.filter((l) => l.t < sc.help_at_s && !before.includes(l))
+  const asked = hidden.filter((l) => l.who === 'keith' && l.text.includes('?')).length
+  if (hidden.length) out.push(`> *(${hidden.length} earlier line${hidden.length === 1 ? '' : 's'} not shown${asked ? `, ${asked} of them Keith's questions` : ''})*`)
   for (const l of before) {
-    out.push(l.gap ? `> *[${Math.round(l.gap.end - l.gap.start)} s of meeting audio not heard]*` : `> **${who(sc, l.who)}:** ${l.text}`)
+    // A line still being spoken at the press: HELP only sees its first words, as live text.
+    const live = !l.gap && (l.end ?? l.t) > sc.help_at_s - 1 ? ' *(still talking when Keith presses: HELP sees only the start)*' : ''
+    out.push(l.gap ? `> *[${Math.round(l.gap.end - l.gap.start)} s of meeting audio not heard]*` : `> **${who(sc, l.who)}:** ${l.text}${live}`)
   }
   out.push('')
   out.push('**Good HELP would:**')
