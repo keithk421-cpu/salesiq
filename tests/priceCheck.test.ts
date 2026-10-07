@@ -82,6 +82,8 @@ describe('priceFigures: every call type', () => {
     'Who else signs off, and is the 2026 budget set?',
     'The rate limit is 100 requests per second?',
     'What does that 2-week delay cost the team?',
+    'Can 3 of your team try the free tier first?',
+    'Is the free plan enough for 2 engineers?',
   ]
   for (const type of CALL_TYPES) {
     it(`never flags volumes, timings, dates, model names or plain counts (${type})`, () => {
@@ -112,7 +114,7 @@ describe('priceFigures: every call type', () => {
 })
 
 describe('priceFigures: pricing calls (negotiation) also flag a bare % and an offer with a figure', () => {
-  const buyer = { theirRecentText: "We'd need 20% off to get this through." }
+  const buyer = { theirText: "We'd need 20% off to get this through." }
 
   it('must flag (the plan)', () => {
     expect(flagged('We can do 20% if you sign annually.', 'negotiation', buyer)).toBe(true)
@@ -134,10 +136,17 @@ describe('priceFigures: pricing calls (negotiation) also flag a bare % and an of
     ]) expect(flagged(line, 'negotiation', buyer), line).toBe(true)
   })
 
-  it('the same offers are not price lines on other call types without a price word (the narrowed patterns)', () => {
+  it('on other call types an offer counts only with a %, or months or years: a bare number stays a pricing-call rule', () => {
     for (const type of NOT_PRICING) {
       expect(flagged('We could do 20 if you sign today.', type, buyer)).toBe(false)
-      expect(flagged('We can do 20% if you sign annually.', type, buyer)).toBe(false)
+      expect(flagged('Could we do 3 short calls instead?', type)).toBe(false)
+      for (const line of [
+        'We can do 20% if you sign annually.',
+        '15% is doable on a two year term.',
+        'We can cap increases at 5% a year.',
+        'We could add 3 months at no charge.',
+        'Happy to include 3 months free on a two-year deal.',
+      ]) expect(flagged(line, type, { theirText: "We'd need 20% off. We need 15% and 5% caps." }), `${type}: ${line}`).toBe(true)
     }
   })
 
@@ -153,7 +162,7 @@ describe('priceFigures: pricing calls (negotiation) also flag a bare % and an of
     expect(flagged('What could you do on term or timing on your side?', 'negotiation')).toBe(false)
   })
 
-  it('their figure is only theirs when they said it in the last 30 s, as a question that offers nothing', () => {
+  it('their figure is only theirs when their side said it, asked as a question that offers nothing', () => {
     // Nobody on their side said 20 lately: asking about "the 20% off" puts a discount on the table.
     expect(flagged("What's driving the 20% off?", 'negotiation')).toBe(true)
     expect(flagged("What's driving the 20% off?", 'discovery')).toBe(true)
@@ -164,17 +173,20 @@ describe('priceFigures: pricing calls (negotiation) also flag a bare % and an of
     // A different figure from theirs.
     expect(flagged("Would 15% off work instead?", 'negotiation', buyer)).toBe(true)
     // Spelled or with a size word, the value still matches.
-    expect(flagged('What makes $40k a year the ceiling?', 'negotiation', { theirRecentText: 'We have about forty thousand dollars a year for this.' })).toBe(false)
-    expect(flagged('What makes $40k a year the ceiling?', 'negotiation', { theirRecentText: 'Our budget is 40 a seat.' })).toBe(true)
+    expect(flagged('What makes $40k a year the ceiling?', 'negotiation', { theirText: 'We have about forty thousand dollars a year for this.' })).toBe(false)
+    expect(flagged('What makes $40k a year the ceiling?', 'negotiation', { theirText: 'Our budget is 40 a seat.' })).toBe(true)
     // A FOLLOW that is a question may ask it back too.
     expect(priceFigures(card('What would make this work?', { follow_up: "What's behind the 20% off?" }), { callType: 'negotiation', ...buyer })).toEqual([])
   })
 
-  it('a bare % that is their own figure, asked back, passes; Keith stating it does not', () => {
-    const tokens = { theirRecentText: 'Our token costs went up 40% last quarter.' }
-    expect(flagged('Your token costs went up 40% last quarter?', 'negotiation', tokens)).toBe(false)
-    expect(flagged('Your token costs went up 40% last quarter?', 'negotiation')).toBe(true)
+  it('a bare % that is their own figure, asked back, passes; Keith stating one does not', () => {
+    const spend = { theirText: 'About 30% of our budget goes to tooling.' }
+    expect(flagged('So 30% of the budget goes to tooling?', 'negotiation', spend)).toBe(false)
+    expect(flagged('So 30% of the budget goes to tooling?', 'negotiation')).toBe(true)
+    expect(flagged('So 30% of the budget goes to tooling.', 'negotiation', spend)).toBe(true)
     expect(flagged('So the goal is an error rate under 2%?', 'negotiation')).toBe(true)
+    // A change in their own numbers is an outcome, not a price (an invented figure still gets the number check).
+    expect(flagged('Your token costs went up 40% last quarter?', 'negotiation')).toBe(false)
   })
 })
 
@@ -198,7 +210,7 @@ describe('priceFigures: approved pricing the card cites', () => {
 })
 
 describe('cardChecks and streamingChecks carry the price check', () => {
-  const buyer = { theirRecentText: "We'd need 20% off to get this through.", callType: 'negotiation' }
+  const buyer = { theirText: "We'd need 20% off to get this through.", callType: 'negotiation' }
   const offer = card('We can do 20% if you sign annually.')
 
   it('the finished card shows CHECK_PRICE; old callers without the options still get it for a plain price', () => {
@@ -208,8 +220,8 @@ describe('cardChecks and streamingChecks carry the price check', () => {
   })
 
   it('while streaming it warns early only when no approved item came with the press, and matches the finished card then', () => {
-    expect(streamingChecks(offer, { contextText: buyer.theirRecentText, knowledgeInContext: false, ...buyer })).toEqual([CHECK_PRICE])
-    expect(streamingChecks(offer, { contextText: buyer.theirRecentText, knowledgeInContext: true, ...buyer })).toEqual([])
+    expect(streamingChecks(offer, { contextText: buyer.theirText, knowledgeInContext: false, ...buyer })).toEqual([CHECK_PRICE])
+    expect(streamingChecks(offer, { contextText: buyer.theirText, knowledgeInContext: true, ...buyer })).toEqual([])
     // Same order as the finished card: number, price, claim.
     const both = card('We support SSO for $40k a year.')
     const early = streamingChecks(both, { contextText: '', knowledgeInContext: false, callType: 'discovery' })
@@ -219,7 +231,7 @@ describe('cardChecks and streamingChecks carry the price check', () => {
 })
 
 describe('priceCheckInputs: what the call gives the check', () => {
-  it('their side of the last 30 s only (not Keith, not a tagged SA, not older turns), the sources and the type at the press', () => {
+  it('their side all call long (not Keith, not a tagged SA), the sources and the type at the press', () => {
     const call = inventedCall({
       call_type: 'negotiation',
       speakers: { 'e1:s0': { role: 'buyer', name: 'Dana' }, 'e1:s1': { role: 'teammate', name: 'Sam (SA)' } },
@@ -235,11 +247,172 @@ describe('priceCheckInputs: what the call gives the check', () => {
     const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
     const p = priceCheckInputs(r.memory, ctx)
     expect(p.callType).toBe('negotiation')
-    expect(p.theirRecentText).toBe("We'd need 20% off to get this through.")
+    // The quote from over a minute ago is still theirs to ask about; the SA's and Keith's figures never are.
+    expect(p.theirText).toBe("Last quarter we were quoted 35 elsewhere.\nWe'd need 20% off to get this through.")
     expect(p.sources).toBe(ctx.sources)
     // The type as the request was built: a later change mid-call doesn't rewrite it.
     r.memory.setup = { ...r.memory.setup, call_type: 'discovery' }
     expect(priceCheckInputs(r.memory, ctx).callType).toBe('negotiation')
+  })
+
+  it('their words still being transcribed at the press count as theirs (the model saw them too)', () => {
+    const call = inventedCall({
+      call_type: 'negotiation',
+      transcript: [
+        { t: 0, end: 5, who: 'keith', text: 'How does the proposal look on your side?' },
+        { t: 66, end: 76, who: 'e1:s0', text: "We'd need 20% off to get this through." },
+      ],
+      help_at_s: 75,
+    })
+    const r = replayAt(call)
+    const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
+    const p = priceCheckInputs(r.memory, ctx)
+    expect(r.memory.turnsAsOf(r.atMs).some((t) => t.text.includes('20%'))).toBe(false)
+    expect(p.theirText).toContain('20% off')
+    expect(priceFigures(card("What's driving the 20% off?"), p)).toEqual([])
+    expect(priceFigures(card('We can do 20% if you sign annually.'), p)).toEqual(['20%'])
+  })
+
+  it("what they said on earlier calls counts; Arize's promises, Keith's plan and open items don't", () => {
+    const call = inventedCall({
+      call_type: 'follow_up',
+      earlier_calls: [
+        { kind: 'wants', text: 'Tooling spend under $150k a year', date: '2026-09-20' },
+        { kind: 'promised', text: 'Send pricing for 40 seats at $90k', date: '2026-09-20' },
+        { kind: 'open', text: 'Proposed 12% off for a two-year term', date: '2026-09-20' },
+        { kind: 'to_learn', text: 'Whether the $70k cap is firm', date: '2026-09-20' },
+      ],
+      help_at_s: 20,
+    })
+    const r = replayAt(call)
+    const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
+    const p = priceCheckInputs(r.memory, ctx)
+    expect(p.theirText).toContain('$150k')
+    expect(p.theirText).not.toMatch(/\$90k|12%|\$70k/)
+    expect(priceFigures(card('Last call you mentioned a $150k budget for tooling. Is that still right?'), p)).toEqual([])
+    expect(priceFigures(card('Last call you mentioned a $90k quote. Is that still right?'), p)).toEqual(['$90k'])
+  })
+})
+
+describe('review fixes: a yes/no question never concedes their discount', () => {
+  const buyer = { theirText: "We'd need 20% off to get this through. Our budget is $40k." }
+  const mustFlag = [
+    'Would 20% off get this signed by Friday?',
+    'If you sign this quarter, would 20% off work?',
+    'Is 20% off enough to close this month?',
+    'Can you sign today at 20% off?',
+    'Does 20% off get this done for you?',
+    'Would you take 20% off for a two-year term?',
+    'Would $40k work if you signed for two years?',
+    'What would 20% off mean for your budget?',
+    'Which 20% off option works for you?',
+  ]
+  for (const type of ['negotiation', 'discovery', 'demo'] as CallType[]) {
+    it(`flags their figure tied to a yes, as ASK or as a FOLLOW question (${type})`, () => {
+      for (const line of mustFlag) {
+        expect(flagged(line, type, buyer), line).toBe(true)
+        expect(priceFigures(card('What would make this work?', { follow_up: line }), { callType: type, ...buyer }), line).not.toEqual([])
+      }
+    })
+  }
+
+  it('a real question about their figure still passes', () => {
+    for (const line of ["What's driving the 20?", "What's driving the 20% off?", 'Where does the 20% come from?', 'What makes $40k the ceiling?', 'Why 20% off? What sets that number?']) {
+      expect(flagged(line, 'negotiation', buyer), line).toBe(false)
+    }
+  })
+})
+
+describe('review fixes: an approved item backs only the same kind of figure', () => {
+  const sources = new Map<string, { kind: 'turn' | 'knowledge'; detail: string }>([
+    ['K1', { kind: 'knowledge', detail: 'Arize AX keeps traces for 30 days on SaaS and supports 20 integrations.' }],
+    ['K2', { kind: 'knowledge', detail: 'Team plan: $50 per seat per month. Annual prepay: 10% off list.' }],
+  ])
+  it('"30 days" never backs "30% off"; "$50 per seat" backs "50 per seat"; "10% off" backs "10% off"', () => {
+    for (const type of CALL_TYPES) {
+      expect(priceFigures(card('We can do 30% off if you sign this quarter.', { source_ids: ['K1'] }), { callType: type, sources })).toEqual(['30%'])
+      expect(priceFigures(card('We could do 20% off for annual.', { source_ids: ['K1'] }), { callType: type, sources })).toEqual(['20%'])
+      expect(priceFigures(card('That is $30 per seat.', { source_ids: ['K1'] }), { callType: type, sources })).toEqual(['$30'])
+      expect(priceFigures(card('It is 50 per seat a month.', { source_ids: ['K2'] }), { callType: type, sources })).toEqual([])
+      expect(priceFigures(card('Annual prepay gets 10% off list.', { source_ids: ['K2'] }), { callType: type, sources })).toEqual([])
+      expect(priceFigures(card('Annual prepay gets $10 off list.', { source_ids: ['K2'] }), { callType: type, sources })).toEqual(['$10'])
+    }
+  })
+})
+
+describe('review fixes: pricing-call lines that are not prices', () => {
+  const mustPass = [
+    // Non-money gives and the path to signature.
+    'Can I give you 2 examples of how teams do this?',
+    'I can get you 3 references from similar teams.',
+    'Can we do 2 more sessions with your ML team next week?',
+    'We could do 3 pilots in parallel.',
+    'Can we get 5 of your engineers on the next call?',
+    'We can do 1 more demo for the VP.',
+    'I will give 3 options for the follow up.',
+    'Could we do Thursday at 3 to walk through the order form?',
+    'Can we get this signed by 10/30?',
+    'Could we get 2 people from security on the next call?',
+    'Could we meet with the 4 reviewers next week?',
+    'Can we get legal and the 2 security reviewers on Tuesday?',
+    'Could we do 24/7 support coverage as part of it?',
+    'Which 3 pricing questions should we cover today?',
+    'Is price 1 of the top 3 things you\'ll judge us on?',
+    'How many spans a day, 50 million?',
+    'Does security need our ISO 27001 report before signing?',
+    // Value recaps in their words (pricing line 1).
+    'In the POV you saw 40% fewer bad answers reach users. Does that still hold?',
+    'Your team cut debugging time 30% in the pilot. Is that still the main value?',
+    'What would cutting cost by 30% mean for your team?',
+  ]
+  it('must pass', () => {
+    for (const line of mustPass) expect(flagged(line, 'negotiation'), line).toBe(false)
+  })
+
+  it('must flag: concessions, their figure accepted, and large figures', () => {
+    const cases: Array<[string, string]> = [
+      ["Let's call it 40k and get it signed.", 'Our budget is 40k.'],
+      ['We can come down to 35k.', 'We were hoping for 35k.'],
+      ['I can bring it down to 35k if you sign this month.', 'We were hoping for 35k.'],
+      ['What if we meet you at 30k?', 'We can do 30k.'],
+      ['How about 40k for the first year?', 'Our budget is 40k.'],
+      ['Could you get there at 40k?', 'Our budget is 40k.'],
+      ['We can sharpen to 45k.', 'Could you do 45k?'],
+      ['What if we went to 20% for a two-year term?', "We'd need 20% off."],
+      ['If we meet you at 20%, could you sign this quarter?', "We'd need 20% off."],
+      ["We'll come down to 30.", 'We need it at 30.'],
+      ['40,000 a year works for us.', 'We have 40,000 a year.'],
+      ['Happy to include 3 months free on a two-year deal.', ''],
+      ['We could drop 10% if you sign.', ''],
+      ['We could cut it by 10%.', ''],
+      ['Could we cut the price by 10%?', ''],
+    ]
+    for (const [line, theirText] of cases) expect(flagged(line, 'negotiation', { theirText }), line).toBe(true)
+  })
+})
+
+describe('review fixes: their own costs and budgets, on any call', () => {
+  const mustPass: Array<[string, string]> = [
+    ['What drove the 15% increase in cost last quarter?', 'Our inference cost went up 15% last quarter.'],
+    ['What are your 2 biggest cost drivers today?', ''],
+    ['What are your top 3 cost drivers today?', ''],
+    ['How do you price the 3 tiers of your own product?', ''],
+    ['What would cutting cost by 30% mean for your team?', ''],
+    ["You mentioned costs went up 40% last quarter. What's driving that?", 'Our costs went up 40% last quarter.'],
+    ['So the $200k you spend on Datadog today, what does that cover?', 'We spend about $200k on Datadog.'],
+    ['Last call you mentioned a $150k budget for tooling. Is that still right?', 'Tooling spend under $150k a year'],
+  ]
+  for (const type of CALL_TYPES) {
+    it(`must pass (${type})`, () => {
+      for (const [line, theirText] of mustPass) expect(flagged(line, type, { theirText }), line).toBe(false)
+    })
+  }
+
+  it('a price word about Arize still flags: a price increase, a price cut', () => {
+    for (const type of CALL_TYPES) {
+      expect(flagged('There will be a 5% price increase next year.', type), type).toBe(true)
+      expect(flagged('Could we cut the price by 10%?', type), type).toBe(true)
+    }
   })
 })
 
@@ -260,7 +433,7 @@ describe('speed test: Level 1', () => {
     expect(f.join(' ')).not.toMatch(/\d/)
     expect(level1(scenario, card("What's driving the 20?"), [], '', kinds)).toEqual([])
     // With the call's inputs, their own figure asked back passes even with a %.
-    expect(level1(scenario, card("What's driving the 20% off?"), [], '', kinds, { callType: 'negotiation', theirRecentText: "We'd need 20% off to get this through." })).toEqual([])
+    expect(level1(scenario, card("What's driving the 20% off?"), [], '', kinds, { callType: 'negotiation', theirText: "We'd need 20% off to get this through." })).toEqual([])
   })
 
   it('runScenario judges the real card with the replayed call', async () => {
