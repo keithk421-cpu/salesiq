@@ -49,7 +49,7 @@
       "goal": "Learn if there's a real problem worth solving, why now and who else cares; book the next meeting.",
       "who_talks": "They talk most. Keith asks, follows their thread and plays it back.",
       "lines": [
-        "10 min left or less, no agreed next step, wrap-up not started: SAY a short play-back of their problems in their words, then ASK to book the next meeting. HAPPENING: ~10 min left, no next step yet.",
+        "10 min left or less, no agreed next step, wrap-up not started: SAY a short play-back of their problems in their words, then ASK to book the next meeting. HAPPENING: About ten minutes left, no next step yet.",
         "Keith has talked over 60 s since they last spoke, before two or three problems are heard: HAPPENING: Hold the pitch. ASK: How do you handle that today?",
         "They just named a new issue of their own: one layer deeper, in order: an example, what happened, what they tried, what it meant, what good looks like. This beats the next line.",
         "15 or more questions since the last play-back, or 3 or more in a row: SAY a short play-back of what they said, then ASK: Did I miss anything? HAPPENING: Lots of questions: play it back.",
@@ -68,17 +68,17 @@
     },
     "demo": {
       "goal": "Show their named problems getting easier, see what lands, dig one level deeper, and leave with a dated next step.",
-      "who_talks": "The SA (a tagged teammate) shows the screen and answers how. Keith runs the meeting, one question per section; before the SA presents, discovery-style questions on what changed.",
+      "who_talks": "With a teammate tagged, the SA shows the screen and answers how. Keith runs the meeting: one question per section; before the SA presents, discovery questions on what changed.",
       "lines": [
-        "10 min left or less, no agreed next step, wrap-up not started: ASK: Before we run out of time, what stood out most? HAPPENING: ~10 min left, no next step yet.",
+        "10 min left or less, no agreed next step, wrap-up not started: ASK: Before we run out of time, what stood out most? HAPPENING: About ten minutes left, no next step yet.",
         "An objection: ASK what's behind it, before anyone answers.",
-        "A technical question to Keith, teammate tagged: SAY a hand-off to the SA by name, even if approved knowledge answers it. While the SA answers: ASK what it would let their team do.",
-        "A reaction to the screen: one deeper on the pain behind it, in their words: How does that compare to how you do it today? After clear interest: What would change for the team?",
+        "A technical question to Keith, teammate tagged: SAY a hand-off to the SA (name from participants, or our SA), even if approved knowledge answers it; while they answer, ASK what it would let their team do. Nobody tagged: an Arize teammate seen presenting takes it; else only approved knowledge, cited, or offer to follow up.",
+        "A reaction to the screen: one deeper on the pain behind it: How does that compare to how you do it today? After clear interest: What would change for the team?",
         "No teammate tagged and Keith is past the check-in time: ASK: Is this close to how you do it today?",
-        "A new screen: tie it to their words from this call or earlier_calls, never keith_notes: You mentioned X: how do you handle that today?"
+        "A new screen: tie it to their words: You mentioned X: how do you handle that today?"
       ],
       "never": [
-        "Keith answering technical questions",
+        "Keith answering technical questions while a teammate is tagged",
         "a pain they haven't stated",
         "prices or ROI numbers",
         "pressure or talk-ratio remarks",
@@ -108,7 +108,7 @@
         "telling them how to rate their requirement",
         "we still need X"
       ],
-      "wrap": "Read back the goals, owners and dates in the transcript or notes, as said. Ask anything not seen as a check (Did we land on a readout date? Who did we say owns the test?), never as we still need. Then book the kickoff and the readout.",
+      "wrap": "Read back the goals, owners and dates as said in the transcript or call_notes, never keith_notes. Ask anything not seen as a check (Did we land on a readout date? Who did we say owns the test?), never as we still need. Then book the kickoff and the readout.",
       "opening": "Restate the business reason in their words, then give the agenda and what we hope to leave with."
     },
     "follow_up": {
@@ -128,16 +128,16 @@
         "any concession (pilot, opt-out, ramp, discount)",
         "urgency lines",
         "re-asking answered questions",
-        "what they said, unless the notes or earlier_calls have it"
+        "what they said, unless this call's transcript, call_notes or earlier_calls have it (never keith_notes)"
       ],
       "wrap": "A one-line summary, owed items each closed or re-dated, and a dated next step with named people. Offer to send the invite now.",
-      "opening": "Then stop and ask what's changed."
+      "opening": "After a short recap, stop and ask what's changed."
     },
     "negotiation": {
       "goal": "Agree a deal both sides think is fair: value before numbers, trade rather than give, a path to signature with dates.",
-      "who_talks": "They talk most. Keith recaps value and gives only the number from their approved quote.",
+      "who_talks": "They talk most. Keith recaps value and gives only the number from Keith's approved quote.",
       "lines": [
-        "They asked the price, no value recap yet: SAY a value recap in their words, then ASK if it still holds; the number is Keith's, from their approved quote. HAPPENING: Recap first, then your number.",
+        "They asked the price, no value recap yet: SAY a value recap in their words from this call or earlier_calls (never keith_notes), then ASK if it still holds; the number is Keith's, from Keith's approved quote. HAPPENING: Recap first, then your number.",
         "Keith gave a number they haven't answered: MOVE no_move. HAPPENING: You've given the number: let them answer. ASK, if the silence runs on: How does that land for you?",
         "Push-back or a discount ask: reason unknown, label it honestly, ASK what's driving it; reason known, ASK a trade, promising nothing (What could you do on term or timing?); off-standard, SAY: Let me take that to our deal desk.",
         "A comparison: ASK what's in it: volume, retention, hosting, who runs it.",
@@ -151,9 +151,9 @@
         "legal or security answers",
         "urgency or end-of-quarter lines"
       ],
-      "wrap": "Confirm who reviews, the next paper step to signature and its date. Never a concession to get the meeting. If something went to the deal desk, say when Keith will come back.",
+      "wrap": "Confirm who reviews, the next paper step to signature and its date. Never a concession to get the meeting. If something went to the deal desk, ask when they need the answer, or say Keith will confirm the timing; never pick a date.",
       "opening": "Purpose and time (walk through options and hear what works), then the value recap.",
-      "signal": "Answer or defer: never state a figure; Keith gives any number themselves from their approved quote."
+      "signal": "Answer or defer: never state a figure; Keith gives any number themselves, from Keith's approved quote."
     }
   }
 }

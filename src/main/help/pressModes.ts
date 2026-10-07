@@ -244,6 +244,8 @@ export function recentSignal(memory: CallMemory, atMs: number): SignalKind | nul
 const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length
 /** M5: the call types where the SA presents and answers technical questions (Keith's decision). */
 const SA_LED: readonly CallType[] = ['demo', 'technical_deep_dive']
+/** M5: the call types that always follow an earlier talk, so the opening never calls it the first. */
+const RETURN_TYPES: readonly CallType[] = ['demo', 'technical_deep_dive', 'negotiation']
 
 /** Early in the call and the other side has said little so far (words still being transcribed count). */
 export function isOpening(memory: CallMemory, atMs: number): boolean {
@@ -342,7 +344,7 @@ function oneLine(s: string, max: number): string {
  * words. Written here, not in the playbook, so an edit can't let Keith's notes or research be quoted as
  * something the buyer said.
  */
-const HAND_OVER = `- With a teammate tagged (the SA): once they confirmed the recap or the agenda, FOLLOW hands over to the SA by name, in the buyer's own words, starting with their top problem ("Sam, let's start with the eval gap you mentioned"). Those words come only from this call's transcript or earlier_calls (as something said before), never from keith_notes or research.`
+const HAND_OVER = `- With a teammate tagged (the SA): once they confirmed the recap or the agenda, FOLLOW hands over to the SA, in the buyer's own words, starting with their top problem ("Over to you: let's start with the eval gap you mentioned"). Use the SA's name only when participants gives one; never a name nobody gave. Those words come only from this call's transcript or earlier_calls (as something said before), never from keith_notes or research.`
 
 function openingBlock(contextText: string, detail: PressDetail, type: CallType | null = null, modes?: CallModes): string {
   const block = /<earlier_calls\b[^\n]*>\n([\s\S]*?)\n<\/earlier_calls>/.exec(contextText)?.[1] ?? null
@@ -350,8 +352,10 @@ function openingBlock(contextText: string, detail: PressDetail, type: CallType |
   // wanted to learn (his own plan, never something they said).
   const pickUp = block !== null && block.split('\n').some((l) => !l.includes(` · ${TO_LEARN_LABEL}: `))
   // A return call with nothing of theirs on file: earlier calls left only Keith's must-learns (or
-  // nothing), or Keith typed it as a follow-up. Never "the first call with them".
-  const followUp = !pickUp && (block !== null || detail.earlier_calls === true || /\ntype: follow_up\n/.test(contextText))
+  // nothing), or Keith typed it as a follow-up. Never "the first call with them". M5: with a mode for
+  // it, a demo, deep-dive or pricing call counts too: it always follows an earlier talk, even when the
+  // app has none on file (the mode's opening recaps it, or asks).
+  const followUp = !pickUp && (block !== null || detail.earlier_calls === true || /\ntype: follow_up\n/.test(contextText) || (!!type && RETURN_TYPES.includes(type) && !!modeSpec(type, modes)))
   const ml = detail.must_learn ?? []
   // No goal and no must-learns: nothing to build an agenda from, so ask what they'd like from today.
   const noGoal = /\ngoal: \(not set\)\n/.test(contextText) && !ml.length

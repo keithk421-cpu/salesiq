@@ -8,9 +8,11 @@ import { CALL_TYPES } from '../src/shared/help'
 import { CallMemory } from '../src/main/help/callMemory'
 import { EMPTY_NOTES } from '../src/main/help/callNotes'
 import {
-  MODE_TEXT_MAX_CHARS, callModeOf, callTypeIn, cleanModeFacts, keithNumber, keithPlayback, keithQuestion, modeBlock, modeFacts, modeTextLength, withBuiltInModes, wrapAsk,
+  MODE_TEXT_MAX_CHARS, callModeOf, callTypeIn, cleanModeFacts, keithNumber, keithPlayback, keithQuestion, modeBlock, modeFacts, modeTextLength, numbersBackedBy, withBuiltInModes, wrapAsk,
 } from '../src/main/help/callModes'
-import { MockHelpModel } from '../src/main/help/models'
+import { runScenario } from '../src/main/help/evalRunner'
+import { DEFAULT_HELP_CONFIG, MockHelpModel } from '../src/main/help/models'
+import { CHECK_NUMBER, streamingChecks, validateCard } from '../src/main/help/protocol'
 import { cleanPressDetail, decidePress, isOpening, pressModeOf, pressUserMessage, savedPress } from '../src/main/help/pressModes'
 import { CALL_MODE_RULE, buildSystemPrompt, loadPlaybook, playbookProblem, type Playbook } from '../src/main/help/prompt'
 import { isWrapRequest } from '../src/main/help/wrap'
@@ -70,6 +72,26 @@ describe('mode facts: counted in code, in buckets', () => {
     for (const t of ['Our playbook covers that.', 'We saw it on Facebook.', "Let's look at the next screen.", 'The step after that is the review.']) expect(wrapAsk(t), t).toBe(false)
     for (const t of ['It comes to $40k a year.', "That's 18% off list.", 'About 40 thousand dollars.', '120,000 USD for the year.', '€12,000 per year', 'We could do 20 percent.']) expect(keithNumber(t), t).toBe(true)
     for (const t of ['About 10 million traces a month?', '90 days of history.', 'We have 3 teams on it.', 'Version 2.5 shipped last week.']) expect(keithNumber(t), t).toBe(false)
+  })
+
+  it('wrap-up asks are questions or bookings; everyday statements with "follow up" or "from here" are not', () => {
+    for (const t of ["Let's get the next meeting on the calendar.", 'When should we reconvene?', 'Would it make sense to schedule a session with your team?', "Let's talk about next steps."]) expect(wrapAsk(t), t).toBe(true)
+    for (const t of [
+      'Great follow-up question, Sam can take that one.', 'So from here you can click into any span', "I'll follow up with the security doc after this",
+      'Let me follow up on your question about OTel', 'The next step in the pipeline is the eval run', 'I can book the SA for Thursday', "I'll follow up with Sam on that.",
+      'Let me follow up on the SSO question after the call', "Let's set up the tracer first.", "Let's look at the next step in the pipeline.",
+    ]) expect(wrapAsk(t), t).toBe(false)
+  })
+
+  it('a question that ends in "okay?", "yeah?" or "right?" is still a question when it opens as one', () => {
+    for (const q of ['Is the timeline still okay?', 'Does that sound okay?', 'Does Thursday at 2 work for everyone, yeah?', 'Who else should we loop in, you know?', 'Can you walk me through a recent example, does that make sense?', 'Is 10 million traces a month about right?']) expect(keithQuestion(q), q).toBe(true)
+    // Still a tag on a statement; and a 3-word question is too short to count either way.
+    for (const q of ["That's the plan, does that make sense?", 'So it runs nightly, okay?', 'Is that correct?', 'Is that right?']) expect(keithQuestion(q), q).toBe(false)
+  })
+
+  it('a price figure: a % or a bare amount only next to price words, never one Keith only asks about', () => {
+    for (const t of ['The list price is 85,000 for that tier.', 'We could do a 20 percent discount.', '$48,000 a year. Does that work for you?', 'That would be 15% off the subscription.']) expect(keithNumber(t), t).toBe(true)
+    for (const t of ['You said review takes your team about 20% less time with this.', '99.9% uptime.', "What's driving the 20%?", 'Is $48,000 what you heard from finance?', 'We store 10,000 traces per month.']) expect(keithNumber(t), t).toBe(false)
   })
 
   it('the SA run: 3 turns, 80 s, no buyer turn; a buyer "mm-hmm" does not end it; follows the check-in threshold', () => {
@@ -192,6 +214,24 @@ describe('mode facts: counted in code, in buckets', () => {
     expect(facts(call([['keith', 5, 12, 'We keep 90 days of history for 10 million traces.']], { type: 'negotiation' }), 15).keith_number_unanswered).toBe(false)
   })
 
+  it("Keith's number stays unanswered after a second Keith turn or a filler; a figure only repeated in a question doesn't count", () => {
+    const gave: Array<[Who, number, number, string]> = [['buyer', 0, 4, 'So what would this come to for us?'], ['keith', 5, 12, 'For that volume it comes to $48,000 a year.']]
+    expect(facts(call([...gave, ['keith', 16, 19, 'That includes the ninety days of retention.']], { type: 'negotiation' }), 22).keith_number_unanswered).toBe(true)
+    expect(facts(call([...gave, ['keith', 16, 17, 'Yeah.']], { type: 'negotiation' }), 20).keith_number_unanswered).toBe(true)
+    // Their answer before Keith's next turn still counts as an answer.
+    expect(facts(call([...gave, ['buyer', 13, 15, 'That is more than we planned.'], ['keith', 16, 17, 'Yeah.']], { type: 'negotiation' }), 20).keith_number_unanswered).toBe(false)
+    // Keith asking about their figure (the playbook's own line) gave no number.
+    const theirs: Array<[Who, number, number, string]> = [['buyer', 0, 6, 'We were hoping for something like 20% off the list price.'], ['keith', 7, 9, "What's driving the 20%?"]]
+    expect(facts(call(theirs, { type: 'negotiation' }), 12).keith_number_unanswered).toBe(false)
+  })
+
+  it('wrap-up started: a parked question ("I\'ll follow up with Sam on that") near the end does not silence the time-left line', () => {
+    const m = call([['buyer', 51 * 60, 51 * 60 + 5, 'Do you support alerting on drift?'], ['keith', 51 * 60 + 6, 51 * 60 + 9, "Great follow-up question, I'll follow up with Sam on that."]], { type: 'demo' })
+    expect(facts(m, 52 * 60)).toMatchObject({ minutes_left: '10', wrap_started: false })
+    m.upsertTurn({ id: 'w', stream: 'local_mic', cluster: null, start_ms: 52 * 60_000 + 10_000, end_ms: 52 * 60_000 + 14_000, text: "Let's get the next meeting on the calendar.", available_ms: 52 * 60_000 + 15_000 }, true)
+    expect(facts(m, 52 * 60 + 30).wrap_started).toBe(true)
+  })
+
   it('stable within a bucket: the same turns at any second of the same 5 minutes give the same facts', () => {
     const m = call([['buyer', 600, 610, 'We review a sample of answers every Friday with the platform team.'], ['keith', 611, 614, 'Who looks at the flagged ones?']], { type: 'demo' })
     const at = (s: number) => JSON.stringify(facts(m, s))
@@ -222,7 +262,8 @@ describe('the <call_mode> block', () => {
         const b = modeBlock(t, m, null)!
         expect(b).toContain('How lines work in every mode: ASK and SAY are only words Keith says to the buyer. A cue to Keith')
         expect(b).toContain('goes in HAPPENING')
-        expect(b).toMatch(/\n0\. They just asked or raised something: answer or handle it first \(normal rules; in a demo or deep-dive with a teammate tagged, a technical how-to goes to the SA\)\. This mode's line goes in FOLLOW\.\n1\. /)
+        expect(b).toMatch(/\n0\. They just asked or raised something no line below names: answer or handle it first \(normal rules\), with this mode's line in FOLLOW\. A line below that names what they just said \(a price question, an objection, a technical question\) is the main line\.\n1\. /)
+        expect(b).toContain('Their words: said on this call or in earlier_calls, never keith_notes.')
         // No facts given: no "Right now" line.
         expect(b).not.toContain('Right now')
       }
@@ -265,6 +306,55 @@ describe('the <call_mode> block', () => {
       const tokens = modeBlock(t, modes, BUSY)!.length / 4
       expect(tokens, t).toBeLessThanOrEqual(600)
     }
+  })
+
+  it('built-in text: the demo hand-off is only with a teammate tagged; their words never come from keith_notes; the time-left cue is in words', () => {
+    const demo = modeBlock('demo', modes, QUIET)!
+    expect(demo).toMatch(/\nNever: Keith answering technical questions while a teammate is tagged;/)
+    expect(demo).toMatch(/Nobody tagged: an Arize teammate seen presenting takes it; else only approved knowledge, cited, or offer to follow up\./)
+    expect(demo).toContain('Who talks: With a teammate tagged, the SA shows the screen')
+    // A tagged teammate with no name is "our SA", never "Speaker 2".
+    expect(demo).toContain('(name from participants, or our SA)')
+    const pricing = modeBlock('negotiation', modes, QUIET)!
+    expect(pricing).toContain('SAY a value recap in their words from this call or earlier_calls (never keith_notes)')
+    expect(pricing).not.toMatch(/their approved quote/)
+    expect(modeBlock('follow_up', modes, QUIET)).toContain("what they said, unless this call's transcript, call_notes or earlier_calls have it (never keith_notes)")
+    for (const t of MODE_TYPES) {
+      const spec = modes![t]!
+      for (const x of [...spec.lines as string[], spec.wrap as string, spec.opening as string, (spec.signal as string | undefined) ?? '']) {
+        // Digits in a cue invite the card to repeat them (the number check); "the notes" is ambiguous.
+        expect(x, t).not.toMatch(/~\d|\bthe notes\b/)
+        expect(x, t).not.toMatch(/\bSam\b/)
+      }
+    }
+    expect(modes!.negotiation!.wrap).toMatch(/never pick a date/)
+    expect(modes!.follow_up!.opening).toBe("After a short recap, stop and ask what's changed.")
+  })
+
+  it('a pricing call: line 0 yields to the line that names a price question, so the value recap is the main line', () => {
+    const user = pressUserMessage(ctxFor('negotiation', '').replace('Dana: We review a sample every week.', "Dana: So what's this going to cost us?"), null, null, { mode_facts: QUIET }, modes)
+    const block = /<call_mode type="negotiation">\n([\s\S]*?)\n<\/call_mode>/.exec(user)![1]
+    const zero = block.indexOf('\n0. ')
+    const one = block.indexOf('\n1. They asked the price, no value recap yet: SAY a value recap')
+    expect(zero).toBeGreaterThan(0)
+    expect(one).toBeGreaterThan(zero)
+    expect(block.slice(zero, one)).toMatch(/no line below names[\s\S]*A line below that names what they just said \(a price question/)
+  })
+
+  it('the numbers the app counted back a card: "~10 min left" on a mode press is not an invented figure', () => {
+    const ctx = ctxFor('discovery')
+    const card = { move: 'confirm_next_step' as const, primary_kind: 'ask' as const, primary: 'Can we book the next meeting?', happening: '~10 min left, no next step yet', follow_up: null }
+    const near = { mode_facts: { ...QUIET, minutes_left: '10' as const } }
+    const limits = playbook.card_limits
+    expect(validateCard(card, ['MOVE', 'ASK', 'HAPPENING'], { knownSourceIds: new Set(), contextText: numbersBackedBy(ctx, near), limits }).issues).toEqual([])
+    expect(streamingChecks(card, { contextText: numbersBackedBy(ctx, near), knowledgeInContext: true })).toEqual([])
+    // Without the facts (or with other ones) the 10 is still checked.
+    expect(numbersBackedBy(ctx, {})).toBe(ctx)
+    expect(validateCard(card, ['MOVE', 'ASK', 'HAPPENING'], { knownSourceIds: new Set(), contextText: ctx, limits }).issues).toEqual(['number not found in context: 10'])
+    // Only the facts that are on: a quiet "under 10" questions never backs a made-up "$10".
+    expect(numbersBackedBy(ctx, { mode_facts: QUIET })).toBe(ctx)
+    expect(streamingChecks(card, { contextText: numbersBackedBy(ctx, { mode_facts: QUIET }), knowledgeInContext: true })).toEqual([CHECK_NUMBER])
+    expect(streamingChecks({ ...card, happening: 'Talked over 75 s: check in' }, { contextText: numbersBackedBy(ctx, { mode_facts: { ...QUIET, keith_run: 'over_threshold' } }), knowledgeInContext: true })).toEqual([])
   })
 })
 
@@ -366,7 +456,12 @@ describe('type-aware presses', () => {
       const user = pressUserMessage(ctxFor(t, notes), null, 'opening', { mode_facts: { ...QUIET, teammate_tagged: true } }, modes)
       const block = /<opening_press>\n([\s\S]*?)\n<\/opening_press>/.exec(user)![1]
       expect(block).toContain(`- On this call type: ${modes![t]!.opening}`)
-      expect(block).toMatch(/FOLLOW hands over to the SA by name, in the buyer's own words[\s\S]*only from this call's transcript or earlier_calls \(as something said before\), never from keith_notes or research\./)
+      expect(block).toMatch(/FOLLOW hands over to the SA, in the buyer's own words[\s\S]*Use the SA's name only when participants gives one; never a name nobody gave\.[\s\S]*only from this call's transcript or earlier_calls \(as something said before\), never from keith_notes or research\./)
+      // No made-up name for HELP to copy when the tagged teammate has none.
+      expect(block).not.toMatch(/\bSam\b/)
+      // A demo or deep-dive always follows an earlier talk: never "the first call with them".
+      expect(block).not.toMatch(/first call with them\./)
+      expect(block).toContain('This is a follow-up call, with nothing they said on earlier calls on file.')
       expect(block).toMatch(/otherwise the hand-off to the SA above when it fits/)
       // Keith's research appears only in its own block, never in a block that tells HELP what to say.
       expect(user.split('Zephyrline')).toHaveLength(2)
@@ -377,6 +472,11 @@ describe('type-aware presses', () => {
     const disco = pressUserMessage(ctxFor('discovery'), null, 'opening', { mode_facts: { ...QUIET, teammate_tagged: true } }, modes)
     expect(disco).toContain(`- On this call type: ${modes!.discovery!.opening}`)
     expect(disco).not.toContain('hands over to the SA')
+    // Discovery can be the first talk; a pricing call never is (nothing on file: reconnect, never "first call").
+    expect(disco).toContain('- This is the first call with them. ASK or SAY')
+    const pricing = pressUserMessage(ctxFor('negotiation'), null, 'opening', { mode_facts: QUIET }, modes)
+    expect(pricing).not.toMatch(/first call with them\./)
+    expect(pricing).toContain('This is a follow-up call, with nothing they said on earlier calls on file.')
   })
 
   it('the buying-signal press: the type\'s own ASK/SAY rule (the locked part stays) and FOLLOW', () => {
@@ -518,5 +618,54 @@ describe('in the engine', () => {
     s.engine.press()
     expect(m.calls).toHaveLength(1)
     expect(s.events.at(-1)!.timing.served_from_prefetch).toBe(true)
+  })
+
+  it('a time-left card near the end carries no number check, while it streams or when finished', async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, { call: inventedCall({ help_at_s: 400 }) })
+    // 12 minutes planned, pressed at 6:40: about 10 minutes left.
+    s.memory.setup = { ...s.memory.setup, call_type: 'discovery', length_min: 12 }
+    s.engine.press()
+    m.calls[0].send('MOVE: confirm_next_step\nASK: Can we book the next meeting?\nHAPPENING: ~10 min left, no next step yet\n')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)!.checks).toEqual([])
+    m.calls[0].send('FOLLOW: -\nSOURCES: -\nNOTE: -\n')
+    m.calls[0].finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)).toMatchObject({ status: 'complete', checks: [] })
+    expect(s.events.at(-1)!.content.happening).toBe('~10 min left, no next step yet')
+  })
+})
+
+describe('in the speed test', () => {
+  class Capturing extends MockHelpModel {
+    users: string[] = []
+    override run(req: Parameters<MockHelpModel['run']>[0]) {
+      this.users.push(req.user)
+      return super.run(req)
+    }
+  }
+  const pricing = () => inventedCall({
+    call_type: 'negotiation', help_at_s: 20,
+    transcript: [
+      { t: 0, end: 4, who: 'e1:s0', text: 'So what would this come to for us?' },
+      { t: 5, end: 12, who: 'keith', text: 'For the volume you described, it comes to $48,000 a year.' },
+    ],
+  })
+
+  it('a scenario with no stored facts is replayed with facts counted from the replayed call (pricing: the Hold)', async () => {
+    const model = new Capturing(0)
+    const res = await runScenario(pricing(), model, DEFAULT_HELP_CONFIG, playbook)
+    expect(res.status).toBe('complete')
+    expect(model.users[0]).toMatch(/\nRight now \(counted by the app; may lag\): [^\n]*Keith gave a number they haven't answered yet/)
+    expect(res.card).toMatchObject({ move: 'no_move', primary: '[MOCK · negotiation] How does that land for you?' })
+  })
+
+  it("a saved moment's own facts win over a recount", async () => {
+    const model = new Capturing(0)
+    const res = await runScenario({ ...pricing(), press_detail: { mode_facts: { ...QUIET, minutes_left: '20' } } }, model, DEFAULT_HELP_CONFIG, playbook)
+    expect(model.users[0]).toMatch(/\nRight now \(counted by the app; may lag\): about 20 min left;/)
+    expect(model.users[0]).not.toContain("Keith gave a number they haven't answered yet")
+    expect(res.card?.move).not.toBe('no_move')
   })
 })

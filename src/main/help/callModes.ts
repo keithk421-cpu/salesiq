@@ -89,9 +89,12 @@ export function modeWrap(type: string, modes: CallModes | null | undefined): str
 
 /** Written once here, so every mode has them and an edit to the playbook can't drop them. */
 const HOW_LINES_WORK =
-  'How lines work in every mode: ASK and SAY are only words Keith says to the buyer. A cue to Keith (hold the pitch, not yet heard, sounds like extra work, a requirement to note) goes in HAPPENING.'
+  "How lines work in every mode: ASK and SAY are only words Keith says to the buyer. A cue to Keith (hold the pitch, not yet heard, sounds like extra work, a requirement to note) goes in HAPPENING. Their words: said on this call or in earlier_calls, never keith_notes."
+// Narrow on purpose: a line below that names what they just said (a price question on a pricing call,
+// an objection, a technical question on a demo) is the main line, not a deferral under "the normal
+// rules" with the mode's line in FOLLOW.
 const LINE_ZERO =
-  "0. They just asked or raised something: answer or handle it first (normal rules; in a demo or deep-dive with a teammate tagged, a technical how-to goes to the SA). This mode's line goes in FOLLOW."
+  "0. They just asked or raised something no line below names: answer or handle it first (normal rules), with this mode's line in FOLLOW. A line below that names what they just said (a price question, an objection, a technical question) is the main line."
 
 const MINUTES_TEXT: Record<ModeFacts['minutes_left'], string> = {
   '>20': 'more than 20 min left',
@@ -131,6 +134,24 @@ export function factsLine(f: ModeFacts): string {
   if (f.keith_number_unanswered) parts.push(NUMBER_UNANSWERED_TEXT)
   parts.push(f.teammate_tagged ? 'a teammate (the SA) is tagged' : 'no teammate tagged (roles unknown)')
   return `Right now (counted by the app; may lag): ${parts.join('; ')}.`
+}
+
+/**
+ * The text a card's numbers are checked against: the call context, plus the counted facts a cue may
+ * repeat ("about 10 min left", "over 75 s"), so a card that echoes one is not inventing a figure. Only
+ * the facts that are on (a quiet "under 10" must not back a made-up "$10"), and never the rest of the
+ * block: that is playbook text Keith can edit.
+ */
+export function numbersBackedBy(contextText: string, detail: { mode_facts?: ModeFacts } | null | undefined): string {
+  const f = detail?.mode_facts
+  if (!f) return contextText
+  const on = [
+    ...(f.minutes_left !== '>20' ? [MINUTES_TEXT[f.minutes_left]] : []),
+    ...(f.keith_q_since_playback !== '<10' ? [PLAYBACK_TEXT[f.keith_q_since_playback]] : []),
+    ...(f.keith_q_in_row === 3 ? ['3 or more in a row'] : []),
+    ...(f.keith_run === '60s-threshold' || f.keith_run === 'over_threshold' ? [RUN_TEXT[f.keith_run]] : []),
+  ]
+  return on.length ? `${contextText}\n${on.join('; ')}` : contextText
 }
 
 /**
@@ -218,13 +239,28 @@ export function withBuiltInModes(mine: Playbook, builtIn: Playbook): { playbook:
 const TAG_QUESTION = /(?:^|[\s,.;:!?-])(?:right|make sense|makes sense|does that make sense|you know|okay|ok|yeah|correct)\s*\?\s*$/i
 /** A short play-back: Keith checks they got it right. */
 const PLAYBACK = /\b(?:did i get that right|did i miss anything|anything i missed|is that a fair summary)\b/i
-/** Since about 10 minutes were left: Keith asking about the next step, timing or what stood out. */
-const WRAP_ASK = /\bnext steps?\b|\bstood out\b|\bfrom here\b|\bbefore we run out\b|\bbook(?:ed|ing)? (?:a|an|the|some|time|it|that|this|another|us|you|in|for|our)\b|\bfollow[- ]?ups?\b|\bfollow up\b/i
 /**
- * A figure Keith gave: a currency amount ("$40k", "€12,000", "40 thousand dollars", "120,000 USD") or a
- * percentage ("18%", "20 percent"). Volumes ("10 million traces a month"), days and counts don't count.
+ * A question that opens with a question word ("Is the timeline still okay?"): its "okay?" is part of
+ * the question, not a tag on a statement. Checked on the last sentence before the tag.
  */
-const KEITH_NUMBER = /[$€£]\s?\d|\b\d[\d,.]*\s?(?:k|m|thousand|million|grand)?\s?(?:dollars|euros|pounds|bucks|usd|eur|gbp)\b|\d\s?(?:%|percent\b|per cent\b)/i
+const OPENS_QUESTION = /^(?:(?:so|and|but|okay|ok|great|then)[,\s]+)?(?:what|how|who|why|when|where|which|is|are|was|were|do|does|did|can|could|would|will|should|shall|have|has|may|might)\b/i
+/**
+ * Since about 10 minutes were left: Keith asking about the next step, timing or what stood out. The
+ * noun "a follow-up" counts; the verb doesn't ("I'll follow up with Sam on that" parks a question).
+ */
+const WRAP_ASK = /\bnext steps?\b|\bnext meeting\b|\bstood out\b|\bfrom here\b|\bbefore we run out\b|\bbook(?:ed|ing)? (?:a|an|the|some|time|it|that|this|another|us|you|in|for|our)\b|\b(?:a|the|another) follow[- ]?ups?\b|\bcalendar\b|\bschedul(?:e|ing)\b|\breconvene\b|\bmeet again\b/i
+/**
+ * A booking Keith proposes without a "?" ("Let's get the next meeting on the calendar."), or Keith
+ * naming the time themselves ("Before we run out of time, ...").
+ */
+const WRAP_PROPOSAL = /\bbefore we run out\b|\b(?:let'?s|let us|shall we|can we|could we|should we)\b[^.?!]*\b(?:book|schedul(?:e|ing)|set up (?:a |another |the next |some )?(?:call|meeting|session|time)|get (?:some )?time|calendar|meet again|reconvene|next meeting|(?:talk|chat) about (?:the )?next steps?)\b/i
+/** A currency amount ("$40k", "€12,000", "40 thousand dollars", "120,000 USD"). Volumes, days and counts don't count. */
+const CURRENCY = /[$€£]\s?\d|\b\d[\d,.]*\s?(?:k|m|thousand|million|grand)?\s?(?:dollars|euros|pounds|bucks|usd|eur|gbp)\b/i
+/** A percentage, which only counts as a price figure next to price words ("20% off", not "20% less time"). */
+const PERCENT = /\d\s?(?:%|percent\b|per cent\b)/i
+/** A bare amount ("85,000", "40k"), which only counts next to price words (volumes say "a year" too). */
+const BARE_AMOUNT = /\b\d{1,3}(?:,\d{3})+\b|\b\d+(?:\.\d+)?\s?k\b/i
+const PRICE_WORDS = /\b(?:price[ds]?|pricing|cost[s]?|discount(?:ed)?|off|quote[ds]?|list price|per (?:seat|user)|comes? (?:to|out)|fees?|licen[cs]e|subscription|uplift|(?:can|could) (?:do|offer))\b/i
 
 const PLAYBACK_LONG_MS = 30_000
 const THEIR_REPLY_WORDS = 5
@@ -235,11 +271,19 @@ const SA_LONG_RUN_MS = 120_000
 
 const words = (s: string) => s.split(/\s+/).filter(Boolean).length
 
+/** The turn's sentences, each with its end mark ("Is that it? Okay." -> two). */
+const sentences = (text: string) => text.split(/(?<=[.?!])\s+/).map((x) => x.trim()).filter(Boolean)
+
 /** A question Keith asked: at least 4 words with a "?", once a trailing tag ("right?") is taken off. */
 export function keithQuestion(text: string): boolean {
   let t = text.trim()
-  // At most twice ("..., right? Okay?"): a turn that is only tags isn't a question.
-  for (let i = 0; i < 2 && TAG_QUESTION.test(t); i++) t = t.replace(TAG_QUESTION, '').trim()
+  // At most twice ("..., right? Okay?"): a turn that is only tags isn't a question. A tag ends a
+  // statement; "Is the timeline still okay?" opens as a question, so its "okay?" stays.
+  for (let i = 0; i < 2 && TAG_QUESTION.test(t); i++) {
+    const rest = t.replace(TAG_QUESTION, '').trim()
+    if (OPENS_QUESTION.test(sentences(rest).pop() ?? '')) break
+    t = rest
+  }
   return t.includes('?') && words(t.replace(/[?]/g, ' ')) >= QUESTION_MIN_WORDS
 }
 
@@ -248,14 +292,21 @@ export function keithPlayback(t: { text: string; start_ms: number; end_ms: numbe
   return t.end_ms - t.start_ms >= PLAYBACK_LONG_MS || PLAYBACK.test(t.text)
 }
 
-/** Keith asked about the next step, the time or what stood out (the wrap-up has started). */
+/**
+ * Keith asked about the next step, the time or what stood out (the wrap-up has started): a question
+ * with those words, or a booking Keith proposes. A statement ("So from here you can click into any span",
+ * "Great follow-up question") is not one.
+ */
 export function wrapAsk(text: string): boolean {
-  return WRAP_ASK.test(text)
+  return sentences(text).some((x) => (x.endsWith('?') && WRAP_ASK.test(x)) || WRAP_PROPOSAL.test(x))
 }
 
-/** A currency figure or a percentage. */
+/**
+ * A price figure Keith stated: a currency amount, or a percentage or bare amount next to price words,
+ * in a sentence that isn't a question ("What's driving the 20%?" repeats their figure; it gives none).
+ */
 export function keithNumber(text: string): boolean {
-  return KEITH_NUMBER.test(text)
+  return sentences(text).some((x) => !x.endsWith('?') && (CURRENCY.test(x) || ((PERCENT.test(x) || BARE_AMOUNT.test(x)) && PRICE_WORDS.test(x))))
 }
 
 /** The call's planned length in minutes: the setup's, else the type's default. */
@@ -322,11 +373,13 @@ export function modeFacts(memory: CallMemory, atMs: number, type: string, setup:
   const keithRunMs = talkMs(keith)
   const saRunMs = talkMs(teammate)
 
-  // Keith's latest turn gave a figure, and nobody on their side has spoken since (live words count).
-  const lastKeith = [...turns].reverse().find(keith)
+  // A Keith turn since their last turn gave a figure (a second turn or a "yeah" after it doesn't hide
+  // it), and nobody on their side has spoken since (live words count).
+  const lastTheirs = [...turns].reverse().find(theirs)
+  const keithSince = turns.filter((t) => keith(t) && (!lastTheirs || t.start_ms > lastTheirs.start_ms))
   // The interim's speaker id is read defensively: older memory doesn't carry it (then it counts as theirs).
   const live = memory.interimsAsOf(atMs).filter((i) => i.stream === 'system_remote' && i.text.trim()).map((i) => ({ stream: i.stream, cluster: (i as { cluster?: string | null }).cluster ?? null }))
-  const keith_number_unanswered = !!lastKeith && keithNumber(lastKeith.text) && !turns.some((t) => theirs(t) && t.start_ms > lastKeith.start_ms) && !live.some(theirs)
+  const keith_number_unanswered = keithSince.some((t) => keithNumber(t.text)) && !live.some(theirs)
 
   const teammate_tagged = [...memory.labels.values()].some((l) => l.role === 'teammate')
   const saTotalMs = turns.filter(teammate).reduce((n, t) => n + Math.max(0, t.end_ms - t.start_ms), 0)

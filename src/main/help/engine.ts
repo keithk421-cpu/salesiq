@@ -31,6 +31,7 @@ import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } f
 import { keithNotesChecks } from './keithNotes'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 import { planKey } from './callPlan'
+import { numbersBackedBy } from './callModes'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -420,7 +421,7 @@ export class HelpEngine {
           if (run.parser.feed(chunk)) {
             run.content = run.parser.partial()
             // Keith may read the line before the card finishes: what's already certain goes up with it.
-            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, knowledgeInContext: run.knowledgeInContext })
+            run.checks = streamingChecks(run.content, { contextText: numbersBackedBy(run.ctx.text, run.detail), knowledgeInContext: run.knowledgeInContext })
             run.earlyChecks = Math.max(run.earlyChecks, run.checks.length)
             this.emit(run)
           }
@@ -440,7 +441,8 @@ export class HelpEngine {
       }
       const v = validateCard(run.content, run.parser.fieldOrder, {
         knownSourceIds: new Set(run.ctx.sources.keys()),
-        contextText: run.ctx.text,
+        // M5: the mode facts the app counted ("about 10 min left") back a card's numbers too.
+        contextText: numbersBackedBy(run.ctx.text, run.detail),
         limits: this.d.playbook.card_limits,
       })
       run.issues = v.issues
