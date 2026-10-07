@@ -304,9 +304,10 @@ function statesTechnicalAnswer(card: Partial<HelpCardContent>): boolean {
 }
 
 /** Plain-language warnings shown on a finished card: things Keith should check before saying. */
-export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds: Map<string, 'turn' | 'knowledge'>): string[] {
+export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds: Map<string, 'turn' | 'knowledge'>, price: PriceCheckOpts = {}): string[] {
   const out: string[] = []
   if (issues.some((i) => issueKind(i) === 'number not found in context')) out.push(CHECK_NUMBER)
+  if (priceFigures(card, price).length) out.push(CHECK_PRICE)
   const citesKnowledge = card.source_ids.some((id) => sourceKinds.get(id) === 'knowledge')
   if (hasCapabilityClaim(card) && !citesKnowledge) out.push(CHECK_CLAIM)
   else if (statesTechnicalAnswer(card) && !citesKnowledge) out.push(CHECK_TECHNICAL)
@@ -318,15 +319,199 @@ export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds:
  * line is complete (Keith may read it before the card finishes): a number nobody said, and, when this
  * press had no approved knowledge to cite, an Arize capability claim or a technical answer. With
  * knowledge in the context the finished card may still cite it, so those two wait for the end. The
- * finished card's checks replace these.
+ * finished card's checks replace these. A price figure is the same: SOURCES comes last, so it is
+ * certain early only when no approved item came with the press at all.
  */
-export function streamingChecks(partial: Partial<HelpCardContent>, opts: { contextText: string; knowledgeInContext: boolean }): string[] {
+export function streamingChecks(partial: Partial<HelpCardContent>, opts: { contextText: string; knowledgeInContext: boolean } & PriceCheckOpts): string[] {
   if (!partial.primary || !partial.move) return []
   const out: string[] = []
   const visible = [partial.primary, partial.happening ?? '', partial.follow_up ?? ''].join(' ')
   if (unbackedNumbers(visible, opts.contextText).length) out.push(CHECK_NUMBER)
   if (opts.knowledgeInContext) return out
+  if (priceFigures(partial, { theirRecentText: opts.theirRecentText, callType: opts.callType }).length) out.push(CHECK_PRICE)
   if (hasCapabilityClaim(partial)) out.push(CHECK_CLAIM)
   else if (statesTechnicalAnswer(partial)) out.push(CHECK_TECHNICAL)
   return out
+}
+
+// ------------------------------------------------------------------ price check (M5 step 0)
+
+/**
+ * What the price check needs beyond the card. All optional: a caller that passes nothing still gets
+ * the check, just without the two ways a figure can be allowed.
+ */
+export interface PriceCheckOpts {
+  /** The context's sources by short id ("K1", "T3"): an approved item's text backs a figure when the card cites it. */
+  sources?: Map<string, { kind: 'turn' | 'knowledge'; detail: string }>
+  /** The other side's words from the last 30 s before the press: Keith may ask their own figure back. */
+  theirRecentText?: string
+  /** The call type as at the press. Pricing calls (negotiation) also flag a bare % and an offer with a figure. */
+  callType?: string
+}
+
+/** Keith chose a warning: the line stays on screen with this note. */
+export const CHECK_PRICE = "Price or discount not from approved pricing: don't say it"
+
+const NUMBER_WORDS = new Set(
+  'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million billion'.split(' '),
+)
+/** A spelled number with one of these is big enough to be a price ("forty", "a thousand"); "one" or "two" alone is just a word. */
+const BIG_NUMBER_WORD = /^(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)$/
+/** A number written with digits, with a currency sign or code, a k/m size or a % on it ("$40k", "€12,000", "15%"). */
+const DIGIT_FIGURE = /^(?:usd|eur|gbp)?[$€£]?\d[\d,]*(?:\.\d+)?(?:k|mm|m|bn)?%?$/
+const SCALE_WORD: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, bn: 1e9, billion: 1e9 }
+const CURRENCY_BEFORE = /^(?:usd|eur|gbp|[$€£])$/
+const CURRENCY_AFTER = /^(?:dollars?|usd|euros?|eur|pounds|gbp|bucks|grand)$/
+/** Words that make a nearby figure a price. Unit words ("per month", "a year", "rate", "commit", "off") never do on their own. */
+const PRICE_WORD = /^(?:discount(?:s|ed|ing)?|pric(?:e|es|ed|ing)|costs?|costing)$/
+const SEAT_WORD = /^(?:seats?|users?)$/
+/** A figure right before one of these counts things ("pricing for 200 seats", "the cost of 10 million traces"); it isn't the price. */
+const COUNT_NOUN = /^(?:seats?|users?|licen[cs]es?|people|engineers?|developers?|devs?|teams?|squads?|traces?|spans?|events?|requests?|calls?|tokens?|models?|agents?|apps?|applications?|projects?|services?|environments?|regions?|datasets?|evals?|prompts?|queries|records?|rows?|gb|tb|pb)$/
+/** "Your token costs", "what does downtime cost you": the buyer's own costs, not an Arize price. */
+const THEIR_COST_BEFORE = /^(?:your|their|token|tokens|llm|model|inference|compute|gpu|cloud|infra|infrastructure|storage|hosting|downtime|outage|incident|labeling|labelling)$/
+const THEIR_COST_AFTER = /^(?:you|them|us|your|their)$/
+/** A figure followed by one of these is a time or a date ("2 weeks", "3 pm"), not money. Months and years are left in: they can be a term. */
+const TIME_UNIT = /^(?:days?|weeks?|hours?|hrs?|minutes?|mins?|seconds?|secs?|ms|milliseconds?|am|pm|o'?clock|business|working|sprints?)$/
+const MONTH_NAME = /^(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)$/
+/** A number right after a model family is part of its name ("Claude 3.5", "GPT 4"); "GPT-4o" never reads as a figure at all. */
+const MODEL_FAMILY = /^(?:gpt|claude|llama|gemini|mistral|mixtral|qwen|phi|sonnet|opus|haiku)$/
+/**
+ * An offer: "could we do", "can I give", and the same words the other way round ("we could do",
+ * "I'll give"), which the plan's pattern didn't cover. "Go through / over / live" is not an offer.
+ */
+const OFFER = /\b(?:(?:can|could|would|will)\s+(?:we|i)|(?:we|i)(?:\s+(?:can|could|would|will)|'d|’d|'ll|’ll))(?:\s+(?:probably|maybe|definitely|also|still|happily|be able to))?\s+(?:do|offer|give|get|meet|match|drop|knock|throw|go(?!\s+(?:through|over|back|ahead|into|live|deeper)\b))\b/gi
+
+interface PriceToken { w: string; start: number; end: number }
+interface PriceFigure { raw: string; i: number; j: number; start: number; value: string; digits: boolean; big: boolean }
+
+/** Ranges, "2-week", "$40k/year" and "twenty-five" become plain words (same length or longer, so the offer test still reads in order). */
+function priceText(text: string): string {
+  return text
+    .replace(/(\d)\s?[-–]\s?(?=[$€£]?\d)/g, '$1 to ')
+    .replace(/(\d)[-–](?=[a-z])/gi, '$1 ')
+    .replace(/\//g, ' per ')
+    .replace(/\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)-(?=[a-z])/gi, '$1 ')
+    .replace(/\bper cent\b/gi, 'percent')
+}
+
+/** Words in lower case without the punctuation around them ("$40k," -> "$40k", "(20%)" -> "20%"), with where each sits. */
+function priceTokens(t: string): PriceToken[] {
+  const out: PriceToken[] = []
+  for (const m of t.matchAll(/\S+/g)) {
+    const w = m[0].toLowerCase().replace(/^[^\w$€£]+|[^\w%]+$/g, '')
+    if (w) out.push({ w, start: m.index, end: m.index + m[0].length })
+  }
+  return out
+}
+
+/** Every value a text's figures could mean: "40k" is 40 and 40,000; "20%" is 20. */
+function figureValues(text: string): Set<string> {
+  const out = numbersIn(text)
+  for (const m of text.matchAll(/(\d[\d,]*(?:\.\d+)?)\s?(k|mm|m|bn|thousand|million|billion)\b/gi)) {
+    out.add(String(Number(m[1].replace(/,/g, '')) * SCALE_WORD[m[2].toLowerCase()]))
+  }
+  return out
+}
+
+/** The figures in one line: digits (with any size word after them: "40 thousand") and spelled-out runs ("forty thousand"). */
+function priceFiguresIn(toks: PriceToken[], t: string): PriceFigure[] {
+  const out: PriceFigure[] = []
+  for (let i = 0; i < toks.length; i++) {
+    const w = toks[i].w
+    if (DIGIT_FIGURE.test(w)) {
+      if (MODEL_FAMILY.test(toks[i - 1]?.w ?? '')) continue
+      let j = i
+      let n = Number(w.replace(/^(?:usd|eur|gbp)/, '').replace(/[$€£,%]|(?:k|mm|m|bn)%?$/g, ''))
+      const size = /(k|mm|m|bn)%?$/.exec(w)?.[1]
+      if (size) n *= SCALE_WORD[size]
+      while (toks[j + 1] && /^(?:thousand|million|billion)$/.test(toks[j + 1].w)) n *= SCALE_WORD[toks[++j].w]
+      out.push({ raw: t.slice(toks[i].start, toks[j].end), i, j, start: toks[i].start, value: String(n), digits: true, big: true })
+      i = j
+    } else if (NUMBER_WORDS.has(w) || (w === 'a' && /^(?:hundred|thousand|million)$/.test(toks[i + 1]?.w ?? ''))) {
+      let j = i
+      while (toks[j + 1] && (NUMBER_WORDS.has(toks[j + 1].w) || (toks[j + 1].w === 'and' && NUMBER_WORDS.has(toks[j + 2]?.w ?? '')))) j++
+      const words = toks.slice(i, j + 1).map((x) => x.w)
+      const value = [...numbersIn(words.join(' ').replace(/^a /, 'one '))].pop() ?? ''
+      out.push({ raw: t.slice(toks[i].start, toks[j].end), i, j, start: toks[i].start, value, digits: false, big: words.some((x) => BIG_NUMBER_WORD.test(x)) })
+      i = j
+    }
+  }
+  return out
+}
+
+/** Why one figure would be heard as a price, discount or term on this call type (a code, for tests); null: it isn't. */
+function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation: boolean): string | null {
+  const at = (k: number) => toks[k]?.w ?? ''
+  // "%" on the figure, or "percent" after it.
+  const pctAt = at(f.j).endsWith('%') ? f.j : at(f.j + 1) === 'percent' ? f.j + 1 : -1
+  const timing = pctAt < 0 && (TIME_UNIT.test(at(f.j + 1)) || /^(?:19|20)\d\d$/.test(at(f.i)) || MONTH_NAME.test(at(f.i - 1)))
+  if (/^(?:usd|eur|gbp)?[$€£]/.test(at(f.i)) || CURRENCY_BEFORE.test(at(f.i - 1)) || CURRENCY_AFTER.test(at(f.j + 1))) return 'currency'
+  if (pctAt >= 0 && at(pctAt + 1) === 'off') return 'percent_off'
+  for (let k = f.j + 1; k <= f.j + 3; k++) {
+    if (at(k) === 'off' && (/^(?:list|price)$/.test(at(k + 1)) || (at(k + 1) === 'the' && /^(?:list|price)$/.test(at(k + 2))))) return 'off_list'
+  }
+  for (let k = f.i - 3; k <= f.i - 2; k++) if (at(k).startsWith('discount') && at(k + 1) === 'of') return 'discount_of'
+  // A figure within 3 words of a price word (a spelled number only when it's big: "the two price tiers" is fine).
+  if ((f.digits || f.big) && !timing && !COUNT_NOUN.test(at(f.j + 1))) {
+    for (let k = f.i - 3; k <= f.j + 3; k++) {
+      if (k >= f.i && k <= f.j) continue
+      const w = at(k)
+      if (PRICE_WORD.test(w)) {
+        const theirs = w.startsWith('cost') && (THEIR_COST_AFTER.test(at(k + 1)) || THEIR_COST_BEFORE.test(at(k - 1)) || THEIR_COST_BEFORE.test(at(k - 2)))
+        if (!theirs) return 'price_word'
+      }
+      if (w === 'per' && SEAT_WORD.test(at(k + 1))) return 'per_seat'
+    }
+  }
+  if (!negotiation) return null
+  if (pctAt >= 0) return 'percent'
+  // "Three months free" is an offer even spelled small; "two calls" isn't.
+  const offerable = f.digits || f.big || /^(?:months?|years?|percent)$/.test(at(f.j + 1))
+  if (offerable && !timing) {
+    for (const m of t.matchAll(OFFER)) {
+      const end = m.index + m[0].length
+      if (end <= f.start && !t.slice(end, f.start).includes('?')) return 'offer'
+    }
+  }
+  return null
+}
+
+/** The line offers something with a figure in it (the plan's offer shape, either word order), on any call type. */
+function hasOfferShape(t: string): boolean {
+  for (const m of t.matchAll(OFFER)) if (/^[^?]*\d/.test(t.slice(m.index + m[0].length))) return true
+  return false
+}
+
+/**
+ * Figures in the lines Keith says aloud (ASK/SAY and FOLLOW; HAPPENING is only for him) that would be
+ * heard as a price, discount or term, and that approved knowledge doesn't back. unbackedNumbers misses
+ * these when the buyer said the figure first: "we'd need 20% off" let "We can do 20%" through.
+ * Allowed: a figure in an approved item the card cites, and their own figure asked back as a question
+ * ("What's driving the 20?": it's in their last 30 s, and the line offers nothing). Returns the figures
+ * (for tests); callers show CHECK_PRICE and log counts, never the figures.
+ */
+export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpts = {}): string[] {
+  const negotiation = opts.callType === 'negotiation'
+  const cited = (card.source_ids ?? []).map((id) => opts.sources?.get(id)).filter((s) => s?.kind === 'knowledge')
+  const approved = figureValues(cited.map((s) => s!.detail).join('\n'))
+  const theirs = figureValues(opts.theirRecentText ?? '')
+  // A FOLLOW that is itself a question asks too.
+  const lines = [
+    { text: card.primary ?? '', question: card.primary_kind === 'ask' },
+    { text: card.follow_up ?? '', question: (card.follow_up ?? '').trim().endsWith('?') },
+  ]
+  const out: string[] = []
+  for (const line of lines) {
+    if (!line.text) continue
+    const t = priceText(line.text)
+    const toks = priceTokens(t)
+    const askedBack = line.question && !hasOfferShape(t)
+    for (const f of priceFiguresIn(toks, t)) {
+      if (!priceReason(f, toks, t, negotiation)) continue
+      if (f.value && approved.has(f.value)) continue
+      if (askedBack && f.value && theirs.has(f.value)) continue
+      out.push(f.raw)
+    }
+  }
+  return [...new Set(out)]
 }

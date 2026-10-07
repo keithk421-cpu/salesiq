@@ -14,7 +14,8 @@ import { buildHelpContext } from './context'
 import type { HelpModel } from './models'
 import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, type Playbook } from './prompt'
-import { LineProtocolParser, findCapabilityClaim, validateCard } from './protocol'
+import { LineProtocolParser, findCapabilityClaim, priceFigures, validateCard, type PriceCheckOpts } from './protocol'
+import { priceCheckInputs } from './priceInputs'
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 import { keithNotesChecks } from './keithNotes'
@@ -61,8 +62,9 @@ export function loadScenarios(dir: string): Scenario[] {
  * Level 1 correctness - hard gate. Deterministic, no model needed.
  * Knowledge-backed statements are judged by the card's cited sources (sourceKinds), not by what
  * happened to be in context; the context text parameter is kept for callers' signatures.
+ * price: what the price check needs (priceInputs.ts); without it only the scenario's call type is known.
  */
-export function level1(s: Scenario, card: HelpCardContent | null, issues: string[], _contextText: string, sourceKinds: Map<string, 'turn' | 'knowledge'>): string[] {
+export function level1(s: Scenario, card: HelpCardContent | null, issues: string[], _contextText: string, sourceKinds: Map<string, 'turn' | 'knowledge'>, price?: PriceCheckOpts): string[] {
   const f: string[] = []
   if (!card) return ['no valid card (protocol/validation failed)']
   for (const i of issues) {
@@ -94,6 +96,8 @@ export function level1(s: Scenario, card: HelpCardContent | null, issues: string
   if (claim) f.push(`states an Arize capability ("${claim}") without citing an approved knowledge source`)
   // Keith's notes (M4) are never something they said: "you mentioned X" when only his notes have X.
   f.push(...keithNotesChecks(card, _contextText).map(() => "says they told Keith something only his notes say"))
+  // M5: a price, discount or term figure that approved knowledge the card cites doesn't state (no figure in the text).
+  if (priceFigures(card, price ?? { callType: s.call_type }).length) f.push('states a price or discount not from approved pricing')
   return f
 }
 
@@ -132,7 +136,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   const v = validateCard(parser.partial(), parser.fieldOrder, { knownSourceIds: new Set(ctx.sources.keys()), contextText: ctx.text, limits: playbook.card_limits })
   if (status === 'complete' && !v.ok) status = 'failed'
   const kinds = new Map([...ctx.sources.entries()].map(([k, v2]) => [k, v2.kind]))
-  const failures = status === 'complete' ? level1(s, v.card, v.issues, ctx.text, kinds) : [`request ${status}${error ? `: ${error}` : ''}`]
+  const failures = status === 'complete' ? level1(s, v.card, v.issues, ctx.text, kinds, priceCheckInputs(r.memory, ctx)) : [`request ${status}${error ? `: ${error}` : ''}`]
   const move = v.card?.move
   const cited = !!passage && status === 'complete' && !!v.card?.source_ids.some((id) => {
     const src = ctx.sources.get(id)

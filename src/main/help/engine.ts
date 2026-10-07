@@ -26,6 +26,7 @@ import { describeError, type HelpError, type HelpModel } from './models'
 import { findApprovedPassage } from './passage'
 import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
+import { priceCheckInputs } from './priceInputs'
 import { planStillOpen, type WrapWhy } from './wrap'
 import { blindNote, heardLine, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
 import { keithNotesChecks } from './keithNotes'
@@ -420,7 +421,7 @@ export class HelpEngine {
           if (run.parser.feed(chunk)) {
             run.content = run.parser.partial()
             // Keith may read the line before the card finishes: what's already certain goes up with it.
-            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, knowledgeInContext: run.knowledgeInContext })
+            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, knowledgeInContext: run.knowledgeInContext, ...priceCheckInputs(this.d.memory, run.ctx) })
             run.earlyChecks = Math.max(run.earlyChecks, run.checks.length)
             this.emit(run)
           }
@@ -452,7 +453,7 @@ export class HelpEngine {
       }
       run.card = v.card
       run.content = v.card
-      run.checks = cardChecks(v.card, v.issues, new Map([...run.ctx.sources].map(([id, x]) => [id, x.kind])))
+      run.checks = cardChecks(v.card, v.issues, new Map([...run.ctx.sources].map(([id, x]) => [id, x.kind])), priceCheckInputs(this.d.memory, run.ctx))
       run.checks.push(...keithNotesChecks(v.card, run.ctx.text))
       run.completeWall = this.wallNow()
       this.finish(run, 'complete')
