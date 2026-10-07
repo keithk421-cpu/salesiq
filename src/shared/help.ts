@@ -23,6 +23,59 @@ export interface CallSetup {
   deployment: Deployment
   /** Up to 3 things Keith must learn on this call, in his words (M3 call plan: Open / Partial / Done). Absent on older setups. */
   must_learn?: string[]
+  /** M5 call modes: how long the call is meant to run (minutes), for the "about 10 minutes left" cue. Absent: the type's default (CALL_LENGTH_DEFAULTS). */
+  length_min?: number
+  /** M5 call modes: no Arize SA on this demo or deep-dive (Keith presents alone). Absent: false. */
+  no_sa?: boolean
+}
+
+/** M5: what Keith sees for each call type (the internal name stays, e.g. negotiation shows as "Pricing"). */
+export const CALL_TYPE_LABELS: Record<CallType, string> = {
+  discovery: 'Discovery', demo: 'Demo', technical_deep_dive: 'Technical deep-dive', follow_up: 'Follow-up', negotiation: 'Pricing', other: 'Other',
+}
+
+/** M5: how long each call type usually runs (minutes), as Keith set them; any one can be changed per call. */
+export const CALL_LENGTH_DEFAULTS: Record<CallType, number> = {
+  discovery: 30, demo: 60, technical_deep_dive: 60, follow_up: 30, negotiation: 30, other: 30,
+}
+/** The lengths the setup strip offers. */
+export const CALL_LENGTH_CHOICES = [15, 30, 45, 60, 90] as const
+
+/**
+ * M5: how long the SA (or, with no SA, Keith) may talk with no buyer turn before a demo press suggests
+ * a check-in (Gong: no closed-won demo had more than 76 s of uninterrupted pitch). Step 2 uses it for
+ * the SA; v1 uses it for Keith's own run.
+ */
+export const CHECKIN_SECONDS = 75
+
+/**
+ * M5 mode facts: counted in code from finished turns (and, for sa_talking_now, live words) at the
+ * press, in coarse buckets so a background card built a few seconds earlier still matches. Numbers and
+ * codes only: they go to HELP inside <call_mode>, to timing_json and to logs, never to the screen.
+ */
+export interface ModeFacts {
+  /** Minutes left of length_min (or the type's default), in 5-minute steps; '>20' above 20. */
+  minutes_left: '>20' | '20' | '15' | '10' | '5' | '0'
+  /** The call notes have a next step the other side agreed to (proposed is not agreed). */
+  agreed_next_step: boolean
+  /** Since about 10 minutes were left, Keith asked about next steps / what stood out, or the time-left line was already given. */
+  wrap_started: boolean
+  /** Keith's question turns since the last play-back. */
+  keith_q_since_playback: '<10' | '10-14' | '15+'
+  /** Keith's question turns since the other side last said 8+ words (3 means 3 or more). */
+  keith_q_in_row: 0 | 1 | 2 | 3
+  /** How long Keith has talked since the other side's last turn of 5+ words, against CHECKIN_SECONDS. */
+  keith_run: '<30s' | '30-60s' | '60s-threshold' | 'over_threshold'
+  /** Keith's latest turn gave a currency figure or a %, and the other side hasn't spoken since. */
+  keith_number_unanswered: boolean
+  /** Some speaker is tagged as an Arize teammate (the SA). */
+  teammate_tagged: boolean
+  /** Step 2 (computed and logged in v1; no line uses them yet): the SA has talked over 60 s this call. */
+  sa_has_presented: boolean
+  /** Step 2: the SA's talk since the other side's last turn of 5+ words, against CHECKIN_SECONDS. */
+  sa_run: 'none' | 'below' | 'at_or_over' | '>120s'
+  /** Step 2: the live words on the meeting audio are the SA's (exact, from the speaker id). */
+  sa_talking_now: boolean
 }
 
 export type SpeakerRole = 'keith' | 'buyer' | 'teammate' | 'unknown'

@@ -16,6 +16,30 @@ export interface Playbook {
   call_types: Record<string, string>
   /** technical_max_words (optional): a longer ASK/SAY allowed for a technical answer from approved knowledge. */
   card_limits: { primary_max_words: number; happening_max_words: number; follow_up_max_words: number; technical_max_words?: number }
+  /**
+   * M5 call modes (optional): what each call type is for and which lines fit it, sent as a <call_mode>
+   * block in the user message for the active type only. A copy without it (or without a type) uses the
+   * built-in playbook's entry for that type.
+   */
+  call_modes?: Partial<Record<string, CallModeSpec>>
+}
+
+/** M5: one call type's mode, as Keith can edit it in the playbook. Plain words; no < or >. */
+export interface CallModeSpec {
+  /** What this call is for, in one line. */
+  goal: string
+  /** Who talks most, and Keith's (and the SA's) job. */
+  who_talks: string
+  /** Keith's line on a press, first that applies (after "answer what they just asked" and the cues rule, which the app adds). */
+  lines: string[]
+  /** Never on a card in this mode. */
+  never: string[]
+  /** What WRAP aims for on this call type. */
+  wrap: string
+  /** What the opening press does on this call type. */
+  opening: string
+  /** Optional: replaces the buying-signal press's ASK/SAY rule on this call type. */
+  signal?: string
 }
 
 export function loadPlaybook(file: string): Playbook {
