@@ -18,7 +18,9 @@
 import type { CallSetup, CallType, ModeFacts } from '../../shared/help'
 import { CALL_LENGTH_DEFAULTS, CALL_TYPES, CHECKIN_SECONDS } from '../../shared/help'
 import type { CallMemory } from './callMemory'
+import { isFiller, withoutTrailingFiller } from './heard'
 import type { CallModeSpec, Playbook } from './prompt'
+import { priceFigures } from './protocol'
 
 /** The playbook's call modes, one entry per type (helpService fills a missing type from the built-in). */
 export type CallModes = Playbook['call_modes']
@@ -115,6 +117,11 @@ const RUN_TEXT: Record<ModeFacts['keith_run'], string> = {
   '60s-threshold': `60 to ${CHECKIN_SECONDS} s`,
   over_threshold: `over ${CHECKIN_SECONDS} s (past the check-in time)`,
 }
+/**
+ * "No SA today" on a demo or deep-dive: nobody on the call takes a technical question (not a tagged
+ * colleague either), and Keith's own run is the pitch to check in on (the "no teammate tagged" lines).
+ */
+export const NO_SA_TEXT = "no teammate tagged (no SA today: Keith presents alone, hands nothing off)"
 /** The MOCK model looks for this to show a pricing Hold (models.ts). */
 export const NUMBER_UNANSWERED_TEXT = "Keith gave a number they haven't answered yet"
 
@@ -132,26 +139,25 @@ export function factsLine(f: ModeFacts): string {
   if (f.keith_q_in_row > 0) parts.push(`${f.keith_q_in_row === 3 ? '3 or more' : f.keith_q_in_row} in a row`)
   parts.push(`Keith's talk since they last spoke: ${RUN_TEXT[f.keith_run]}`)
   if (f.keith_number_unanswered) parts.push(NUMBER_UNANSWERED_TEXT)
-  parts.push(f.teammate_tagged ? 'a teammate (the SA) is tagged' : 'no teammate tagged (roles unknown)')
+  parts.push(f.no_sa ? NO_SA_TEXT : f.teammate_tagged ? 'a teammate (the SA) is tagged' : 'no teammate tagged (roles unknown)')
   return `Right now (counted by the app; may lag): ${parts.join('; ')}.`
 }
 
 /**
- * The text a card's numbers are checked against: the call context, plus the counted facts a cue may
- * repeat ("about 10 min left", "over 75 s"), so a card that echoes one is not inventing a figure. Only
- * the facts that are on (a quiet "under 10" must not back a made-up "$10"), and never the rest of the
- * block: that is playbook text Keith can edit.
+ * The counted facts a cue may repeat, each as its number with its unit ("10 min", "75 s", "15
+ * questions", "3 in a row"), so a card that echoes one is not inventing a figure (protocol.ts
+ * unbackedNumbers). Only with its unit: "So 75 engineers on the team?" is still checked when Keith has
+ * talked over 75 s. Only the facts that are on (a quiet "under 10" must not back a made-up "$10"), and
+ * never the rest of the block: that is playbook text Keith can edit.
  */
-export function numbersBackedBy(contextText: string, detail: { mode_facts?: ModeFacts } | null | undefined): string {
+export function countedEchoes(detail: { mode_facts?: ModeFacts } | null | undefined): string[] {
   const f = detail?.mode_facts
-  if (!f) return contextText
-  const on = [
-    ...(f.minutes_left !== '>20' ? [MINUTES_TEXT[f.minutes_left]] : []),
-    ...(f.keith_q_since_playback !== '<10' ? [PLAYBACK_TEXT[f.keith_q_since_playback]] : []),
-    ...(f.keith_q_in_row === 3 ? ['3 or more in a row'] : []),
-    ...(f.keith_run === '60s-threshold' || f.keith_run === 'over_threshold' ? [RUN_TEXT[f.keith_run]] : []),
-  ]
-  return on.length ? `${contextText}\n${on.join('; ')}` : contextText
+  if (!f) return []
+  const minutes = f.minutes_left === '>20' || f.minutes_left === '0' ? [] : [`${f.minutes_left} min`]
+  const questions = f.keith_q_since_playback === '15+' ? ['15 questions'] : f.keith_q_since_playback === '10-14' ? ['10 questions', '14 questions'] : []
+  const inRow = f.keith_q_in_row === 3 ? ['3 in a row', '3 questions'] : []
+  const run = f.keith_run === '60s-threshold' ? ['60 s', `${CHECKIN_SECONDS} s`] : f.keith_run === 'over_threshold' ? [`${CHECKIN_SECONDS} s`] : []
+  return [...minutes, ...questions, ...inRow, ...run]
 }
 
 /**
@@ -255,7 +261,7 @@ const WRAP_ASK = /\bnext steps?\b|\bnext meeting\b|\bstood out\b|\bfrom here\b|\
  */
 const WRAP_PROPOSAL = /\bbefore we run out\b|\b(?:let'?s|let us|shall we|can we|could we|should we)\b[^.?!]*\b(?:book|schedul(?:e|ing)|set up (?:a |another |the next |some )?(?:call|meeting|session|time)|get (?:some )?time|calendar|meet again|reconvene|next meeting|(?:talk|chat) about (?:the )?next steps?)\b/i
 /** A currency amount ("$40k", "€12,000", "40 thousand dollars", "120,000 USD"). Volumes, days and counts don't count. */
-const CURRENCY = /[$€£]\s?\d|\b\d[\d,.]*\s?(?:k|m|thousand|million|grand)?\s?(?:dollars|euros|pounds|bucks|usd|eur|gbp)\b/i
+const CURRENCY = /[$€£]\s?\d|\b\d[\d,.]*\s?(?:k|m|thousand|million|grand)?\s?(?:dollars|euros|pounds|bucks|usd|eur|gbp)\b|\b\d[\d,.]*\s?grand\b/i
 /** A percentage, which only counts as a price figure next to price words ("20% off", not "20% less time"). */
 const PERCENT = /\d\s?(?:%|percent\b|per cent\b)/i
 /** A bare amount ("85,000", "40k"), which only counts next to price words (volumes say "a year" too). */
@@ -302,11 +308,27 @@ export function wrapAsk(text: string): boolean {
 }
 
 /**
- * A price figure Keith stated: a currency amount, or a percentage or bare amount next to price words,
- * in a sentence that isn't a question ("What's driving the 20%?" repeats their figure; it gives none).
+ * A check-in Keith puts on the end of a number he gives: "$48,000 a year, how does that sound?". The
+ * number is still given; only the check-in is a question.
  */
-export function keithNumber(text: string): boolean {
-  return sentences(text).some((x) => !x.endsWith('?') && (CURRENCY.test(x) || ((PERCENT.test(x) || BARE_AMOUNT.test(x)) && PRICE_WORDS.test(x))))
+const CHECK_IN_TAIL = /,\s*(?:how does that (?:sound|land|look|feel)(?: to you)?|does that (?:work|sound (?:ok|okay|right|fair)|make sense)(?: for (?:you|your team))?|would that work(?: for you)?|what do you think|thoughts|fair)\s*\?$/i
+/** Their own figure checked back ("so you spend $40k", "you mentioned the $200k"): theirs, not Keith's number. */
+const THEIR_FIGURE = /\byou(?:['’]ve)?\s+(?:mentioned|said|told|shared|quoted|spend|spent|pay|paid|budget(?:ed)?|were\s+quoted|got\s+quoted)\b|\byou['’]re\s+(?:spending|paying|budgeting)\b|\byour\s+(?:budget|cap|ceiling|target|spend)\b/i
+
+/**
+ * A price figure Keith stated: a currency amount, or a percentage or bare amount next to price words;
+ * on a pricing call also any figure the price check hears as a price ("we land at 48,000 a year": speech
+ * to text often drops the "dollars"). A check-in on the end ("..., right?", "..., how does that sound?")
+ * doesn't make it a question. Never a real question ("What's driving the 20%?", "Is $48,000 what you
+ * heard?") or their own figure checked back ("So you spend $40k on Datadog, right?"): those give none.
+ */
+export function keithNumber(text: string, type?: string): boolean {
+  return sentences(text).some((x) => {
+    const s = x.replace(CHECK_IN_TAIL, '.').replace(TAG_QUESTION, '.').trim()
+    if (s.endsWith('?') || (x.endsWith('?') && OPENS_QUESTION.test(s)) || THEIR_FIGURE.test(s)) return false
+    if (CURRENCY.test(s) || ((PERCENT.test(s) || BARE_AMOUNT.test(s)) && PRICE_WORDS.test(s))) return true
+    return type === 'negotiation' && priceFigures({ primary: s, primary_kind: 'say' }, { callType: type }).length > 0
+  })
 }
 
 /** The call's planned length in minutes: the setup's, else the type's default. */
@@ -371,18 +393,26 @@ export function modeFacts(memory: CallMemory, atMs: number, type: string, setup:
   const after = (t: { start_ms: number }) => !lastReply || t.start_ms > lastReply.start_ms
   const talkMs = (pick: (t: (typeof turns)[number]) => boolean) => turns.filter((t) => pick(t) && after(t)).reduce((n, t) => n + Math.max(0, t.end_ms - t.start_ms), 0)
   const keithRunMs = talkMs(keith)
-  const saRunMs = talkMs(teammate)
+  // The SA's trailing "Mm-hmm" (while the buyer finishes) isn't the SA talking: the facts stay those of
+  // the background card built just before it, so that card can still be served (engine.ts).
+  const notTrailing = new Set(withoutTrailingFiller(turns, memory))
+  const saTurn = (t: (typeof turns)[number]) => teammate(t) && notTrailing.has(t)
+  const saRunMs = talkMs(saTurn)
 
-  // A Keith turn since their last turn gave a figure (a second turn or a "yeah" after it doesn't hide
-  // it), and nobody on their side has spoken since (live words count).
-  const lastTheirs = [...turns].reverse().find(theirs)
+  // A Keith turn since their last real reply gave a figure (a second turn or a "yeah" after it doesn't
+  // hide it), and nobody on their side has said more than a filler since (live words count). A "Hmm."
+  // or "Okay." after a number is not their answer: wait for a counter.
+  const lastTheirs = [...turns].reverse().find((t) => theirs(t) && !isFiller(t.text))
   const keithSince = turns.filter((t) => keith(t) && (!lastTheirs || t.start_ms > lastTheirs.start_ms))
   // The interim's speaker id is read defensively: older memory doesn't carry it (then it counts as theirs).
-  const live = memory.interimsAsOf(atMs).filter((i) => i.stream === 'system_remote' && i.text.trim()).map((i) => ({ stream: i.stream, cluster: (i as { cluster?: string | null }).cluster ?? null }))
-  const keith_number_unanswered = keithSince.some((t) => keithNumber(t.text)) && !live.some(theirs)
+  const live = memory.interimsAsOf(atMs).filter((i) => i.stream === 'system_remote' && i.text.trim()).map((i) => ({ stream: i.stream, cluster: (i as { cluster?: string | null }).cluster ?? null, text: i.text }))
+  const keith_number_unanswered = keithSince.some((t) => keithNumber(t.text, type)) && !live.some((i) => theirs(i) && !isFiller(i.text))
 
-  const teammate_tagged = [...memory.labels.values()].some((l) => l.role === 'teammate')
-  const saTotalMs = turns.filter(teammate).reduce((n, t) => n + Math.max(0, t.end_ms - t.start_ms), 0)
+  // "No SA today" (a demo or deep-dive): nobody counts as the SA, not even a tagged colleague, so no
+  // hand-off line or opening hand-over applies and Keith's own run is the one to check in on.
+  const no_sa = setup?.no_sa === true && (type === 'demo' || type === 'technical_deep_dive')
+  const teammate_tagged = !no_sa && [...memory.labels.values()].some((l) => l.role === 'teammate')
+  const saTotalMs = turns.filter(saTurn).reduce((n, t) => n + Math.max(0, t.end_ms - t.start_ms), 0)
 
   // One literal, keys always in this order: the background card is reused only when its press detail
   // (facts included) is the same JSON as the press's (engine.ts).
@@ -395,9 +425,10 @@ export function modeFacts(memory: CallMemory, atMs: number, type: string, setup:
     keith_run: runBucket(keithRunMs, checkinSeconds),
     keith_number_unanswered,
     teammate_tagged,
+    no_sa,
     sa_has_presented: saTotalMs > SA_PRESENTED_MS,
     sa_run: saRunBucket(saRunMs, checkinSeconds),
-    sa_talking_now: live.some(teammate),
+    sa_talking_now: live.some((i) => teammate(i) && !isFiller(i.text)),
   }
 }
 
@@ -446,6 +477,7 @@ export function cleanModeFacts(x: unknown): ModeFacts | null {
     keith_run: pick(f.keith_run, RUNS, '<30s'),
     keith_number_unanswered: yes(f.keith_number_unanswered),
     teammate_tagged: yes(f.teammate_tagged),
+    no_sa: yes(f.no_sa),
     sa_has_presented: yes(f.sa_has_presented),
     sa_run: pick(f.sa_run, SA_RUNS, 'none'),
     sa_talking_now: yes(f.sa_talking_now),

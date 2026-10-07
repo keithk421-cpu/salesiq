@@ -164,10 +164,26 @@ export function numbersIn(text: string): Set<string> {
   return out
 }
 
-/** Figures in the card's text that nobody said and no context item holds (ids, clock stamps and tags don't count as said). */
-export function unbackedNumbers(visible: string, contextText: string): string[] {
+/** A unit right after a figure, as the counted facts give it ("10 min", "75 s", "15 questions", "3 in a row"). */
+const COUNTED_UNIT = /^\s?(min(?:ute)?s?|s|secs?|seconds?|questions?|in a row)\b/i
+const countedUnit = (u: string) => (/^min/i.test(u) ? 'min' : /^s/i.test(u) ? 's' : /^q/i.test(u) ? 'questions' : 'in a row')
+
+/**
+ * Figures in the card's text that nobody said and no context item holds (ids, clock stamps and tags
+ * don't count as said). `counted` (M5): numbers the app counted, each with its unit ("75 s"); one backs
+ * a figure only when the card gives it with the same unit ("over 75 s" yes, "75 engineers" no).
+ */
+export function unbackedNumbers(visible: string, contextText: string, counted: readonly string[] = []): string[] {
   const said = numbersIn(contextText.replace(NOT_FIGURES, ' '))
-  return (visible.match(FIGURE) ?? []).filter((n) => !said.has(figure(n)))
+  const echoes = new Set(counted.map((c) => { const m = /^(\d+)\s?(.+)$/.exec(c); return m ? `${m[1]} ${countedUnit(m[2])}` : '' }))
+  const out: string[] = []
+  for (const m of visible.matchAll(FIGURE)) {
+    if (said.has(figure(m[0]))) continue
+    const unit = COUNTED_UNIT.exec(visible.slice(m.index + m[0].length))
+    if (unit && !m[0].startsWith('$') && !m[0].endsWith('%') && echoes.has(`${figure(m[0])} ${countedUnit(unit[1])}`)) continue
+    out.push(m[0])
+  }
+  return out
 }
 
 export interface ValidationResult {
@@ -187,7 +203,7 @@ export interface ValidationResult {
 export function validateCard(
   partial: Partial<HelpCardContent>,
   fieldOrder: string[],
-  opts: { knownSourceIds: Set<string>; contextText: string; limits: CardLimits },
+  opts: { knownSourceIds: Set<string>; contextText: string; limits: CardLimits; counted?: readonly string[] },
 ): ValidationResult {
   const issues: string[] = []
   if (!partial.move) return { ok: false, card: null, issues: ['missing or invalid MOVE'] }
@@ -212,7 +228,7 @@ export function validateCard(
   if (p.cut || h?.cut || f?.cut) issues.push('trimmed to card limits')
 
   const visible = [p.text, h?.text ?? '', f?.text ?? ''].join(' ')
-  for (const n of unbackedNumbers(visible, opts.contextText)) issues.push(`number not found in context: ${n}`)
+  for (const n of unbackedNumbers(visible, opts.contextText, opts.counted)) issues.push(`number not found in context: ${n}`)
   return {
     ok: true,
     issues,
@@ -322,11 +338,11 @@ export function cardChecks(card: HelpCardContent, issues: string[], sourceKinds:
  * finished card's checks replace these. A price figure is the same: SOURCES comes last, so it is
  * certain early only when no approved item came with the press at all.
  */
-export function streamingChecks(partial: Partial<HelpCardContent>, opts: { contextText: string; knowledgeInContext: boolean } & PriceCheckOpts): string[] {
+export function streamingChecks(partial: Partial<HelpCardContent>, opts: { contextText: string; knowledgeInContext: boolean; counted?: readonly string[] } & PriceCheckOpts): string[] {
   if (!partial.primary || !partial.move) return []
   const out: string[] = []
   const visible = [partial.primary, partial.happening ?? '', partial.follow_up ?? ''].join(' ')
-  if (unbackedNumbers(visible, opts.contextText).length) out.push(CHECK_NUMBER)
+  if (unbackedNumbers(visible, opts.contextText, opts.counted).length) out.push(CHECK_NUMBER)
   if (opts.knowledgeInContext) return out
   if (priceFigures(partial, { theirText: opts.theirText, callType: opts.callType }).length) out.push(CHECK_PRICE)
   if (hasCapabilityClaim(partial)) out.push(CHECK_CLAIM)
@@ -413,8 +429,11 @@ const ACCEPT_AFTER = /^[^.?!]{0,30}?\b(?:(?:is|would\s+be|could\s+be|should\s+be
  * "Would 20% off work if you signed annually?", "Is 20% off enough to close this month?".
  */
 const CONDITION = /\b(?:if\s+(?:you|we)|would\s+you|could\s+you|will\s+you|can\s+you|sign(?:ed|ing|ature)?|close[ds]?|closing|commit(?:ted|ment)?|terms?|agree[ds]?|accept(?:ed|s)?|take|enough|done|lock|approve[ds]?|works?\s+for\s+(?:you|your|them|us))\b|\b(?:would|does|will|could|can)\s+\S+\s+work\b/i
-/** Their words recapped: "you mentioned a $150k budget", "the $200k you spend on Datadog". */
-const ATTRIBUTION = /\byou(?:['’]ve)?\s+(?:mentioned|said|told|shared|noted|raised|flagged|quoted|spend|spent|pay|paid|budget(?:ed)?|asked\s+for|brought\s+up|wanted|were\s+quoted|got\s+quoted)\b|\byour\s+(?:budget|cap|ceiling|target|number|quote|spend)\b/i
+/**
+ * Their words recapped: "you mentioned a $150k budget", "the $200k you spend on Datadog", "so you're
+ * spending $200k", "your OpenAI bill". Never "your Arize bill" or "your price from us": that is ours.
+ */
+const ATTRIBUTION = /\byou(?:['’]ve)?\s+(?:mentioned|said|told|shared|noted|raised|flagged|quoted|spend|spent|pay|paid|budget(?:ed)?|asked\s+for|brought\s+up|wanted|were\s+quoted|got\s+quoted)\b|\byou['’]re\s+(?:spending|paying|budgeting)\b|\byour\s+(?:budget|cap|ceiling|target|number|quote|spend)\b|\byour\s+(?!arize\b|our\b)(?:[\w-]+\s+)?(?:spend|costs?|bill)\b/i
 /** Wh-words that ask about the figure; "what if", "how about", "what about" and "why not" propose instead. */
 const WH_WORD = /\b(?:what|what['’]s|whats|why|where|how|which|who|when)\b/i
 const WH_PROPOSES = /\b(?:what\s+if|how\s+about|what\s+about|why\s+not)\b/i
@@ -422,6 +441,28 @@ const MODAL = /\b(?:would|could|can|will|might|should)\b/i
 /** A question opening with one of these is a yes/no question; the first few may also propose. */
 const YES_NO_OPENER = /^(?:would|could|can|will|shall|should|may|might|if|is|are|does|do|did|was|were|has|have)$/
 const PROPOSING_OPENER = /^(?:would|could|can|will|shall|should|may|might|if)$/
+/**
+ * A line that asks for a yes to an amount, or puts it on our side or in a deal: never their spend
+ * asked back ("Is $40k a deal?", "Are we aligned at $40k?", "Is $40k the price you want from us?").
+ */
+const YES_TO_AMOUNT = /(?<![\w-])(?:ok|okay|fine|good|enough|doable|acceptable|reasonable|workable|works?|deal|land|aligned|we|we['’]\w+|us|our|i|i['’]\w+|arize|price|pricing|quote|discount|contract|renewal|platform|all\s+in)(?![\w-])/i
+/**
+ * Arize's side in a statement that repeats their figure: "You mentioned $40k. That's where we land."
+ * "Us" is left out: "you told us the $200k goes to Datadog" is still their words.
+ */
+const ARIZE_SIDE = /(?<![\w-])(?:we|we['’]\w+|our|arize|price|pricing|quote|discount|contract|renewal|deal)(?![\w-])/i
+/** Their cost or bill with Arize ("your cost with us", "your total cost for Arize") is our price, never their figure. */
+const WITH_ARIZE = /\b(?:with|from|to|for)\s+(?:us|arize)\b|\barize\b/i
+/** Their figure called our price: "that's our price", "my best", "so $40k it is". */
+const OUR_PRICE = /\b(?:our|my)\s+(?:price|pricing|quote|number|offer|rate|best)\b|\bit\s+is\b/i
+
+/**
+ * A free period with no figure in it: "a free month", "the first month is on us", "free for a month".
+ * A term Keith never promises, on any call.
+ */
+const FREE_PERIOD = /\b(?:a|one|an\s+extra|an\s+additional|another|the\s+first|first)\s+(?:free\s+(?:month|quarter|year|week)\b|(?:month|quarter|year|week)(?:['’]s)?\s+(?:(?:is|are)\s+)?(?:free|on\s+us|at\s+no\s+(?:cost|charge)|for\s+free)\b)|\bfree\s+for\s+(?:a|one|the\s+first)\s+(?:month|quarter|year|week)\b/i
+/** After "free", these keep it about a period ("free for 30 days", "a free 30-day pilot"); "free text" or "the free tier" is something else. */
+const FREE_PERIOD_NEXT = /^(?:|for|of|during|through|until|to|on|and|trial|pilot|poc|period|months?|weeks?|days?|years?|quarters?|\d.*)$/
 
 interface PriceToken { w: string; start: number; end: number }
 interface PriceFigure { raw: string; i: number; j: number; start: number; end: number; value: string; digits: boolean; big: boolean }
@@ -464,6 +505,20 @@ function countValues(text: string): Set<string> {
   const out = new Set<string>()
   for (const f of priceFiguresIn(toks, t)) {
     if (f.value && (COUNT_NOUN.test(at(f.j + 1)) || (at(f.j + 1) !== 'per' && COUNT_NOUN.test(at(f.j + 2))))) out.add(f.value)
+  }
+  return out
+}
+
+/** Their spend on what they run today ("we spend $40k a month on OpenAI", "Datadog runs us $100k"), not a budget for Arize. */
+const SPEND_NEAR = /\b(?:spend(?:s|ing)?|spent|pay(?:s|ing)?|paid|runs?\s+us|costs?\s+us|bill(?:ed)?|invoice[ds]?)\b/i
+function spendValues(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const line of text.split('\n')) {
+    const t = priceText(line)
+    const toks = priceTokens(t)
+    for (const f of priceFiguresIn(toks, t)) {
+      if (f.value && priceUnit(f, toks) === 'currency' && SPEND_NEAR.test(sentenceAt(t, f.start).text)) out.add(f.value)
+    }
   }
   return out
 }
@@ -530,7 +585,9 @@ function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation:
   // A change in their numbers, never in Arize's price: "40% fewer", "cut debugging time 30%", "cutting
   // cost by 30%". "We could drop 10%" is Arize doing the cutting: an offer, not an outcome.
   const outcome = (() => {
-    if (OUTCOME_AFTER.test(at(last + 1)) || (at(last + 1) !== 'of' && OUTCOME_AFTER.test(at(last + 2)))) return true
+    const after = OUTCOME_AFTER.test(at(last + 1)) ? at(last + 1) : at(last + 1) !== 'of' && OUTCOME_AFTER.test(at(last + 2)) ? at(last + 2) : ''
+    // "We can come in 15% lower", "we can do it for 15% less": Arize's price moving, an offer.
+    if (after) return !(/^(?:lower|less)$/.test(after) && offerBefore(t, f.start))
     for (let k = f.i - 1; k >= Math.max(0, f.i - 4); k--) {
       if (!CHANGE_VERB.test(at(k))) continue
       for (let p = Math.max(0, k - 3); p < f.i; p++) if (PRICE_THING.test(at(p)) || OUR_SIDE.test(at(p))) return false
@@ -546,6 +603,16 @@ function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation:
   for (let k = f.i - 3; k <= f.i - 2; k++) if (at(k).startsWith('discount') && at(k + 1) === 'of') return 'discount_of'
   // "3 months free", "2 free seats": a free term, on any call.
   if (at(f.j + 1) === 'free' || (/^(?:months?|years?|weeks?|days?|seats?|users?|licen[cs]es?)$/.test(at(f.j + 1)) && at(f.j + 2) === 'free')) return 'free'
+  // "Net 60", "net 30 terms": payment terms, on any call.
+  if (f.digits && at(f.i - 1) === 'net') return 'term'
+  // A free period in other words: "free for the first 90 days", "the first 3 months are on us", "30 days
+  // at no cost", "waive the first 90 days". Not "free text search across 90 days" (free names a thing).
+  if (/^(?:months?|years?|weeks?|days?|quarters?)$/.test(at(f.j + 1))) {
+    for (let k = f.i - 5; k <= f.j + 5; k++) {
+      const w = at(k)
+      if ((w === 'free' && FREE_PERIOD_NEXT.test(at(k + 1))) || w.startsWith('waiv') || (w === 'on' && at(k + 1) === 'us') || ((w === 'no' || w === 'zero') && /^(?:charge|cost)$/.test(at(k + 1)))) return 'free'
+    }
+  }
   // A figure within 3 words of a price word (a spelled number only when it's big: "the two price tiers" is fine).
   if ((f.digits || f.big) && !timing && !counts) {
     for (let k = f.i - 3; k <= f.j + 3; k++) {
@@ -558,15 +625,13 @@ function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation:
       if (w === 'per' && SEAT_WORD.test(at(k + 1))) return 'per_seat'
     }
   }
-  // An offer or an acceptance with a figure. On a pricing call any figure counts; on other calls only a
-  // %, or months or years (a term): "we could do 20%", "15% is doable", "we can add 3 months".
+  // An offer or an acceptance with a figure. On a pricing call any figure counts; on other calls a %,
+  // months or years (a term), or a large amount that counts nothing: "we could do 20%", "15% is
+  // doable", "we can add 3 months", "I can match their 30k" (their quote offered back, no $ sign).
   const term = /^(?:months?|years?)$/.test(at(f.j + 1)) && at(f.j + 2) !== 'of'
   const offerable = (f.digits || f.big || term || pctAt >= 0) && !timing && !counts && !(pctAt >= 0 && outcome)
-  if (offerable && (negotiation || pctAt >= 0 || term)) {
-    for (const m of t.matchAll(OFFER)) {
-      const end = m.index + m[0].length
-      if (end <= f.start && !/[?!]|\.\s/.test(t.slice(end, f.start))) return 'offer'
-    }
+  if (offerable && (negotiation || pctAt >= 0 || term || scaled)) {
+    if (offerBefore(t, f.start)) return 'offer'
     if (ACCEPT_AFTER.test(t.slice(f.end))) return 'offer'
   }
   if (!negotiation) return null
@@ -574,6 +639,15 @@ function priceReason(f: PriceFigure, toks: PriceToken[], t: string, negotiation:
   // A large figure on a pricing call is money ("40k", "40,000"), unless it counts things ("How many spans a day, 50 million?").
   if (scaled && !timing && !counts && !/\bhow\s+many\b/i.test(t)) return 'large'
   return null
+}
+
+/** An offer shape ends before this position in the same sentence ("we could do" ... "20%"). */
+function offerBefore(t: string, pos: number): boolean {
+  for (const m of t.matchAll(OFFER)) {
+    const end = m.index + m[0].length
+    if (end <= pos && !/[?!]|\.\s/.test(t.slice(end, pos))) return true
+  }
+  return false
 }
 
 /** The line offers something with a figure in it (any offer shape above, in the same sentence). */
@@ -596,7 +670,7 @@ function sentenceAt(t: string, pos: number): { text: string; start: number } {
  * that still right?"), or a yes/no check of a plain % or cost figure ("Your costs went up 40% last
  * quarter?"). Never a yes/no question about a discount or an amount ("Would 20% off get this signed?").
  */
-function asksTheirFigureBack(f: PriceFigure, reason: string, t: string): boolean {
+function asksTheirFigureBack(f: PriceFigure, reason: string, t: string, spend: Set<string>): boolean {
   if (reason === 'offer' || reason === 'free') return false
   const s = sentenceAt(t, f.start)
   const before = t.slice(s.start, f.start)
@@ -604,8 +678,25 @@ function asksTheirFigureBack(f: PriceFigure, reason: string, t: string): boolean
   const opener = /^[\s"“(]*(?:(?:so|and|ok|okay|right|then|but|now)[,\s]+)*([a-z'’]+)/i.exec(s.text)?.[1]?.toLowerCase() ?? ''
   if (!YES_NO_OPENER.test(opener) && WH_WORD.test(before) && !MODAL.test(before)) return true
   // "you mentioned a $150k budget"; "What would 20% off mean for your budget?" proposes, so not with a "would".
-  if (ATTRIBUTION.test(s.text) && !MODAL.test(s.text)) return true
-  return (reason === 'percent' || reason === 'price_word') && !PROPOSING_OPENER.test(opener)
+  if (ATTRIBUTION.test(s.text) && !MODAL.test(s.text) && !WITH_ARIZE.test(s.text)) return true
+  // "Is the $40,000 a month mostly GPT-4o?": what they spend today, checked back. Never a yes to the
+  // amount, or the amount on our side ("Is $40k a deal?"), and never a budget they set for Arize.
+  if (reason === 'currency' && spend.has(f.value) && !PROPOSING_OPENER.test(opener) && !YES_TO_AMOUNT.test(s.text)) return true
+  // "Are you on net 60 with other vendors?": their payment terms asked back, like a plain %.
+  return (reason === 'percent' || reason === 'price_word' || reason === 'term') && !PROPOSING_OPENER.test(opener)
+}
+
+/**
+ * Their figure recapped as theirs in a statement: "You mentioned the $200k a year on Datadog." (pricing
+ * line 1's value recap, said not asked). Never when the line makes it the deal: an offer, a yes, "that's
+ * our price", "Done.", Arize's side in the line, or the figure said twice ("Your budget is $40k, so $40k
+ * it is").
+ */
+function recapsTheirFigure(f: PriceFigure, reason: string, t: string, all: PriceFigure[]): boolean {
+  if (reason === 'offer' || reason === 'free' || CONDITION.test(t) || hasOfferShape(t) || OUR_PRICE.test(t) || ARIZE_SIDE.test(t)) return false
+  if (all.filter((g) => g.value === f.value).length > 1) return false
+  const s = sentenceAt(t, f.start).text
+  return ATTRIBUTION.test(s) && !MODAL.test(s) && !WITH_ARIZE.test(s)
 }
 
 /** The figures an approved item states, with what each is: a % only backs a %, money only money. */
@@ -630,6 +721,7 @@ export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpt
   const approved = approvedFigures(cited.map((s) => s!.detail).join('\n'))
   const theirs = figureValues(opts.theirText ?? '')
   const theirCounts = countValues(opts.theirText ?? '')
+  const theirSpend = spendValues(opts.theirText ?? '')
   // A FOLLOW that is itself a question asks too.
   const lines = [
     { text: card.primary ?? '', question: card.primary_kind === 'ask' },
@@ -641,12 +733,17 @@ export function priceFigures(card: Partial<HelpCardContent>, opts: PriceCheckOpt
     const t = priceText(line.text)
     const toks = priceTokens(t)
     const mayAskBack = line.question && !hasOfferShape(t) && !CONDITION.test(t)
-    for (const f of priceFiguresIn(toks, t)) {
+    // "A free month", "the first month is on us": a free period with no figure, never asked back.
+    const free = FREE_PERIOD.exec(t)
+    if (free && !FREE_PERIOD.test(cited.map((s) => s!.detail).join('\n'))) out.push(free[0])
+    const figs = priceFiguresIn(toks, t)
+    for (const f of figs) {
       const reason = priceReason(f, toks, t, negotiation)
       if (!reason) continue
       const unit = priceUnit(f, toks)
       if (f.value && approved.some((a) => a.value === f.value && (unit === 'plain' ? a.unit !== 'plain' || a.priced : a.unit === unit))) continue
-      if (mayAskBack && f.value && theirs.has(f.value) && asksTheirFigureBack(f, reason, t)) continue
+      if (mayAskBack && f.value && theirs.has(f.value) && asksTheirFigureBack(f, reason, t, theirSpend)) continue
+      if (f.value && theirs.has(f.value) && recapsTheirFigure(f, reason, t, figs)) continue
       // "Is that 10 million across all three assistants?" after they said "10 million traces": a big
       // figure they gave as a count is their volume, not a price, unless the line offers something.
       if (reason === 'large' && f.value && theirCounts.has(f.value) && !hasOfferShape(t)) continue

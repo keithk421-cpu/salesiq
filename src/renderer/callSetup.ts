@@ -1,11 +1,13 @@
 /**
  * M5 call modes in the setup strip: each call type has its own job, so the strip helps set it up.
  * - A small length select next to the call type ("30 min"), for HELP's "about 10 minutes left" cue.
- *   It follows the type's usual length (CALL_LENGTH_DEFAULTS: discovery 30, demo 60, ...) until Keith
- *   picks one, before or during the call; then a type change leaves their pick alone. Only a picked
- *   length is saved: otherwise the main process uses the type's usual one, so switching to a demo
- *   mid-call means 60 minutes, not the 30 the strip showed for the discovery it said before.
- * - "No SA today", only on a demo or a technical deep-dive (Keith presents alone).
+ *   Before Start it follows the type's usual length (CALL_LENGTH_DEFAULTS: discovery 30, demo 60, ...)
+ *   until Keith picks one; then a type change leaves their pick alone. Only a picked length is saved:
+ *   otherwise the main process uses the type's usual one. Once the call has started, a type change keeps
+ *   the length the strip shows (and saves it): a 30-minute discovery that turns into a demo is still a
+ *   30-minute meeting. The main process does the same if a save leaves the length out (helpService.ts).
+ * - "No SA today", only on a demo or a technical deep-dive (Keith presents alone): HELP then hands no
+ *   question to an SA or anyone else on the call, and checks in on Keith's own long stretches.
  * - The goal and outcomes boxes show what this type of call is for as grey placeholder text only:
  *   nothing is ever typed into them for Keith.
  * Both new fields save with the rest of the strip (renderer.ts saveSetup spreads setupExtras()), and
@@ -91,13 +93,15 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
   lengthEl.setAttribute('aria-label', 'Call length')
   const noSaWrap = document.createElement('label')
   noSaWrap.className = 'inline check cs-nosa'
-  noSaWrap.title = 'You present alone today: HELP won\'t hand questions to an SA'
+  noSaWrap.title = 'You present alone today: HELP hands no question to an SA, and checks in when you\'ve talked a while'
   noSaWrap.innerHTML = '<input type="checkbox" id="csNoSa" /> No SA today'
   typeEl.after(lengthEl, noSaWrap)
   const noSaEl = $<HTMLInputElement>('csNoSa')
 
   /** Keith picked the length (before or during the call): it is saved, and a type change leaves it alone. */
   let picked = false
+  /** A call is going (waiting to go live, live or paused): a type change keeps the call's length. */
+  let live = false
 
   function setLength(n: number): void {
     const opts = lengthChoices(n)
@@ -119,9 +123,13 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
     noSaWrap.hidden = !offersNoSa(type)
   }
 
-  /** The length follows the type until Keith picks one. */
+  /** Before Start the length follows the type until Keith picks one; mid-call it stays (and is saved). */
   function presetLength(): void {
     if (picked) return
+    if (live) {
+      picked = true
+      return
+    }
     const n = defaultLength(typeEl.value)
     if (lengthEl.value !== String(n)) setLength(n)
   }
@@ -162,6 +170,7 @@ export function initCallSetup(api: CopilotApi, save: () => void): void {
   api.onSession((raw) => {
     const ev = raw as { type?: string; state?: string }
     if (ev.type !== 'state' || !ev.state) return
+    live = ev.state === 'checking' || ev.state === 'live' || ev.state === 'paused'
     if (ev.state === 'stopped' || ev.state === 'idle') void reload()
   })
   setLength(defaultLength(typeEl.value))

@@ -52,6 +52,9 @@ describe('closing language', () => {
       'So the plan is a quick recap, then Sam shows tracing, and we save ten minutes at the end to talk about next steps.',
       "We'll cover next steps at the end.", "And at the end we'll talk about next steps.", 'Then we can discuss next steps later.',
       "Let's leave some time to talk about next steps.", 'Towards the end of the call we can agree on next steps',
+      // A determiner and a count before the minutes (integration review).
+      "And let's save the last ten minutes to talk about next steps.", 'Leave the last 5 minutes to discuss next steps.',
+      "Let's keep the final few minutes to cover next steps.", "We'll hold the last couple of minutes to agree on next steps.",
     ]) expect(closingLanguage(t), t).toBe(false)
   })
 
@@ -59,6 +62,8 @@ describe('closing language', () => {
     for (const t of [
       "We're at the end of our time so let's talk about next steps", "we're near the end so let's talk about next steps",
       "Okay I know we're at the end let's talk about next steps", "We're almost at the end, so what are the next steps?",
+      // "Keep you over time" is not an agenda: a wider lookbehind must not swallow it.
+      "I don't want to keep you over time so what are the next steps", "Don't want to keep you guys over time so let's talk about next steps",
     ]) expect(closingLanguage(t), t).toBe(true)
     for (const t of ['By the end of the call I want to talk about next steps.', 'Leave a few minutes at the end to discuss next steps.']) expect(closingLanguage(t), t).toBe(false)
   })

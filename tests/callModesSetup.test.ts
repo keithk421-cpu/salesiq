@@ -8,6 +8,7 @@ import type { AudioEndpointConfig, Turn } from '../src/shared/contracts'
 import { CALL_LENGTH_CHOICES, CALL_LENGTH_DEFAULTS, CALL_TYPES, type CallSetup } from '../src/shared/help'
 import { toEndpointRef } from '../src/main/endpoints'
 import { CallMemory, DEFAULT_SETUP, mergeModeSetup, setupKey, validLength } from '../src/main/help/callMemory'
+import { modeFacts } from '../src/main/help/callModes'
 import { loadPlaybook } from '../src/main/help/prompt'
 import { replayAt } from '../src/main/help/replay'
 import { HelpService } from '../src/main/helpService'
@@ -90,6 +91,30 @@ describe('call length and "No SA today" in the setup (M5)', () => {
     s.state('stopped')
     expect(s.help.info().setup).toEqual({ call_type: 'demo', call_goal: '', desired_outcomes: [], account: '', deployment: 'unknown' })
     s.help.shutdown()
+  })
+
+  it("mid-call, a type change keeps the call's length (a 30-minute discovery that becomes a demo is still 30 minutes); before Start it follows the type", () => {
+    for (const sent of [{ length_min: null }, {}]) {
+      const s = service()
+      s.help.setSetup({ ...BASE })
+      s.state('checking')
+      s.state('live')
+      // The strip sends no length (or null) when Keith never picked one.
+      const after = s.help.setSetup({ ...BASE, call_type: 'demo', ...sent })
+      expect(after.length_min, JSON.stringify(sent)).toBe(30)
+      expect(s.help.memory!.setup).toMatchObject({ call_type: 'demo', length_min: 30 })
+      // At minute 21 of the real 30, HELP hears "about 10 min left", not the demo's 60.
+      expect(modeFacts(s.help.memory!, 21 * 60_000, 'demo', s.help.memory!.setup).minutes_left).toBe('10')
+      // A length Keith picks mid-call still wins.
+      expect(s.help.setSetup({ ...BASE, call_type: 'demo', length_min: 45 }).length_min).toBe(45)
+      s.state('stopping')
+      s.state('stopped')
+      s.help.shutdown()
+    }
+    // Before Start, the type's usual length (nothing saved).
+    const before = service()
+    expect(before.help.setSetup({ ...BASE, call_type: 'demo', length_min: null }).length_min).toBeUndefined()
+    before.help.shutdown()
   })
 
   it('mid-call, a new call type or goal drops the background card; a new outcome or length alone does not (the card key covers that)', () => {
@@ -219,6 +244,51 @@ describe('the background card follows the setup (M5)', () => {
     s.engine.onFinalWords('system_remote', 'Mm-hmm.', 'e1:s1')
     await vi.advanceTimersByTimeAsync(1000)
     expect(m.calls).toHaveLength(0)
+  })
+
+  /**
+   * Integration review: the buyer asks, the background card starts, and only then does the SA's
+   * "Mm-hmm" come back (the usual lag) or is still being transcribed when Keith presses.
+   */
+  async function saFillerAfterCardStarted(type: CallSetup['call_type'], filler: string, how: 'final' | 'live') {
+    const { m, s } = demoCall(type)
+    let now = 20_000
+    const question = 'Can it show the cost per call for each team?'
+    s.say(question)
+    s.engine.onFinalWords('system_remote', question, 'e1:s0')
+    await vi.advanceTimersByTimeAsync(800)
+    expect(m.calls).toHaveLength(1)
+    s.advance(400)
+    now += 400
+    if (how === 'final') {
+      s.memory.upsertTurn({ id: 'sa-filler', stream: 'system_remote', cluster: 'e1:s1', start_ms: now - 300, end_ms: now - 100, text: filler, available_ms: now }, true)
+      s.engine.onFinalWords('system_remote', filler, 'e1:s1')
+    } else s.memory.setInterim('system_remote', filler, now, 'e1:s1')
+    m.calls[0].send(CARD)
+    m.calls[0].finish()
+    await vi.advanceTimersByTimeAsync(0)
+    s.advance(1500)
+    s.engine.press()
+    return { m, s }
+  }
+
+  it("the SA's \"Mm-hmm\" after the background card started keeps that card for the press, as Keith's filler does", async () => {
+    for (const type of ['demo', 'technical_deep_dive'] as const) {
+      for (const how of ['final', 'live'] as const) {
+        const { m, s } = await saFillerAfterCardStarted(type, 'Mm-hmm.', how)
+        expect(s.events.at(-1)!.timing.served_from_prefetch, `${type} ${how}`).toBe(true)
+        expect(m.calls, `${type} ${how}`).toHaveLength(1)
+      }
+    }
+  })
+
+  it('the SA carrying on after the card started, or a teammate on a discovery call, still means a fresh card', async () => {
+    for (const how of ['final', 'live'] as const) {
+      const words = await saFillerAfterCardStarted('demo', 'Mm-hmm, and over here is the cost view.', how)
+      expect(words.s.events.at(-1)!.timing.served_from_prefetch, how).toBe(false)
+      const disco = await saFillerAfterCardStarted('discovery', 'Mm-hmm.', how)
+      expect(disco.s.events.at(-1)!.timing.served_from_prefetch, `discovery ${how}`).toBe(false)
+    }
   })
 
   it('anywhere else, or with nobody tagged, it behaves as before', async () => {

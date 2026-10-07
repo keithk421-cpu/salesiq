@@ -406,6 +406,10 @@ const SIGNAL_FOLLOW: Partial<Record<CallType, Partial<Record<SignalKind, string>
     pilot: 'FOLLOW: instead of booking, ask what they would want a test to tell them ("What would you want a test to tell you that you don\'t know yet?").',
     pricing: 'FOLLOW: ask who runs purchasing on their side and whether to start it alongside the test.',
   },
+  // A pilot is a concession on these calls (trade, don't give; any pilot needs Arize's approval first):
+  // ask what it would prove, never book or offer one.
+  negotiation: { pilot: 'FOLLOW: ask what a pilot would need to prove for them and what they would do if it did, as a question. Never offer, agree to or schedule a pilot: it is off-standard ("Let me take that to our deal desk").' },
+  follow_up: { pilot: 'FOLLOW: ask what a pilot would need to prove for them and what they would do if it did, as a question. Never offer, agree to or schedule a pilot: any pilot needs Arize approval first.' },
 }
 
 function signalBlock(detail: PressDetail, type: CallType | null = null, modes?: CallModes): string {

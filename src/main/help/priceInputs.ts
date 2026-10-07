@@ -22,8 +22,9 @@ export function priceCheckInputs(memory: CallMemory, ctx: BuiltContext): PriceCh
   // Meeting audio only, except a tagged Arize teammate (the SA's figures are not theirs to ask back).
   const turns = memory.turnsAsOf(atMs).filter((t) => memory.fromTheirSide(t)).map((t) => t.text)
   // Their live words at the press: the model saw them as provisional text, so asking that figure back
-  // is still asking theirs. A live line has no speaker yet, so a teammate's can't be left out here.
-  const live = memory.interimsAsOf(atMs).filter((i) => i.stream === 'system_remote').map((i) => i.text)
+  // is still asking theirs. A tagged teammate's live words (by the newest word's speaker id) are left
+  // out, the same as their finished turns; a line with no speaker id yet counts as theirs.
+  const live = memory.interimsAsOf(atMs).filter((i) => memory.fromTheirSide({ stream: i.stream, cluster: i.cluster ?? null })).map((i) => i.text)
   // What they said on earlier calls, exactly as the request showed it.
   const earlier = (ctx.refs.earlier_calls ?? []).filter((e) => THEIR_EARLIER_KINDS.has(e.kind)).map((e) => e.text)
   return {

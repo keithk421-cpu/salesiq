@@ -28,7 +28,7 @@ import { planKey } from './help/callPlan'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
-import { withBuiltInModes } from './help/callModes'
+import { callLengthMin, withBuiltInModes } from './help/callModes'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
 import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
@@ -107,6 +107,8 @@ const EARLIER_BUILT_IN_PLAYBOOKS = new Set([
   '242186ec247fd3f77036830782fd5407ece10bdf5cae25c451ed4dd91538135a',
   // m1-draft-2
   '5497ddaa898a14e17387b30c16ae25aa25356819c3eb5a66a38df78ee34ffcb3',
+  // m1-draft-3 (M5 call modes, as first shipped)
+  'eab8e555abfb7766940d4a725c899f90f3c062954c439ee86893e081ebd3b7c1',
 ])
 
 /** The playbook file is exactly an earlier built-in version (Keith opened it but never changed it). */
@@ -397,6 +399,11 @@ export class HelpService {
     if (mustLearn.length) setup.must_learn = mustLearn
     // M5: the call's length and "No SA today" merge the same way (callMemory.ts).
     mergeModeSetup(setup, raw, this.setup)
+    // Mid-call, a type change keeps the length the call has now: the booked meeting doesn't get longer
+    // because a discovery turned into a demo. Before Start, the length follows the type until Keith picks one.
+    if (this.memory && this.callInProgress() && this.memory.setup.call_type !== setup.call_type && setup.length_min === undefined) {
+      setup.length_min = callLengthMin(this.memory.setup.call_type, this.memory.setup)
+    }
     this.setup = setup
     this.storage.writeJson('call-setup.json', setup)
     if (this.memory && this.callInProgress()) {

@@ -19,7 +19,7 @@ import { priceCheckInputs } from './priceInputs'
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 import { keithNotesChecks } from './keithNotes'
-import { numbersBackedBy, withModeFacts } from './callModes'
+import { countedEchoes, withModeFacts } from './callModes'
 import { byCallTypeMarkdown } from './evalByType'
 
 export { findCapabilityClaim }
@@ -145,7 +145,7 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   }
   const completeAt = performance.now()
   parser.end()
-  const v = validateCard(parser.partial(), parser.fieldOrder, { knownSourceIds: new Set(ctx.sources.keys()), contextText: numbersBackedBy(ctx.text, detail), limits: playbook.card_limits })
+  const v = validateCard(parser.partial(), parser.fieldOrder, { knownSourceIds: new Set(ctx.sources.keys()), contextText: ctx.text, counted: countedEchoes(detail), limits: playbook.card_limits })
   if (status === 'complete' && !v.ok) status = 'failed'
   const kinds = new Map([...ctx.sources.entries()].map(([k, v2]) => [k, v2.kind]))
   const failures = status === 'complete' ? level1(s, v.card, v.issues, ctx.text, kinds, priceCheckInputs(r.memory, ctx)) : [`request ${status}${error ? `: ${error}` : ''}`]

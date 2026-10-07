@@ -28,11 +28,11 @@ import { buildSystemPrompt, type Playbook } from './prompt'
 import { LineProtocolParser, cardChecks, issueKind, streamingChecks, validateCard } from './protocol'
 import { priceCheckInputs } from './priceInputs'
 import { planStillOpen, type WrapWhy } from './wrap'
-import { blindNote, heardLine, isFiller, keithFiller, theyAsked, withoutTrailingFiller } from './heard'
+import { blindNote, heardLine, isFiller, keithFiller, ourFiller, theyAsked, withoutTrailingFiller } from './heard'
 import { keithNotesChecks } from './keithNotes'
 import { ANGLE_EARLIER_MAX, anotherAngleOk, decidePress, pressUserMessage, type PressDecision, type PressDetail, type PriorCard } from './pressModes'
 import { planKey } from './callPlan'
-import { numbersBackedBy } from './callModes'
+import { countedEchoes } from './callModes'
 
 export interface HelpEngineDeps {
   memory: CallMemory
@@ -156,9 +156,9 @@ export class HelpEngine {
     const pressedWall = this.wallNow()
     const key = this.snapshotKey()
     // Any words still being transcribed (even a short "No, not yet") mean the moment moved on since a prefetch,
-    // except Keith's own short filler ("Great question, so…"; heard.ts). Sound with no words back yet means
-    // it may have too: a fresh request is told so (context.ts).
-    const liveSpeech = this.blindAtPress() || this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().length > 0 && !keithFiller(i))
+    // except Keith's own short filler ("Great question, so…"; heard.ts), or the presenting SA's "Mm-hmm" (M5).
+    // Sound with no words back yet means it may have too: a fresh request is told so (context.ts).
+    const liveSpeech = this.blindAtPress() || this.d.memory.interimsAsOf(this.d.sessionNowMs()).some((i) => i.text.trim().length > 0 && !ourFiller(i, this.d.memory))
     if (this.current && this.current.status !== 'complete' && this.current.status !== 'failed' && this.current.status !== 'timeout') {
       this.finish(this.current, 'superseded')
     }
@@ -346,9 +346,9 @@ export class HelpEngine {
 
   // ------------------------------------------------------------------ internals
 
-  /** Signature of the final transcript as of now (what the context would be built from); Keith's trailing filler isn't new (heard.ts). */
+  /** Signature of the final transcript as of now (what the context would be built from); Keith's (or the presenting SA's) trailing filler isn't new (heard.ts). */
   private snapshotKey(): string {
-    const turns = withoutTrailingFiller(this.d.memory.turnsAsOf(this.d.sessionNowMs())).slice(-6)
+    const turns = withoutTrailingFiller(this.d.memory.turnsAsOf(this.d.sessionNowMs()), this.d.memory).slice(-6)
     const gaps = this.d.memory.gapsAsOf(this.d.sessionNowMs()).map((g) => `${g.id}:${g.end_ms ?? 'open'}`).join(',')
     const labels = [...this.d.memory.labels.values()].map((l) => `${l.cluster}=${l.role}/${l.name ?? ''}`).join(',')
     // M5: and the setup it was built for, so a card for the old call type or goal is never served after a change.
@@ -427,7 +427,7 @@ export class HelpEngine {
           if (run.parser.feed(chunk)) {
             run.content = run.parser.partial()
             // Keith may read the line before the card finishes: what's already certain goes up with it.
-            run.checks = streamingChecks(run.content, { contextText: numbersBackedBy(run.ctx.text, run.detail), knowledgeInContext: run.knowledgeInContext, ...priceCheckInputs(this.d.memory, run.ctx) })
+            run.checks = streamingChecks(run.content, { contextText: run.ctx.text, counted: countedEchoes(run.detail), knowledgeInContext: run.knowledgeInContext, ...priceCheckInputs(this.d.memory, run.ctx) })
             run.earlyChecks = Math.max(run.earlyChecks, run.checks.length)
             this.emit(run)
           }
@@ -447,8 +447,9 @@ export class HelpEngine {
       }
       const v = validateCard(run.content, run.parser.fieldOrder, {
         knownSourceIds: new Set(run.ctx.sources.keys()),
-        // M5: the mode facts the app counted ("about 10 min left") back a card's numbers too.
-        contextText: numbersBackedBy(run.ctx.text, run.detail),
+        contextText: run.ctx.text,
+        // M5: the mode facts the app counted ("about 10 min left") back a card's numbers too, with their unit.
+        counted: countedEchoes(run.detail),
         limits: this.d.playbook.card_limits,
       })
       run.issues = v.issues

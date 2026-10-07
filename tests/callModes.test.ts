@@ -8,7 +8,7 @@ import { CALL_TYPES } from '../src/shared/help'
 import { CallMemory } from '../src/main/help/callMemory'
 import { EMPTY_NOTES } from '../src/main/help/callNotes'
 import {
-  MODE_TEXT_MAX_CHARS, callModeOf, callTypeIn, cleanModeFacts, keithNumber, keithPlayback, keithQuestion, modeBlock, modeFacts, modeTextLength, numbersBackedBy, withBuiltInModes, wrapAsk,
+  MODE_TEXT_MAX_CHARS, callModeOf, callTypeIn, cleanModeFacts, countedEchoes, keithNumber, keithPlayback, keithQuestion, modeBlock, modeFacts, modeTextLength, withBuiltInModes, wrapAsk,
 } from '../src/main/help/callModes'
 import { runScenario } from '../src/main/help/evalRunner'
 import { DEFAULT_HELP_CONFIG, MockHelpModel } from '../src/main/help/models'
@@ -51,11 +51,11 @@ const liveFrom = (m: CallMemory, cluster: string | null, text = 'so here you can
 }
 const QUIET: ModeFacts = {
   minutes_left: '>20', agreed_next_step: false, wrap_started: false, keith_q_since_playback: '<10', keith_q_in_row: 0, keith_run: '<30s',
-  keith_number_unanswered: false, teammate_tagged: false, sa_has_presented: false, sa_run: 'none', sa_talking_now: false,
+  keith_number_unanswered: false, teammate_tagged: false, no_sa: false, sa_has_presented: false, sa_run: 'none', sa_talking_now: false,
 }
 const BUSY: ModeFacts = {
   minutes_left: '10', agreed_next_step: false, wrap_started: false, keith_q_since_playback: '15+', keith_q_in_row: 3, keith_run: 'over_threshold',
-  keith_number_unanswered: true, teammate_tagged: true, sa_has_presented: true, sa_run: '>120s', sa_talking_now: true,
+  keith_number_unanswered: true, teammate_tagged: true, no_sa: false, sa_has_presented: true, sa_run: '>120s', sa_talking_now: true,
 }
 const ctxFor = (type: string, extra = '') => `<call_setup>\ntype: ${type}\ngoal: Understand their review process\ndesired outcomes: (not set)\naccount: Fernhill Robotics\ndeployment: not known (SaaS or self-hosted)\n</call_setup>\n\n<last_30_seconds>\n[T1] Dana: We review a sample every week.\n</last_30_seconds>${extra}`
 
@@ -203,7 +203,9 @@ describe('mode facts: counted in code, in buckets', () => {
   it("Keith's number stays unanswered until they speak (live words count)", () => {
     const gave: Array<[Who, number, number, string]> = [['buyer', 0, 4, 'So what would this come to for us?'], ['keith', 5, 12, 'For the volume you described, it comes to $48,000 a year.']]
     expect(facts(call(gave, { type: 'negotiation' }), 15).keith_number_unanswered).toBe(true)
-    expect(facts(call([...gave, ['buyer', 14, 15, 'Hmm.']], { type: 'negotiation' }), 16).keith_number_unanswered).toBe(false)
+    // A "Hmm." is not an answer (integration review): wait for a counter.
+    expect(facts(call([...gave, ['buyer', 14, 15, 'Hmm.']], { type: 'negotiation' }), 16).keith_number_unanswered).toBe(true)
+    expect(facts(call([...gave, ['buyer', 14, 16, 'That is more than we planned.']], { type: 'negotiation' }), 17).keith_number_unanswered).toBe(false)
     const live = call(gave, { type: 'negotiation' })
     liveFrom(live, CLUSTER.buyer, 'that is more than')
     expect(facts(live, 15).keith_number_unanswered).toBe(false)
@@ -238,6 +240,142 @@ describe('mode facts: counted in code, in buckets', () => {
     // 15 to 20 minutes left of 60: all "about 20 min left".
     for (const s of [40 * 60 + 1, 41 * 60, 43 * 60 + 30, 44 * 60 + 59]) expect(at(s)).toBe(at(40 * 60))
     expect(at(45 * 60)).not.toBe(at(40 * 60))
+  })
+})
+
+describe('integration review: the pricing Hold hears the number Keith gives', () => {
+  it('a number with a check-in on the end, or "50 grand", is Keith giving it (any call type)', () => {
+    for (const t of [
+      'So $48,000 a year, does that work for you?',
+      'With the enterprise plan you are at $60,000 annually, how does that sound?',
+      'That comes to $48,000 a year, how does that sound?',
+      "So that's $48,000 a year, right?",
+      "It'd be about 50 grand a year for that volume.",
+    ]) {
+      expect(keithNumber(t), t).toBe(true)
+      expect(keithNumber(t, 'negotiation'), t).toBe(true)
+    }
+  })
+
+  it('on a pricing call, a bare amount the price check hears as a price counts too; elsewhere it needs a price word', () => {
+    for (const t of [
+      'So for your volume we land at 48,000 a year.',
+      'The number is 48k for year one.',
+      'For the enterprise tier it is 48,000 a year.',
+      'So the total is 48,000.',
+      "So that's 48 thousand a year all in.",
+      'For that volume we are looking at 4,000 a month.',
+      "It's 48,000 for the year, right?",
+      'For the volume you described, you are at 48,000 a year, how does that sound?',
+    ]) {
+      expect(keithNumber(t, 'negotiation'), t).toBe(true)
+      expect(keithNumber(t), t).toBe(false)
+      expect(keithNumber(t, 'discovery'), t).toBe(false)
+    }
+  })
+
+  it('never on ordinary numbers, a question about a figure, or their own figure checked back', () => {
+    for (const t of [
+      'Is $48,000 what you heard from finance?',
+      'Did you say $48,000 was the budget?',
+      "What's driving the 20%?",
+      'We store 10,000 traces per month.',
+      'So you spend $40k on Datadog?',
+      'So you spend $40k on Datadog, right?',
+      'You mentioned the $200k a year on Datadog.',
+      "So you're spending $200k a year on Datadog. Does that still hold?",
+      'So roughly 50,000 spans a day?',
+      'So about 50,000 a day?',
+      'And you have about 1,500 engineers?',
+      'We keep 90 days of history for 10 million traces.',
+    ]) {
+      expect(keithNumber(t), t).toBe(false)
+      expect(keithNumber(t, 'negotiation'), t).toBe(false)
+    }
+  })
+
+  it('in the facts: a number with a check-in, or a bare one on a pricing call, waits for their answer', () => {
+    for (const said of ['For the volume you described, you are at $48,000 a year, how does that sound?', 'So for your volume we land at 48,000 a year.']) {
+      const m = call([['buyer', 0, 4, 'So what would this come to for us?'], ['keith', 5, 12, said]], { type: 'negotiation' })
+      expect(facts(m, 15).keith_number_unanswered, said).toBe(true)
+      expect(modeBlock('negotiation', modes, facts(m, 15))).toContain("Keith gave a number they haven't answered yet")
+    }
+  })
+
+  it('a "Hmm." or "Okay." is not their answer; a real reply is, even a short one', () => {
+    const gave: Array<[Who, number, number, string]> = [['buyer', 0, 4, 'So what would this come to for us?'], ['keith', 5, 12, 'For the volume you described, it comes to $48,000 a year.']]
+    for (const r of ['Hmm.', 'Okay.', 'Mm-hmm.', 'Okay, hmm.']) expect(facts(call([...gave, ['buyer', 14, 15, r]], { type: 'negotiation' }), 16).keith_number_unanswered, r).toBe(true)
+    for (const r of ['Too much.', "That's more than we budgeted.", 'Hmm, that is a lot more than we planned.']) expect(facts(call([...gave, ['buyer', 14, 16, r]], { type: 'negotiation' }), 17).keith_number_unanswered, r).toBe(false)
+    const live = call(gave, { type: 'negotiation' })
+    liveFrom(live, CLUSTER.buyer, 'hmm')
+    expect(facts(live, 15).keith_number_unanswered).toBe(true)
+  })
+})
+
+describe('integration review: "No SA today" reaches HELP', () => {
+  const tech: Array<[Who, number, number, string]> = [['buyer', 300, 306, 'Keith, can your tracing read from S3 directly?']]
+  const withNoSa = (type: CallType, noSa: boolean, tagSa = true) => {
+    const m = call(tech, { type, tagSa })
+    m.setup = { ...m.setup, ...(noSa ? { no_sa: true } : {}) }
+    return m
+  }
+
+  it('on a demo or deep-dive, nobody counts as the SA, even a tagged colleague; the facts say Keith presents alone', () => {
+    for (const type of ['demo', 'technical_deep_dive'] as const) {
+      expect(facts(withNoSa(type, true), 310)).toMatchObject({ no_sa: true, teammate_tagged: false })
+      expect(facts(withNoSa(type, true, false), 310)).toMatchObject({ no_sa: true, teammate_tagged: false })
+      expect(facts(withNoSa(type, false), 310)).toMatchObject({ no_sa: false, teammate_tagged: true })
+      const b = modeBlock(type, modes, facts(withNoSa(type, true), 310))!
+      expect(b).toContain('no teammate tagged (no SA today: Keith presents alone, hands nothing off)')
+      expect(b).not.toContain('a teammate (the SA) is tagged')
+    }
+    // Elsewhere it changes nothing (the box is only offered on a demo or deep-dive).
+    expect(facts(withNoSa('discovery', true), 310)).toMatchObject({ no_sa: false, teammate_tagged: true })
+  })
+
+  it('the request differs from one without it, and the opening hands nothing over to an SA', () => {
+    const ctx = ctxFor('demo')
+    const on = pressUserMessage(ctx, null, 'opening', { mode_facts: facts(withNoSa('demo', true), 310) }, modes)
+    const off = pressUserMessage(ctx, null, 'opening', { mode_facts: facts(withNoSa('demo', false), 310) }, modes)
+    expect(on).not.toBe(off)
+    expect(off).toContain('hands over to the SA')
+    expect(on).not.toContain('hands over to the SA')
+    expect(on).toContain('Keith presents alone')
+    // Its own run is the one to check in on: the demo line for "no teammate tagged" past the check-in time applies.
+    const long = withNoSa('demo', true)
+    long.upsertTurn({ id: 'run', stream: 'local_mic', cluster: null, start_ms: 307_000, end_ms: 390_000, text: 'So the way the tracer works is...', available_ms: 390_500 }, true)
+    const f = facts(long, 391)
+    expect(f).toMatchObject({ keith_run: 'over_threshold', teammate_tagged: false, no_sa: true })
+    expect(modeBlock('demo', modes, f)).toMatch(/No teammate tagged and Keith is past the check-in time: ASK: Is this close to how you do it today\?[\s\S]*Right now[^\n]*over 75 s[^\n]*no teammate tagged \(no SA today/)
+  })
+
+  it('stored and read back as a code; an older saved press reads it as off', () => {
+    expect(cleanModeFacts({ ...QUIET, no_sa: true })!.no_sa).toBe(true)
+    const { no_sa: _x, ...older } = QUIET
+    expect(cleanModeFacts(older)!.no_sa).toBe(false)
+  })
+})
+
+describe('integration review: a counted fact backs a number only with its unit', () => {
+  const ctx = ctxFor('discovery')
+  const limits = playbook.card_limits
+  const issues = (primary: string, f: ModeFacts, happening: string | null = null) =>
+    validateCard({ move: 'clarify_scale', primary_kind: primary.endsWith('?') ? 'ask' : 'say', primary, happening, follow_up: null }, ['MOVE', primary.endsWith('?') ? 'ASK' : 'SAY'], { knownSourceIds: new Set(), contextText: ctx, counted: countedEchoes({ mode_facts: f }), limits }).issues
+  const on: ModeFacts = { ...QUIET, minutes_left: '10', keith_q_since_playback: '15+', keith_q_in_row: 3, keith_run: 'over_threshold' }
+
+  it('an invented count that happens to equal a fact is still checked', () => {
+    for (const line of ['So 75 engineers on the team?', 'We have 15 seats left.', 'So 3 teams send traces today?', 'Is it 10 people on the platform team?']) {
+      expect(issues(line, on).some((i) => i.startsWith('number not found in context')), line).toBe(true)
+      expect(streamingChecks({ move: 'clarify_scale', primary_kind: 'ask', primary: line }, { contextText: ctx, counted: countedEchoes({ mode_facts: on }), knowledgeInContext: true }), line).toEqual([CHECK_NUMBER])
+    }
+  })
+
+  it('the same number with its unit, as the cue says it, is not', () => {
+    for (const happening of ['Talked over 75 s: check in', 'About 10 min left, no next step yet', 'Over 15 questions: play it back', '3 questions in a row: let them talk', '3 in a row: let them talk', 'Talked over 75 seconds: check in']) {
+      expect(issues('Did I miss anything?', on, happening), happening).toEqual([])
+    }
+    // Not on: still checked.
+    expect(issues('Did I miss anything?', QUIET, 'Talked over 75 s: check in')).toEqual(['number not found in context: 75'])
   })
 })
 
@@ -306,6 +444,8 @@ describe('the <call_mode> block', () => {
       const tokens = modeBlock(t, modes, BUSY)!.length / 4
       expect(tokens, t).toBeLessThanOrEqual(600)
     }
+    // "No SA today" swaps the teammate part for a longer sentence: the demo block still fits.
+    expect(modeBlock('demo', modes, { ...BUSY, teammate_tagged: false, no_sa: true })!.length / 4).toBeLessThanOrEqual(600)
   })
 
   it('built-in text: the demo hand-off is only with a teammate tagged; their words never come from keith_notes; the time-left cue is in words', () => {
@@ -328,7 +468,26 @@ describe('the <call_mode> block', () => {
       }
     }
     expect(modes!.negotiation!.wrap).toMatch(/never pick a date/)
-    expect(modes!.follow_up!.opening).toBe("After a short recap, stop and ask what's changed.")
+    expect(modes!.follow_up!.opening).toBe("After a short recap, stop and ask what's changed. Without earlier_calls, ask what's changed on their side instead of recapping.")
+  })
+
+  it('integration review: an opening that recaps says what to do with nothing on file, so it never meets "never say what was said last time" alone', () => {
+    for (const t of ['demo', 'technical_deep_dive', 'follow_up', 'negotiation'] as const) {
+      const user = pressUserMessage(ctxFor(t), null, 'opening', { mode_facts: QUIET }, modes)
+      const block = /<opening_press>\n([\s\S]*?)\n<\/opening_press>/.exec(user)![1]
+      // No earlier calls on file: the follow-up branch says never to say what was said before...
+      expect(block, t).toContain('Never say what happened or was said last time.')
+      // ...and the type's own recap line says what to do instead.
+      expect(/- On this call type: ([^\n]*)/.exec(block)![1], t).toMatch(/Without earlier_calls[^.]*, ask /)
+    }
+    // Pricing line 1 (the value recap) too, when nothing about value has been said.
+    expect(modeBlock('negotiation', modes, QUIET)).toContain('then ASK if it still holds (none said or on file: ASK what matters most to them)')
+  })
+
+  it('integration review: demo line 3 asks for one line only (the SA hand-off), with the business question in FOLLOW', () => {
+    const demo = modeBlock('demo', modes, QUIET)!
+    expect(demo).toContain('SAY a hand-off to the SA (name from participants, or our SA), even if approved knowledge answers it; FOLLOW: what it would let their team do.')
+    expect(demo).not.toMatch(/ASK what it would let their team do/)
   })
 
   it('a pricing call: line 0 yields to the line that names a price question, so the value recap is the main line', () => {
@@ -346,15 +505,15 @@ describe('the <call_mode> block', () => {
     const card = { move: 'confirm_next_step' as const, primary_kind: 'ask' as const, primary: 'Can we book the next meeting?', happening: '~10 min left, no next step yet', follow_up: null }
     const near = { mode_facts: { ...QUIET, minutes_left: '10' as const } }
     const limits = playbook.card_limits
-    expect(validateCard(card, ['MOVE', 'ASK', 'HAPPENING'], { knownSourceIds: new Set(), contextText: numbersBackedBy(ctx, near), limits }).issues).toEqual([])
-    expect(streamingChecks(card, { contextText: numbersBackedBy(ctx, near), knowledgeInContext: true })).toEqual([])
+    expect(validateCard(card, ['MOVE', 'ASK', 'HAPPENING'], { knownSourceIds: new Set(), contextText: ctx, counted: countedEchoes(near), limits }).issues).toEqual([])
+    expect(streamingChecks(card, { contextText: ctx, counted: countedEchoes(near), knowledgeInContext: true })).toEqual([])
     // Without the facts (or with other ones) the 10 is still checked.
-    expect(numbersBackedBy(ctx, {})).toBe(ctx)
+    expect(countedEchoes({})).toEqual([])
     expect(validateCard(card, ['MOVE', 'ASK', 'HAPPENING'], { knownSourceIds: new Set(), contextText: ctx, limits }).issues).toEqual(['number not found in context: 10'])
     // Only the facts that are on: a quiet "under 10" questions never backs a made-up "$10".
-    expect(numbersBackedBy(ctx, { mode_facts: QUIET })).toBe(ctx)
-    expect(streamingChecks(card, { contextText: numbersBackedBy(ctx, { mode_facts: QUIET }), knowledgeInContext: true })).toEqual([CHECK_NUMBER])
-    expect(streamingChecks({ ...card, happening: 'Talked over 75 s: check in' }, { contextText: numbersBackedBy(ctx, { mode_facts: { ...QUIET, keith_run: 'over_threshold' } }), knowledgeInContext: true })).toEqual([])
+    expect(countedEchoes({ mode_facts: QUIET })).toEqual([])
+    expect(streamingChecks(card, { contextText: ctx, counted: countedEchoes({ mode_facts: QUIET }), knowledgeInContext: true })).toEqual([CHECK_NUMBER])
+    expect(streamingChecks({ ...card, happening: 'Talked over 75 s: check in' }, { contextText: ctx, counted: countedEchoes({ mode_facts: { ...QUIET, keith_run: 'over_threshold' } }), knowledgeInContext: true })).toEqual([])
   })
 })
 
@@ -489,8 +648,15 @@ describe('type-aware presses', () => {
     expect(block('demo', 'pilot')).toContain('What would you need to see to judge it?')
     expect(block('technical_deep_dive', 'pilot')).toContain("What would you want a test to tell you that you don't know yet?")
     expect(block('technical_deep_dive', 'pricing')).toContain('who runs purchasing on their side')
+    // A pilot on a pricing or follow-up call is a concession: asked about, never scoped or booked (integration review).
+    for (const t of ['negotiation', 'follow_up'] as const) {
+      const pilot = block(t, 'pilot')
+      expect(pilot, t).toContain('FOLLOW: ask what a pilot would need to prove for them')
+      expect(pilot, t).toContain('Never offer, agree to or schedule a pilot')
+      expect(pilot, t).not.toContain('scope that')
+    }
     // Unchanged where the plan keeps it.
-    const usual = block('follow_up', 'pilot')
+    const usual = block('follow_up', 'rollout')
     expect(usual).toContain("If approved knowledge doesn't answer it, offer to follow up.")
     expect(usual).toContain('FOLLOW: one concrete next step that moves it forward')
     expect(block('demo', 'rollout')).toContain('FOLLOW: one concrete next step that moves it forward')

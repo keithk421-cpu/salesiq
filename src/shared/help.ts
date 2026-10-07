@@ -68,8 +68,10 @@ export interface ModeFacts {
   keith_run: '<30s' | '30-60s' | '60s-threshold' | 'over_threshold'
   /** Keith's latest turn gave a currency figure or a %, and the other side hasn't spoken since. */
   keith_number_unanswered: boolean
-  /** Some speaker is tagged as an Arize teammate (the SA). */
+  /** Some speaker is tagged as an Arize teammate (the SA), and "No SA today" isn't ticked on a demo or deep-dive. */
   teammate_tagged: boolean
+  /** A demo or deep-dive with "No SA today" ticked: Keith presents alone, so no question goes to an SA. */
+  no_sa: boolean
   /** Step 2 (computed and logged in v1; no line uses them yet): the SA has talked over 60 s this call. */
   sa_has_presented: boolean
   /** Step 2: the SA's talk since the other side's last turn of 5+ words, against CHECKIN_SECONDS. */

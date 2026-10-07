@@ -184,7 +184,7 @@ Diagnostics → **Save support files** → zip the folder it opens and send it. 
 ## Before the call
 - Pick the **call type** as before (Pricing is the old "Negotiation"). The type now changes what HELP does, what WRAP goes for, and the Ideas you're offered (3 per type). The goal and outcomes boxes show a hint of what that call is for; they stay empty until you type.
 - **Length** (next to the type): discovery 30, demo 60, technical deep-dive 60, pricing 30, follow-up 30 minutes. Change it for a call that runs differently, before or during the call; HELP uses it for "about 10 minutes left".
-- **No SA today** (demo and deep-dive only): tick it when you're presenting alone.
+- **No SA today** (demo and deep-dive only): tick it when you're presenting alone. HELP then hands no question to an SA or anyone else on the call (even someone you tagged as a teammate), and checks in with them when you've talked a while.
 - **Tag your SA** in the speaker labels as a teammate (as before). On a demo or deep-dive that's how HELP knows who's presenting.
 
 ## During the call: what HELP does in each mode
@@ -195,8 +195,9 @@ In every mode: **if they just asked you something, HELP answers that first**, an
 - **Pricing:** restraint. HELP never gives a number. Before any price: recap their value. After you give your number: a **Hold** card ("let them answer", with a question ready if the silence runs on). A discount ask: ask what's driving it, then a trade ("What could you do on term or timing?"), or "Let me take that to our deal desk."
 - **Follow-up:** after your recap, "What's changed on your side since we spoke?"; then what each side still owes, and one thing to move forward. "We need to think about it" gets a gentle "something still feels uncertain, is that fair?", never pressure.
 - **Hold cards** say "Hold · at the pause": wait, then use the question on the card.
-- **Price check (every mode):** if a card ever has a price, discount or term that isn't in your approved files, it gets a yellow note: "Price or discount not from approved pricing: don't say it." Normal numbers (traces a month, days of history, error rates) aren't flagged.
-- **Changed the call type mid-call?** (a discovery that turns into a demo): change it in the strip in the full window. The next HELP press uses the new mode.
+- **Price check (every mode):** if a card ever has a price, discount or term that isn't in your approved files, it gets a yellow note: "Price or discount not from approved pricing: don't say it." That includes their own number offered back ("I can match their 30k", "we can come in 15% lower"), payment terms ("net 60") and free time ("the first 3 months free", "a free month"). Normal numbers (traces a month, days of history, error rates) aren't flagged, and neither is their own spend or budget played back to them ("You mentioned the $200k a year on Datadog").
+- **The Hold after your number** also comes when you end it with a check-in ("..., how does that sound?") and, on a Pricing call, when you say it without "dollars" ("we land at 48,000 a year"). A "Hmm." or "Okay." from them doesn't end it: it waits for a real answer.
+- **Changed the call type mid-call?** (a discovery that turns into a demo): change it in the strip in the full window. The next HELP press uses the new mode. The call keeps its length (a 30-minute discovery is still 30 minutes as a demo); change the length too if the meeting really runs longer.
 
 ## After the call
 - WRAP and the wrap-up work as before; WRAP now aims for what that call type needs (a booked meeting, a dated trial or POC, a written test plan, the next paper step, or a dated next step with names).

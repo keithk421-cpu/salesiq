@@ -59,13 +59,23 @@ export function keithFiller(i: { stream: Stream; text: string }): boolean {
 }
 
 /**
- * The turns without Keith's trailing filler: his "Great question." that already came back as a final
- * turn is no more new than one still being transcribed, so the prepared card stays the one for this
- * moment (engine.ts snapshotKey). Only at the end: a filler with words after it is just part of the call.
+ * Filler from our side that doesn't move the moment on: Keith's own, or (with the call's memory) a
+ * tagged SA's "Mm-hmm" on a demo or deep-dive while the buyer finishes, the same as at engine.ts
+ * onFinalWords. A turn or a line still being transcribed.
  */
-export function withoutTrailingFiller<T extends { stream: Stream; text: string }>(turns: T[]): T[] {
+export function ourFiller(i: { stream: Stream; text: string; cluster?: string | null }, memory?: CallMemory): boolean {
+  return keithFiller(i) || (!!memory && i.stream === 'system_remote' && isFiller(i.text) && memory.saPresenting(i.cluster))
+}
+
+/**
+ * The turns without our trailing filler: Keith's "Great question." (or the SA's "Mm-hmm.", given the
+ * memory) that already came back as a final turn is no more new than one still being transcribed, so
+ * the prepared card stays the one for this moment (engine.ts snapshotKey). Only at the end: a filler
+ * with words after it is just part of the call.
+ */
+export function withoutTrailingFiller<T extends { stream: Stream; text: string; cluster?: string | null }>(turns: T[], memory?: CallMemory): T[] {
   let n = turns.length
-  while (n > 0 && keithFiller(turns[n - 1])) n--
+  while (n > 0 && ourFiller(turns[n - 1], memory)) n--
   return n === turns.length ? turns : turns.slice(0, n)
 }
 

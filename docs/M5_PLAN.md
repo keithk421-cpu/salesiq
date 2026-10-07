@@ -70,7 +70,7 @@ Keith's standing instruction.
   - Returns `null` for `other`.
 - **Wiring:** in `pressModes.ts pressUserMessage()`, insert the block after `contextText` and before the press block, in every branch, including the normal press (`buildUserMessage`). The **wrap branch returns early** through `wrap.ts wrapUserMessage()`, so that function takes a `mode` argument too: the mode's `wrap` sentence is added to `<wrap_card>` as `Aim for this call type: …`.
 - **Press choice is type-aware in code, not left to prompt order.** Prompt precedence alone would let the generic presses override the mode exactly when it matters. `decidePress` gets the type:
-  - **Negotiation:** a `pricing` signal returns a normal press (`mode: null`), so the pricing mode governs. `pilot`, `rollout` and `send_to_boss` keep the signal press. Otherwise, on almost every press after a price question, `signalBlock` says "If approved knowledge doesn't answer it, offer to follow up", which beats pricing mode's "recap value; Keith gives the number from their approved quote".
+  - **Negotiation:** a `pricing` signal returns a normal press (`mode: null`), so the pricing mode governs. `pilot`, `rollout` and `send_to_boss` keep the signal press (a `pilot` with its own FOLLOW: ask what it would need to prove, never offer or book one; integration review). Otherwise, on almost every press after a price question, `signalBlock` says "If approved knowledge doesn't answer it, offer to follow up", which beats pricing mode's "recap value; Keith gives the number from their approved quote".
   - **Demo and technical_deep_dive:** `isOpening()` returns false once a tagged teammate has spoken 40 words or more. Today `isOpening` counts only non-teammate words, so a press at minute 3 while the SA presents gets `<opening_press>` ("set a short agenda").
   - **`signalBlock(detail, type)`:** its ASK/SAY rule line takes the mode's `signal` sentence when there is one (for example, in negotiation, for non-pricing signals: "never state a figure; Keith gives any number themselves from their approved quote"). FOLLOW per type is as in §2.
   - **`openingBlock(detail, type)`:** adds the mode's `opening` sentence (§2).
@@ -101,8 +101,9 @@ Keith's standing instruction.
 | `keith_q_since_playback` | Keith's question turns since the last play-back (below) | `<10` / `10–14` / `15+` | v1 |
 | `keith_q_in_row` | Keith's question turns since the other side last spoke ≥ 8 words | 0–3+ | v1 |
 | `keith_run` | Keith's talk since the other side's last turn of ≥ 5 words | `<30s` / `30–60s` / `60s–threshold` / `over_threshold` (`CHECKIN_SECONDS`, 75 s) | v1 |
-| `keith_number_unanswered` | Keith's latest turn has a currency figure or a %, and the other side hasn't spoken since | boolean | v1 |
+| `keith_number_unanswered` | Keith's latest turn has a currency figure or a % (a check-in on the end, "..., how does that sound?", doesn't make it a question; on a pricing call also a bare amount the price check hears as a price), and the other side hasn't said more than a filler ("Hmm.", "Okay.") since | boolean | v1 |
 | `teammate_tagged` | Any label with role `teammate` | boolean | v1 (hand-off wording) |
+| `no_sa` | Demo or deep-dive with "No SA today" ticked (then `teammate_tagged` is false: nobody counts as the SA) | boolean | v1 (no hand-off; check-in on Keith's run) |
 | `sa_has_presented` | Teammate talk > 60 s this call | boolean | step 2 (v1 only for `isOpening`) |
 | `sa_run` | Teammate talk since the other side's last finished turn of ≥ 5 words | relative to `CHECKIN_SECONDS` (75 s): `none` / `below` / `at_or_over` / `>120s` | step 2 |
 | `sa_talking_now` | The live (interim) words on `system_remote` carry a cluster labelled `teammate` | boolean; **exact, not a guess** | step 2 |
@@ -151,6 +152,7 @@ Keith's standing instruction.
   - **Negotiation only:** a bare `%`, and an offer shape with a figure: `\b(can|could|would|will) (we|I) (do|offer|give|go)\b[^?]*\d`. Deep-dive goals like "50% fewer regressions" don't trip it.
   - **Allowed:** a figure that appears in an approved knowledge item the card cites in SOURCES; an ASK that quotes **their own** figure back as a question ("What's driving the 20?"): the figure appears in a buyer-side turn in the last 30 s, and the line has no offer shape.
   - Anything else adds the check "Price or discount not from approved pricing: don't say it".
+  - **Widened after the integration review (every mode):** our price moving "15% lower" or "15% less", their money figure offered back without a $ ("I can match their 30k"), payment terms ("net 60") and free periods in any wording ("free for the first 90 days", "a free month"). Also allowed: their own figure recapped as a statement ("You mentioned the $200k a year on Datadog", pricing line 1) and their spend checked back as a yes/no question, unless the line makes it the deal (a yes, "our price", "Done.", our side in the line, or the figure said twice).
 - **Inputs (a signature change, so `engine.ts` changes too):** `cardChecks(card, issues, opts)` gets `ctx.sources` with item text and kind, the buyer-side text of the last 30 s, and `memory.setup.call_type`, passed from `engine.ts:455`.
 - **While streaming,** SOURCES hasn't arrived yet. `streamingChecks` runs the same patterns, but it can only use its existing `knowledgeInContext` flag: it warns early when a flagged figure appears and no approved item is in the context at all. The full "cited approved item" test runs in `cardChecks` on the finished card. It is a Level 1 failure in the speed test (`evalRunner.ts`).
 - Keith chose **warn**: the card shows the yellow check "Price or discount not from approved pricing: don't say it".
@@ -249,7 +251,7 @@ The **ASK : SAY** ratios are rough targets for the mode text, for Keith to tune.
      - **Keith never answers it alone while a teammate is tagged, even with approved knowledge** (Keith's decision). [teammate_tagged]
   4. The buyer showed interest or reacted to the screen → go one deeper on the pain or impact behind it, using only words from their reaction: first "How does that compare to how you do it today?"; only after clear interest, "What would change for the team if you had this?" (`clarify_current_state` / `quantify_impact`; *R §Demo: question bank*). **This comes before any Hold:** a buyer reacting right after the SA is exactly the moment to dig. [transcript]
   5. `sa_talking_now` and `sa_run` is `below` → **Hold** (§1.4). ASK is the ready question tied to what's on screen and their words. HAPPENING: "Sam's mid-screen: ask at the pause". [step 2: sa_talking_now]
-  6. `sa_run` at or over `CHECKIN_SECONDS` with no buyer turn → ASK a check-in at the next pause: "Is this close to how you do it today?" (Gong: no closed-won demo had more than 76 s of uninterrupted pitch.) With `no_sa`, the same line fires on `keith_run` over the threshold: Keith's own run is the pitch to break. [step 2: sa_run; `no_sa` + keith_run can ship in v1]
+  6. `sa_run` at or over `CHECKIN_SECONDS` with no buyer turn → ASK a check-in at the next pause: "Is this close to how you do it today?" (Gong: no closed-won demo had more than 76 s of uninterrupted pitch.) With `no_sa`, the same line fires on `keith_run` over the threshold: Keith's own run is the pitch to break. [step 2: sa_run; `no_sa` + keith_run ships in v1: with "No SA today" ticked the facts say no teammate is tagged and Keith presents alone, so line 3 hands nothing off, the opening has no hand-over, and the "no teammate tagged" check-in on Keith's run applies]
   7. A new screen started (SA words like "so here you can see") → tie back: "You mentioned [their words from this call or earlier_calls]: how do you handle that today?" Never from `<keith_notes>`. [transcript]
   8. Once `sa_has_presented`, Keith asked 2+ in a row (`keith_q_in_row` ≥ 2) → Hold. HAPPENING: "One question per section: let Sam carry on". ASK is the one question for the next pause. [step 2]
 - **`never`:**
@@ -392,7 +394,7 @@ The **ASK : SAY** ratios are rough targets for the mode text, for Keith to tune.
   - urgency lines
   - re-asking answered questions; show "already known" in HAPPENING instead
   - claims about what they said unless the notes or earlier_calls have it
-- **Press modes:** `opening` already picks up from `earlier_calls` (`openingBlock`, `pickUp`). Add from `call_modes.follow_up.opening`: "Then stop and ask what's changed." `signal` is unchanged.
+- **Press modes:** `opening` already picks up from `earlier_calls` (`openingBlock`, `pickUp`). Add from `call_modes.follow_up.opening`: "Then stop and ask what's changed." `signal` is unchanged, except `pilot` (integration review): this mode never gives a concession, so FOLLOW asks what a pilot would need to prove and never offers, agrees to or books one (any pilot needs Arize approval first).
 
 **Notes** (later, §5 L1): `changed`, `owed_update`.
 

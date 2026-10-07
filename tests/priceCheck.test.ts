@@ -422,6 +422,149 @@ describe('review fixes: their own costs and budgets, on any call', () => {
   })
 })
 
+describe('integration review: their own money figure recapped or asked back (statement or yes/no)', () => {
+  // Pricing line 1 says to SAY a value recap in their words, then ASK if it still holds: their own
+  // figure in it is theirs, said as a statement or asked back as a yes/no question.
+  const recap = { theirText: 'Today we spend about $200k a year on Datadog. So what does this come to for us?' }
+  const spend = { theirText: 'We spend about $40,000 a month on OpenAI. Datadog runs us about $100,000 a year.' }
+  const say = (line: string) => card(line, { primary_kind: 'say' })
+  for (const type of CALL_TYPES) {
+    it(`must pass: a recap of their figure as a SAY or an ASK, and their spend checked back (${type})`, () => {
+      for (const line of [
+        'You mentioned the $200k a year on Datadog and two engineers debugging by hand. Does that still hold?',
+        'You spend $200k a year on Datadog today.',
+        "So you're spending $200k a year on Datadog. Does that still hold?",
+        'You told us the $200k a year goes to Datadog.',
+      ]) {
+        expect(priceFigures(say(line), { callType: type, ...recap }), `SAY ${line}`).toEqual([])
+        expect(priceFigures(card(line, { primary_kind: 'ask' }), { callType: type, ...recap }), `ASK ${line}`).toEqual([])
+      }
+      for (const line of [
+        "So you're spending about $40,000 a month on OpenAI today?",
+        'Is the $40,000 a month mostly GPT-4o?',
+        'Does the $100,000 for Datadog include APM?',
+        'So about $40k a month on OpenAI today?',
+        'Is that $40,000 a month across all teams?',
+        'And that $100,000 a year, is it all Datadog?',
+        'Does your $40k OpenAI bill include fine-tuning?',
+      ]) expect(flagged(line, type, spend), line).toBe(false)
+    })
+
+    it(`must flag: their figure made the deal, tied to a yes or put on our side (${type})`, () => {
+      for (const theirText of ['Our budget is $40k. We need 20% off.', 'We spend $40k a month on OpenAI. We need 20% off.']) {
+        for (const line of [
+          'Your budget is $40k, so $40k it is.',
+          "You mentioned $40k, and that's our price.",
+          'Your number is $40k. Done.',
+          'You mentioned 20% off. We can do that if you sign this month.',
+          'You mentioned $40k. That is where we land.',
+          'Your Arize bill would be $40k.',
+          'Your Arize bill is $40k a year.',
+          'Your cost with us is $40k.',
+          "Let's call it $40k.",
+          'And $40k works for us.',
+          '20% is doable.',
+        ]) expect(priceFigures(say(line), { callType: type, theirText }), `${theirText} / ${line}`).not.toEqual([])
+        for (const line of [
+          'Is $40k a number that works?',
+          'Are you good with $40k?',
+          'Is $40k where you want to land?',
+          'Is $40k a deal?',
+          'Are we aligned at $40k?',
+          'Is $40k for the platform workable?',
+          'Is $40k the price you want from us?',
+          'Is $40k your cost with us?',
+          'Does your bill come to $40k with us?',
+          'Is $40k your total cost for Arize?',
+        ]) expect(flagged(line, type, { theirText }), `${theirText} / ${line}`).toBe(true)
+      }
+    })
+  }
+})
+
+describe('integration review: offers the price check missed', () => {
+  const NOT_OUTCOMES = ['Teams see 40% fewer bad answers.', 'Customers cut debugging time 30%.', 'In the POV you saw 40% fewer bad answers reach users.']
+  for (const type of CALL_TYPES) {
+    it(`our price going lower or less is an offer, not an outcome (${type})`, () => {
+      const buyer = { theirText: 'We need 15% off. Could you do 18%?' }
+      for (const line of [
+        'We could go 10% lower.',
+        'I think we can go 15% lower.',
+        'We can come in 15% lower.',
+        'We can do it for 15% less.',
+        'We can do 15% lower than list.',
+        'We could go lower, say 18%.',
+      ]) expect(flagged(line, type, buyer), line).toBe(true)
+      for (const line of NOT_OUTCOMES) expect(flagged(line, type, buyer), line).toBe(false)
+    })
+
+    it(`their money figure offered back without a $ sign flags (${type})`, () => {
+      const buyer = { theirText: 'Galileo quoted us 30k. Our budget is about 50k a year.' }
+      for (const line of ['I can match their 30k.', 'Can we meet at 50k?', 'We can knock 10k off.', 'We could do 50,000.']) expect(flagged(line, type, buyer), line).toBe(true)
+    })
+
+    it(`payment terms and free periods are terms Keith never promises (${type})`, () => {
+      const buyer = { theirText: 'We need net 60 payment terms and the first 90 days free. Galileo gave us a free month.' }
+      for (const line of [
+        'Net 60 payment terms are fine.',
+        'We can do net 60.',
+        'We could do net 60 payment terms.',
+        'Happy to do net 60.',
+        'Free for the first 90 days.',
+        'The first 90 days are on us.',
+        'No charge for the first 3 months.',
+        'The pilot is free for 30 days.',
+        'We could waive the first 90 days.',
+        'We can extend the pilot 30 days at no cost.',
+        'We can give you the first three months free.',
+        'We could throw in a free month.',
+        "You'd get a free month on a two-year deal.",
+        'The first month is on us.',
+        'Would a free month help?',
+      ]) expect(flagged(line, type, buyer), line).toBe(true)
+      for (const line of [
+        'Is 30 days of retention enough?',
+        'Could we kick off in 2 weeks?',
+        'Free text search works across 90 days of traces.',
+        'Do you have 30 days to try it on your own data?',
+        'Are you on net 60 with other vendors?',
+        'Can 3 of your team try the free tier first?',
+      ]) expect(flagged(line, type, buyer), line).toBe(false)
+    })
+  }
+
+  it('large figures that count things still pass outside pricing calls', () => {
+    for (const type of NOT_PRICING) {
+      for (const line of [
+        'Could we do a POC on 50k traces?',
+        'We can get you 10,000 spans a day in the pilot.',
+        'Could we do a 1,000-trace sample?',
+        'We could do the readout in 2026.',
+        'Can we get 2,000 of your engineers on it?',
+        'We can do a million events a day.',
+      ]) expect(flagged(line, type), `${type}: ${line}`).toBe(false)
+    }
+  })
+})
+
+describe('integration review: a tagged SA still talking is not their side', () => {
+  it("the SA's live figure is left out, as their finished turn is; the buyer's live figure is theirs", () => {
+    const call = inventedCall({
+      call_type: 'demo',
+      speakers: { 'e1:s0': { role: 'buyer', name: 'Dana' }, 'e1:s1': { role: 'teammate', name: 'Sam (SA)' } },
+      transcript: [{ t: 0, end: 5, who: 'e1:s0', text: 'How do teams usually roll this out?' }],
+      help_at_s: 20,
+    })
+    const r = replayAt(call)
+    const line = card('What does the $40k a year cover for your team?')
+    for (const [cluster, flags] of [['e1:s1', true], ['e1:s0', false], [null, false]] as const) {
+      r.memory.setInterim('system_remote', 'that tier usually lands around $40k a year for', r.atMs - 1000, cluster)
+      const ctx = buildHelpContext({ memory: r.memory, kb: r.kb, atMs: r.atMs })
+      expect(priceFigures(line, priceCheckInputs(r.memory, ctx)).length > 0, String(cluster)).toBe(flags)
+    }
+  })
+})
+
 describe('speed test: Level 1', () => {
   const scenario = inventedCall({
     id: 'price-unit', call_type: 'negotiation',
@@ -500,6 +643,33 @@ describe('HELP engine: the price check on a live card', () => {
     m.calls[0].finish()
     await vi.advanceTimersByTimeAsync(0)
     expect(s.events.at(-1)).toMatchObject({ status: 'complete', checks: [] })
+  })
+
+  it("the pricing mode's own value recap of their spend, said as a SAY, has no check (the <call_mode> block is in the request)", async () => {
+    const m = new StagedModel()
+    const s = engineFixture(m, playbook, {
+      call: inventedCall({
+        call_type: 'negotiation',
+        transcript: [
+          { t: 0, end: 8, who: 'e1:s0', text: 'Today we spend about $200k a year on Datadog, and two engineers debug by hand.' },
+          { t: 9, end: 12, who: 'e1:s0', text: 'So what does this come to for us?' },
+        ],
+        help_at_s: 14,
+      }),
+    })
+    s.memory.setup = { ...s.memory.setup, call_type: 'negotiation' }
+    s.engine.press()
+    expect(m.calls[0].user).toContain('<call_mode type="negotiation">')
+    m.calls[0].send('MOVE: confirm_next_step\nSAY: You mentioned the $200k a year on Datadog and two engineers debugging by hand. Does that still hold?\nHAPPENING: Recap first, then your number\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n')
+    m.calls[0].finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)).toMatchObject({ status: 'complete', checks: [] })
+    // The same recap made the deal still gets it.
+    s.engine.press()
+    m.calls[1].send("MOVE: confirm_next_step\nSAY: You mentioned the $200k a year, and that's our price.\nHAPPENING: -\nFOLLOW: -\nSOURCES: T1\nNOTE: -\n")
+    m.calls[1].finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(s.events.at(-1)!.checks).toEqual([CHECK_PRICE])
   })
 
   it('on a discovery call a plain volume recap has no check; a price does', async () => {
