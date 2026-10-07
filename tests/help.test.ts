@@ -702,7 +702,8 @@ describe('HELP engine', () => {
     const e = s.events.at(-1)!
     expect(e.mock).toBe(true)
     expect(e.model_label).toMatch(/MOCK/)
-    expect(e.content.primary).toMatch(/^\[MOCK\]/)
+    // M5: in a call mode the tag also names the mode, which proves the block reached the request.
+    expect(e.content.primary).toMatch(/^\[MOCK · discovery\]/)
   })
 
   it('feedback is stored with its origin (HELP-requested, not proactive Coach)', () => {

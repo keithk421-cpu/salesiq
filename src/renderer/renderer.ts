@@ -1095,7 +1095,10 @@ $('kbReindex').addEventListener('click', async () => renderKnowledge(await api.k
 $('pbOpen').addEventListener('click', () => void api.playbookOpen())
 
 // ---- playbook status: which one HELP uses, a broken edit, a newer built-in version ----
-type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean; error?: string | null }
+type PlaybookInfo = { using: 'yours' | 'built_in'; version: string; built_in_version: string; problem: string | null; newer_built_in: boolean; error?: string | null; call_modes_from?: 'yours' | 'built_in' | 'mixed' }
+/** M5: whose call modes HELP uses, on a line of its own (absent on an older main process). */
+const CALL_MODES_FROM = { yours: 'yours', built_in: 'built-in', mixed: 'mixed (yours, and built-in for the rest)' } as const
+const callModesLine = (pb: PlaybookInfo) => (pb.call_modes_from && CALL_MODES_FROM[pb.call_modes_from] ? `<br>Call modes: ${CALL_MODES_FROM[pb.call_modes_from]}.` : '')
 function renderPlaybook(pb: PlaybookInfo | null): void {
   const el = $('pbStatus')
   if (!pb) {
@@ -1110,9 +1113,9 @@ function renderPlaybook(pb: PlaybookInfo | null): void {
     el.innerHTML = `<span class="err-text">Your edited playbook has a mistake: ${esc(pb.problem)}. HELP uses the built-in one (${esc(pb.built_in_version)}) until it's fixed.</span>${check}`
   } else if (pb.newer_built_in) {
     el.innerHTML = `A different built-in playbook is available (${esc(pb.built_in_version)}); HELP is using your edited copy (${esc(pb.version)}). ` +
-      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Use the new one (keeps a backup of yours)</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>'
+      '<button class="btn btn-ghost btn-sm" data-pb="builtIn">Use the new one (keeps a backup of yours)</button> <button class="btn btn-ghost btn-sm" data-pb="mine">Keep mine</button>' + callModesLine(pb)
   } else {
-    el.innerHTML = `${pb.using === 'yours' ? 'HELP uses your edited playbook' : 'HELP uses the built-in playbook'} (${esc(pb.version)}). Edits apply from the next call.${check}`
+    el.innerHTML = `${pb.using === 'yours' ? 'HELP uses your edited playbook' : 'HELP uses the built-in playbook'} (${esc(pb.version)}). Edits apply from the next call.${check}${callModesLine(pb)}`
   }
 }
 $('pbStatus').addEventListener('click', async (e) => {

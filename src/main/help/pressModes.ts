@@ -13,10 +13,15 @@
  *   5. the opening: they've said little so far, early in the call;
  *   otherwise a normal press.
  *
+ * (M5) Each press also gets the call type's <call_mode> block (callModes.ts) and is type-aware: on a
+ * pricing call a price question is a normal press (the pricing mode governs, not the generic next
+ * step); on a demo or deep-dive the opening stops once the SA has started presenting; the opening and
+ * buying-signal blocks add the type's own sentence.
+ *
  * Nothing appears without a press. The instruction goes in the user message, after the call
  * context, so the cached system prompt stays the same for every press.
  */
-import type { HelpOrigin, MemoryTurn, PressMode, SalesMove } from '../../shared/help'
+import type { CallType, HelpOrigin, MemoryTurn, ModeFacts, PressMode, SalesMove } from '../../shared/help'
 import { SALES_MOVES } from '../../shared/help'
 import type { Stream } from '../../shared/contracts'
 import { TO_LEARN_LABEL } from './accountMemory'
@@ -24,6 +29,7 @@ import type { CallMemory } from './callMemory'
 import { HOT_WINDOW_MS, fmtClock } from './context'
 import { buildUserMessage } from './prompt'
 import { wrapReason, wrapUserMessage, type WrapWhy } from './wrap'
+import { callTypeIn, cleanModeFacts, modeBlock, modeOpening, modeSignal, modeSpec, modeWrap, teammateWords, withModeFacts, type CallModes } from './callModes'
 
 /** A re-press this soon after a card finished (and nothing new said) asks for another angle on it. */
 export const ANOTHER_ANGLE_WINDOW_MS = 20_000
@@ -82,6 +88,11 @@ export interface PressDetail {
    * another_angle on a must-learn card: that must-learn, so the new line stays on it.
    */
   plan_item?: string
+  /**
+   * M5: the call type's facts at the press (callModes.ts modeFacts; codes and buckets only), for the
+   * <call_mode> block. Stored in timing_json so a practice moment sends the same block.
+   */
+  mode_facts?: ModeFacts
 }
 
 export interface PressDecision {
@@ -231,10 +242,15 @@ export function recentSignal(memory: CallMemory, atMs: number): SignalKind | nul
 // ------------------------------------------------------------------ the opening
 
 const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length
+/** M5: the call types where the SA presents and answers technical questions (Keith's decision). */
+const SA_LED: readonly CallType[] = ['demo', 'technical_deep_dive']
 
 /** Early in the call and the other side has said little so far (words still being transcribed count). */
 export function isOpening(memory: CallMemory, atMs: number): boolean {
   if (atMs >= OPENING_WINDOW_MS) return false
+  // M5: on a demo or deep-dive the SA presenting (a tagged teammate, 40+ words) means the opening is over,
+  // however little the buyer has said: no "set a short agenda" at minute 3 while the SA shows the screen.
+  if (SA_LED.includes(memory.setup.call_type) && teammateWords(memory, atMs) >= OPENING_MAX_WORDS) return false
   let n = 0
   for (const t of memory.turnsAsOf(atMs)) if (theirs(memory, t)) n += wordCount(t.text)
   for (const i of memory.interimsAsOf(atMs)) if (i.stream === 'system_remote') n += wordCount(i.text)
@@ -256,8 +272,15 @@ export function mustLearn(setup: { must_learn?: unknown }): string[] {
  * Keith clicked (M4): he asked for that line, so it comes before everything but the WRAP button. With
  * `prior` too, he clicked the same must-learn again for the same moment (the engine checks that): the
  * block names the line he already has, so he gets a different way in.
+ *
+ * M5: every press (HELP or WRAP) of a type with a mode also carries this moment's mode facts.
  */
 export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null = null, earlier: readonly PriorCard[] = [], planItem: string | null = null): PressDecision {
+  const d = choosePress(origin, memory, atMs, prior, earlier, planItem)
+  return origin === 'help_requested' || origin === 'wrap_requested' ? { ...d, detail: withModeFacts(d.detail, memory, atMs) } : d
+}
+
+function choosePress(origin: HelpOrigin, memory: CallMemory, atMs: number, prior: PriorCard | null, earlier: readonly PriorCard[], planItem: string | null): PressDecision {
   const withSignal = (wrap: WrapWhy): PressDecision => {
     const s = latestSignal(memory, atMs)
     return { wrap, mode: null, detail: s ? { wrap_signal: s } : {} }
@@ -275,6 +298,9 @@ export function decidePress(origin: HelpOrigin, memory: CallMemory, atMs: number
   }
   if (wrapReason(origin, memory, atMs) === 'closing') return withSignal('closing')
   const signal = recentSignal(memory, atMs)
+  // M5: on a pricing call a price question gets a normal press, so the pricing mode governs (recap
+  // value; Keith gives the number from their approved quote), not the generic "offer to follow up".
+  if (signal === 'pricing' && memory.setup.call_type === 'negotiation') return { wrap: null, mode: null, detail: {} }
   if (signal) return { wrap: null, mode: 'signal', detail: { signal } }
   if (isOpening(memory, atMs)) {
     const ml = mustLearn(memory.setup)
@@ -311,7 +337,14 @@ function oneLine(s: string, max: number): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
-function openingBlock(contextText: string, detail: PressDetail): string {
+/**
+ * M5: on a demo or deep-dive with the SA on, the opening ends by handing over to them in the buyer's own
+ * words. Written here, not in the playbook, so an edit can't let Keith's notes or research be quoted as
+ * something the buyer said.
+ */
+const HAND_OVER = `- With a teammate tagged (the SA): once they confirmed the recap or the agenda, FOLLOW hands over to the SA by name, in the buyer's own words, starting with their top problem ("Sam, let's start with the eval gap you mentioned"). Those words come only from this call's transcript or earlier_calls (as something said before), never from keith_notes or research.`
+
+function openingBlock(contextText: string, detail: PressDetail, type: CallType | null = null, modes?: CallModes): string {
   const block = /<earlier_calls\b[^\n]*>\n([\s\S]*?)\n<\/earlier_calls>/.exec(contextText)?.[1] ?? null
   // Something they said, owed or agreed on earlier calls to pick up from: not just what Keith still
   // wanted to learn (his own plan, never something they said).
@@ -326,6 +359,10 @@ function openingBlock(contextText: string, detail: PressDetail): string {
   const met = /<keith_notes\b/.test(contextText)
     ? "This is the first call with them in the app, but Keith may have met them before (his notes): never say it's the first conversation, or what happened before."
     : null
+  const own = type ? modeOpening(type, modes) : ''
+  // Only with a mode for this type, and not when the facts say nobody is tagged (an older saved press
+  // without facts keeps the "with a teammate tagged" condition in the words).
+  const handOver = !!type && SA_LED.includes(type) && !!modeSpec(type, modes) && detail.mode_facts?.teammate_tagged !== false
   const lines = [
     'Keith pressed HELP at the start of the call: the other side has said little so far.',
     '- If they just asked a question or raised something, answer or handle that first (the normal rules) and put the opening in FOLLOW.',
@@ -338,23 +375,53 @@ function openingBlock(contextText: string, detail: PressDetail): string {
         : noGoal
           ? `- ${met ? `${met} No call goal is set.` : 'This is the first call with them, and no call goal is set.'} ASK what they'd like to get out of today, and check the time they have.`
           : `- ${met ?? 'This is the first call with them.'} ASK or SAY: set a short agenda from the call goal${ml.length ? " and Keith's must-learns" : ''}, and check it works for them (the shape only: what you'd like to cover, then "Does that work?"). Never state a must-learn as something they said.`,
+    // M5: what the opening does on this call type (Keith's playbook), and the SA hand-off on a demo or deep-dive.
+    ...(own ? [`- On this call type: ${own}`] : []),
+    ...(handOver ? [HAND_OVER] : []),
     "- If Keith already set the agenda or did the check-in on this call (his lines in the transcript), don't repeat it: give the next natural question toward the goal or a must-learn.",
     ...(ml.length ? [`- Keith's must-learns for this call: ${ml.map((m) => `"${oneLine(m, MUST_LEARN_MAX_CHARS)}"`).join('; ')}.`] : []),
     '- Use only the call setup, earlier_calls and what was said on this call: no outside research or guesses about their company, and no pain, problem or need they have not voiced.',
     `- MOVE: ${pickUp ? 'clarify_current_state for the check-in' : noGoal ? 'call_control' : 'call_control for the agenda'}; when the line answers what they just asked, the move that fits that.`,
-    '- FOLLOW: the opening, when the line answered their question; otherwise "-".',
+    handOver ? '- FOLLOW: the opening, when the line answered their question; otherwise the hand-off to the SA above when it fits, else "-".' : '- FOLLOW: the opening, when the line answered their question; otherwise "-".',
   ]
   return `<opening_press>\n${lines.join('\n')}\n</opening_press>`
 }
 
-function signalBlock(detail: PressDetail): string {
+/**
+ * M5: FOLLOW on a buying signal, per call type (the plan's section 2), in place of booking a scoping
+ * call. Kept in code: the playbook's call_modes have no field for it. A pair not listed keeps the usual FOLLOW.
+ */
+const SIGNAL_FOLLOW: Partial<Record<CallType, Partial<Record<SignalKind, string>>>> = {
+  // Talking budget early goes with winning; the meeting can come later.
+  discovery: { pricing: 'FOLLOW: instead of a meeting, ask how they fund tools like this ("How have you funded tools like this before?").' },
+  demo: {
+    pricing: 'FOLLOW: ask who should be in the pricing conversation, as a question. Never pick a name nobody said.',
+    pilot: 'FOLLOW: first ask what they would need to see to judge it ("What would you need to see to judge it?"), before proposing a scoping call.',
+  },
+  technical_deep_dive: {
+    pilot: 'FOLLOW: instead of booking, ask what they would want a test to tell them ("What would you want a test to tell you that you don\'t know yet?").',
+    pricing: 'FOLLOW: ask who runs purchasing on their side and whether to start it alongside the test.',
+  },
+}
+
+function signalBlock(detail: PressDetail, type: CallType | null = null, modes?: CallModes): string {
   // A hand-edited scenario may lack the kind: say nothing more specific than the words could hold.
   const what = detail.signal ? SIGNAL_TEXT[detail.signal] : 'a next step'
+  // M5: the call type's own ASK/SAY rule (pricing: never state a figure) replaces the usual one; the
+  // locked part (approved knowledge only, never a price or term) stays in code so an edit can't drop it.
+  const own = type ? modeSignal(type, modes) : ''
+  // Only a type with a mode in this playbook is type-aware: otherwise the block is as before M5.
+  const typed = type && modeSpec(type, modes) ? type : null
+  const askSay = own
+    ? `- ASK or SAY: ${own} Only approved knowledge is Arize fact; never a price, discount, contract term or delivery date unless approved knowledge states it.`
+    : "- ASK or SAY: answer or defer as usual: only approved knowledge is Arize fact; never a price, discount, contract term or delivery date. If approved knowledge doesn't answer it, offer to follow up."
+  const follow = (typed && detail.signal && SIGNAL_FOLLOW[typed]?.[detail.signal]) ||
+    `FOLLOW: one concrete next step that moves it forward, as a question: what it is, who should be there and when, asked, not picked ("Who on your side should join a short call to scope that, and what day works?"). Never pick a date, a name or a commitment nobody said. A next step already agreed (call_notes "agreed") is built on, not replaced. If it's early and little is known about their needs, FOLLOW may instead ask what they'd need to see first, or "-".`
   return `<next_step_press>
 Keith pressed HELP and in the last 30 seconds they may have asked about ${what}: a possible buying signal. If those words were about their own product, costs, rollout or what their users ask, ignore this block.
 - If they just asked something else, or raised a concern, answer that first (the normal rules). If Keith already answered or deferred it, don't repeat it: only FOLLOW carries the next step.
-- ASK or SAY: answer or defer as usual: only approved knowledge is Arize fact; never a price, discount, contract term or delivery date. If approved knowledge doesn't answer it, offer to follow up.
-- FOLLOW: one concrete next step that moves it forward, as a question: what it is, who should be there and when, asked, not picked ("Who on your side should join a short call to scope that, and what day works?"). Never pick a date, a name or a commitment nobody said. A next step already agreed (call_notes "agreed") is built on, not replaced. If it's early and little is known about their needs, FOLLOW may instead ask what they'd need to see first, or "-".
+${askSay}
+- ${follow}
 - MOVE: the move that fits the line (technical_answer only with approved knowledge).
 </next_step_press>`
 }
@@ -415,22 +482,27 @@ At ${fmtClock(s.at_ms)} they may have asked about ${SIGNAL_TEXT[s.kind]}. If it 
 }
 
 /**
- * The user message for any press: the call context, then the wrap card or this press's block (a
- * normal press gets none). Also what is kept on disk, and what a practice moment replays.
+ * The user message for any press: the call context, then the call type's <call_mode> block (M5; from
+ * `modes`, the playbook's call_modes, for the type in the context's call setup), then the wrap card or
+ * this press's block (a normal press gets none). Also what is kept on disk, and what a practice moment replays.
  */
-export function pressUserMessage(contextText: string, wrap: WrapWhy | null, mode: PressMode | null, detail: PressDetail = {}): string {
+export function pressUserMessage(contextText: string, wrap: WrapWhy | null, mode: PressMode | null, detail: PressDetail = {}, modes?: CallModes): string {
+  const type = callTypeIn(contextText)
+  const block = type ? modeBlock(type, modes, detail.mode_facts ?? null) : null
+  // After the context, before any press block, in every branch (WRAP's goes in wrap.ts, with its aim).
+  const withMode = (press: string) => (block ? `${contextText}\n\n${block}\n\n${press}` : `${contextText}\n\n${press}`)
   if (wrap) {
-    const msg = wrapUserMessage(contextText, wrap, detail.wrap_plan)
+    const msg = wrapUserMessage(contextText, wrap, detail.wrap_plan, block && type ? { block, aim: modeWrap(type, modes) } : null)
     if (!detail.wrap_signal) return msg
     // Right before the last line ("Give Keith his line to lock the next step."), after </wrap_card>.
     const i = msg.lastIndexOf('\n\n')
     return `${msg.slice(0, i)}\n\n${wrapSignalBlock(detail.wrap_signal)}${msg.slice(i)}`
   }
-  if (mode === 'opening') return `${contextText}\n\n${openingBlock(contextText, detail)}\n\nGive Keith his next line.`
-  if (mode === 'signal') return `${contextText}\n\n${signalBlock(detail)}\n\nGive Keith his next line.`
-  if (mode === 'another_angle') return `${contextText}\n\n${angleBlock(detail)}\n\nGive Keith a different line.`
-  if (mode === 'plan_item') return `${contextText}\n\n${planBlock(detail)}\n\nGive Keith his next line.`
-  return buildUserMessage(contextText)
+  if (mode === 'opening') return `${withMode(openingBlock(contextText, detail, type, modes))}\n\nGive Keith his next line.`
+  if (mode === 'signal') return `${withMode(signalBlock(detail, type, modes))}\n\nGive Keith his next line.`
+  if (mode === 'another_angle') return `${withMode(angleBlock(detail))}\n\nGive Keith a different line.`
+  if (mode === 'plan_item') return `${withMode(planBlock(detail))}\n\nGive Keith his next line.`
+  return buildUserMessage(block ? `${contextText}\n\n${block}` : contextText)
 }
 
 /** Which press block a request carries (the offline MOCK model answers each one in kind). */
@@ -497,6 +569,8 @@ export function cleanPressDetail(x: unknown): PressDetail {
   if (d.wrap_plan === true) out.wrap_plan = true
   const item = cleanPlanItem(d.plan_item)
   if (item) out.plan_item = item
+  const facts = cleanModeFacts(d.mode_facts)
+  if (facts) out.mode_facts = facts
   return out
 }
 
@@ -509,7 +583,7 @@ export function cleanPressDetail(x: unknown): PressDetail {
  * and, when he clicked it again for the same moment, the card it was clicked on (angle_of, like another angle).
  */
 export function savedPress(
-  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown; press_plan_item?: unknown },
+  timing: { press_mode?: unknown; press_signal?: unknown; angle_of?: unknown; wrap_signal?: unknown; press_earlier?: unknown; wrap_plan?: unknown; press_plan_item?: unknown; mode_facts?: unknown },
   setupAtPress: { must_learn?: unknown } | null | undefined,
   cardOf: (requestId: string) => { card_json: string | null; timing_json?: string | null } | undefined,
 ): { press_mode?: PressMode; press_detail?: PressDetail } {
@@ -553,5 +627,8 @@ export function savedPress(
     if (cards.length) detail.prior = cards[0]
     if (cards.length > 1) detail.earlier = cards.slice(1).reverse()
   }
+  // M5: the mode facts at the press (codes only), so the moment sends the same <call_mode> block.
+  const facts = cleanModeFacts(timing.mode_facts)
+  if (facts) detail.mode_facts = facts
   return { ...(mode ? { press_mode: mode } : {}), ...(Object.keys(detail).length ? { press_detail: detail } : {}) }
 }

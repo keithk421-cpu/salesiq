@@ -152,7 +152,8 @@ describe('WRAP card', () => {
     s.engine.press('wrap_requested')
     await vi.advanceTimersByTimeAsync(50)
     expect(s.events.at(-1)).toMatchObject({ status: 'complete', mock: true, content: { move: 'confirm_next_step' } })
-    expect(s.events.at(-1)!.content.primary).toMatch(/^\[MOCK\]/)
+    // M5: the default call (discovery) carries its call mode, and the MOCK tag says so.
+    expect(s.events.at(-1)!.content.primary).toMatch(/^\[MOCK · discovery\]/)
   })
 })
 

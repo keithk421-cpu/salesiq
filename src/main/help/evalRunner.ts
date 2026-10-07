@@ -18,6 +18,7 @@ import { LineProtocolParser, findCapabilityClaim, validateCard } from './protoco
 import { replayAt, type Scenario } from './replay'
 import { cleanPressDetail, cleanPressMode, pressUserMessage } from './pressModes'
 import { keithNotesChecks } from './keithNotes'
+import { withModeFacts } from './callModes'
 
 export { findCapabilityClaim }
 
@@ -116,7 +117,8 @@ export async function runScenario(s: Scenario, model: HelpModel, config: HelpMod
   try {
     const res = await model.run({
       // A moment saved from a WRAP or smarter press replays with the instruction it had (stored, not re-detected).
-      system: buildSystemPrompt(playbook), user: pressUserMessage(ctx.text, s.wrap === 'button' || s.wrap === 'closing' ? s.wrap : null, cleanPressMode(s.press_mode), cleanPressDetail(s.press_detail)), config, signal: abort.signal,
+      // M5: with the call type's <call_mode> block; its facts as stored with a saved moment, else counted from the replayed call.
+      system: buildSystemPrompt(playbook), user: pressUserMessage(ctx.text, s.wrap === 'button' || s.wrap === 'closing' ? s.wrap : null, cleanPressMode(s.press_mode), withModeFacts(cleanPressDetail(s.press_detail), r.memory, r.atMs), playbook.call_modes), config, signal: abort.signal,
       onText: (c) => { firstTokenAt ??= performance.now(); raw += c; parser.feed(c) },
     })
     usage = res.usage

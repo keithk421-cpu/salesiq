@@ -27,6 +27,7 @@ import { planKey } from './help/callPlan'
 import { ClaudeHelpModel, DEFAULT_HELP_CONFIG, MockHelpModel, OPUS_HELP_CONFIG, readinessFor, type HelpError, type HelpModel, type HelpReadiness } from './help/models'
 import { buildScorecard, readFeedback } from './help/scorecard'
 import { loadPlaybook, readPlaybook, type Playbook } from './help/prompt'
+import { withBuiltInModes } from './help/callModes'
 import { benchmark, loadScenarios, reportMarkdown } from './help/evalRunner'
 import { EXPORT_PERIODS, collectFeedbackCalls, exportFileName, feedbackMarkdown, periodSince, type ExportPeriod } from './help/feedbackExport'
 import { MINE_REPORTS, PRACTICE_DIR, buildPracticeMoment, loadPracticeMoments, readSessionGaps, savePracticeMoment, savedRequestIds } from './help/practice'
@@ -72,6 +73,11 @@ export interface PlaybookInfo {
   newer_built_in: boolean
   /** "Use the new one" didn't work (e.g. Windows holds the file open); HELP keeps using what it was. */
   error?: string | null
+  /**
+   * M5: whose call modes HELP uses: Keith's copy's, the built-in ones (their copy has none, or HELP uses the
+   * built-in playbook), or some of each (their copy leaves a type out, which then uses the built-in one).
+   */
+  call_modes_from?: 'yours' | 'built_in' | 'mixed'
 }
 
 export interface HelpReadyState {
@@ -98,6 +104,8 @@ const READY_TEXT: Record<HelpReadiness, string> = {
 const EARLIER_BUILT_IN_PLAYBOOKS = new Set([
   // m1-draft-1
   '242186ec247fd3f77036830782fd5407ece10bdf5cae25c451ed4dd91538135a',
+  // m1-draft-2
+  '5497ddaa898a14e17387b30c16ae25aa25356819c3eb5a66a38df78ee34ffcb3',
 ])
 
 /** The playbook file is exactly an earlier built-in version (Keith opened it but never changed it). */
@@ -223,6 +231,7 @@ export class HelpService {
     const user = path.join(this.storage.root, 'playbook.json')
     const choice = this.storage.readJson<{ kept_over?: string }>('playbook-choice.json', {})
     this.playbookInfo = { using: 'built_in', version: builtIn.version, built_in_version: builtIn.version, problem: null, newer_built_in: false }
+    this.playbookInfo.call_modes_from = 'built_in'
     if (!fs.existsSync(user)) return builtIn
     const r = readPlaybook(user)
     if (!r.playbook) {
@@ -239,7 +248,10 @@ export class HelpService {
       using: 'yours', version: r.playbook.version, built_in_version: builtIn.version, problem: null,
       newer_built_in: r.playbook.version !== builtIn.version && choice.kept_over !== builtIn.version,
     }
-    return r.playbook
+    // M5: a type Keith's copy has no call mode for (a copy from before modes) uses the built-in one.
+    const modes = withBuiltInModes(r.playbook, builtIn)
+    this.playbookInfo.call_modes_from = modes.from
+    return modes.playbook
   }
 
   /**

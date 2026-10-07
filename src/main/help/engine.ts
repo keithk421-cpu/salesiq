@@ -400,7 +400,7 @@ export class HelpEngine {
 
   /** What this run sends: the call context, then the HELP, wrap-card or press instruction (also what is kept on disk). */
   private userMessage(run: Run): string {
-    return pressUserMessage(run.ctx.text, run.wrap, run.mode, run.detail)
+    return pressUserMessage(run.ctx.text, run.wrap, run.mode, run.detail, this.d.playbook.call_modes)
   }
 
   private async execute(run: Run): Promise<void> {
@@ -619,6 +619,8 @@ export class HelpEngine {
         ...(run.detail.wrap_signal ? { wrap_signal: run.detail.wrap_signal } : {}),
         // The must-learn Keith clicked (M4), in his words, kept like the request text: only once shown.
         ...(shown && run.detail.plan_item ? { press_plan_item: run.detail.plan_item } : {}),
+        // M5: the call type's facts at the press (buckets and codes only), so a practice moment sends the same <call_mode> block.
+        ...(run.detail.mode_facts ? { mode_facts: run.detail.mode_facts } : {}),
         // WRAP asked a must-learn the notes still had open (a replay has no notes to tell).
         ...(run.wrap === 'button' && planStillOpen(run.ctx.text) ? { wrap_plan: true } : {}),
       }),
